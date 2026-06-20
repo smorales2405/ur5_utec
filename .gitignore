@@ -1,0 +1,16 @@
+# ROS 2 build artifacts
+build/
+install/
+log/
+
+# Trajectory CSV output files
+ur5_pick_place/data/*.csv
+ur5_pick_place/data/plots/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Editor files
+.vscode/
+*.swp

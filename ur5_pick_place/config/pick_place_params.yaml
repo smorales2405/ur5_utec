@@ -1,0 +1,62 @@
+pick_place_node:
+  ros__parameters:
+
+    # ── Método de interpolación ──────────────────────────────────────────────
+    method: "clamped_spline"
+
+    # ── Número de waypoints por segmento ────────────────────────────────────
+    points_per_segment: 20
+
+    # ── Duración total del movimiento A→vía→B (segundos) ────────────────────
+    # Con RTF ≈ 7.4%: 2.0s sim = ~27s reales (demo visible y razonable).
+    total_duration: 2.0
+
+    # ── Retardo antes del primer waypoint ────────────────────────────────────
+    # La posición inicial real de Gazebo es [0,-π/2,0,-π/2,0,0].
+    # Δmax=1.57 rad → a 3 rad/s: mínimo 0.5s sim. Con 1.0s sim hay margen suficiente.
+    # Con RTF ≈ 7.4%: 1.0s sim = ~14s reales para llegar a A.
+    start_delay: 1.0
+
+    # ── Orientación fija del TCP ──────────────────────────────────────────────
+    # rpy = [π, 0, -π/2]: gripper apuntando hacia abajo (verificado con FK).
+    tcp_orientation_rpy: [3.14159, 0.0, -1.5708]
+
+    # ── Puntos clave en el frame Pinocchio (= frame world del URDF del robot) ─
+    # Coordenadas del gripper_tcp [x, y, z] en metros.
+    #
+    # Referencia geométrica:
+    #   - Base del robot = z=0 en Pinocchio = z=0.63m en Gazebo
+    #   - mesa_bidones: Gazebo (x=0.50, y=0, z=0.290) → Pinocchio x=0.55, z=-0.340
+    #   - Nivel de pick/place (superficie mesa):  tcp_z = -0.34
+    #   - Nivel sobre el obstáculo (arco visible): tcp_z = -0.12  (220mm de margen)
+    #
+    # Verificado con IK: convergencia en <15 iters, sin riesgo de auto-colisión.
+    #   q_A   = [0.319, -1.392, 1.377, -1.556, -1.571,  0.319]
+    #   q_via = [-0.220,-1.400, 0.788, -0.959, -1.571, -0.220]
+    #   q_B   = [-0.702,-1.392, 1.377, -1.556, -1.571, -0.702]
+
+    point_A_pre: [0.1,  0.7, -0.54]   # aproximación sobre A  (15 cm arriba de A)
+    point_A:     [0.75,  0.38, -0.5]   # pick — lado izquierdo de mesa_bidones
+    point_via:   [0.65,  0.00, -0.32]   # arco sobre el obstáculo
+    point_B:     [0.75, -0.48, -0.5]   # place — lado derecho de mesa_bidones
+    point_B_post: [0.1, -0.7, -0.54]   # retirada sobre B     (15 cm arriba de B)
+
+    # Duración [s sim] de los segmentos de aproximación/retirada (pre_A→A y B→post_B).
+    # total_duration sigue controlando el arco central A→via→B.
+    pre_post_duration: 0.5
+
+    # ── Seed articular para la IK del primer waypoint ─────────────────────────
+    # Configuración home del UR5: da tool0=[0.537, 0.109, -0.198] con rpy=[π,0,-π/2].
+    # La distancia cartesiana desde home hasta A es ≈ 0.14m → convergencia rápida.
+    home_joint_angles: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+
+    # ── Parámetros del solver QP ─────────────────────────────────────────────
+    # 3 rondas × 150 iters = 450 total (cap interno de inverseKinematicsQP2 = 150)
+    ik_max_iterations: 450
+    ik_alpha: 0.5
+    ik_weight_pos: 1.0
+    ik_weight_orient: 1.0
+
+    # ── Exportación CSV ──────────────────────────────────────────────────────
+    # Directorio de salida. Vacío = ~/ur5_ws/data/
+    csv_output_dir: "/home/sergio/ur5_ws/src/ur5_pick_place/data"
