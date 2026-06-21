@@ -1,6 +1,6 @@
 controller_manager:
   ros__parameters:
-    update_rate: 500  # Hz
+    update_rate: 100  # Hz  (500 Hz innecesario para pick-place; mejora RTF ~3-5x)
 
     # ── UR5 controllers ──────────────────────────────────────────────────────
     joint_state_broadcaster:

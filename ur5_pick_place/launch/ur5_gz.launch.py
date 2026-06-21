@@ -7,7 +7,7 @@ work unchanged.
 
 Usage:
   ros2 launch ur5_pick_place ur5_gz.launch.py
-  ros2 launch ur5_pick_place ur5_gz.launch.py ur_type:=ur5e gazebo_gui:=true
+  ros2 launch ur5_pick_place ur5_gz.launch.py gazebo_gui:=false   # headless, faster RTF
 """
 
 import os
@@ -42,6 +42,7 @@ def launch_setup(context, *args, **kwargs):
     tf_prefix            = LaunchConfiguration("tf_prefix")
     start_joint_controller   = LaunchConfiguration("start_joint_controller")
     initial_joint_controller = LaunchConfiguration("initial_joint_controller")
+    gazebo_gui           = LaunchConfiguration("gazebo_gui").perform(context).strip().lower()
 
     # Reuse the same controllers YAML (gripper controller is commented out there)
     controllers_yaml = PathJoinSubstitution(
@@ -141,7 +142,27 @@ def launch_setup(context, *args, **kwargs):
         output="screen",
     )
 
+    # Gazebo world — add '-s' flag for headless (server-only, no GUI window).
+    # Headless mode removes 3D rendering overhead and can improve RTF significantly
+    # on laptops.  Use: ros2 launch ... gazebo_gui:=false
+    world_sdf = os.path.join(
+        get_package_share_directory("ur5_pick_place"), "worlds", "lab_base_world.sdf"
+    )
+    gz_args = world_sdf + " -r"
+    if gazebo_gui not in ("true", "1"):
+        gz_args += " -s"   # server-only, no GUI window
+
+    gz_sim = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory("ros_gz_sim"), "launch", "gz_sim.launch.py"
+            )
+        ),
+        launch_arguments={"gz_args": gz_args}.items(),
+    )
+
     return [
+        gz_sim,
         robot_state_publisher_node,
         joint_state_broadcaster_spawner,
         delay_joint_controller_after_jsb,
@@ -194,7 +215,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "gazebo_gui",
             default_value="true",
-            description="Start Gazebo with GUI.",
+            description=(
+                "Start Gazebo with GUI. Set false for headless mode (no window): "
+                "removes rendering overhead and can improve RTF on laptops."
+            ),
         ),
     ]
 
@@ -214,21 +238,9 @@ def generate_launch_description():
         value=resource_path_value,
     )
 
-    gz_sim = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(
-                get_package_share_directory("ros_gz_sim"), "launch", "gz_sim.launch.py"
-            )
-        ),
-        launch_arguments={
-            "gz_args": os.path.join(world_pkg, "worlds", "lab_base_world.sdf") + " -r"
-        }.items(),
-    )
-
     return LaunchDescription(
         declared_arguments + [
             set_resource_path,
-            gz_sim,
             OpaqueFunction(function=launch_setup),
         ]
     )
