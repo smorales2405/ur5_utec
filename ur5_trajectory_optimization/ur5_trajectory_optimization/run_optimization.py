@@ -109,14 +109,12 @@ def _save_selected_yaml(path: str, via: np.ndarray, F: np.ndarray, idx: int):
                 'point_via': [round(float(v), 6) for v in via],
             }
         },
-        '_cu3_info': {
-            'selected_idx':    int(idx),
-            'f1_effort_Nm2s':  float(F[0]),
-            'f2_arclen_m':     float(F[1]),
-            'f3_clearance_m':  float(-F[2]),
-        },
     }
     with open(path, 'w') as f:
+        f.write(f"# CU3 selected solution — knee idx={idx}\n")
+        f.write(f"# f1_effort={F[0]:.4f} N2*m2*s  "
+                f"f2_arclen={F[1]:.4f} m  "
+                f"clearance={-F[2]:.4f} m\n")
         yaml.dump(doc, f, default_flow_style=False, sort_keys=False)
     print(f"  saved → {path}")
 

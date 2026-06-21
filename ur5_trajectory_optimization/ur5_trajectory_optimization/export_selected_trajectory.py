@@ -82,7 +82,8 @@ def main(argv=None):
     print(f"  f2 (arc-len)   = {f[1]:.4f} m")
     print(f"  f3 (clearance) = {-f[2]:.4f} m")
 
-    # Write override YAML
+    # Write override YAML — only pick_place_node/ros__parameters is valid for rcl.
+    # Extra metadata goes as comments so the file parses cleanly.
     out_path = os.path.join(results_d, 'selected_solution.yaml')
     doc = {
         'pick_place_node': {
@@ -90,15 +91,12 @@ def main(argv=None):
                 'point_via': [round(float(v), 6) for v in via],
             }
         },
-        '_cu3_info': {
-            'source':          csv_name,
-            'selected_idx':    int(idx),
-            'f1_effort_Nm2s':  float(f[0]),
-            'f2_arclen_m':     float(f[1]),
-            'f3_clearance_m':  float(-f[2]),
-        },
     }
     with open(out_path, 'w') as fh:
+        fh.write(f"# CU3 selected solution — source={csv_name}  idx={idx}\n")
+        fh.write(f"# f1_effort={f[0]:.4f} N2*m2*s  "
+                 f"f2_arclen={f[1]:.4f} m  "
+                 f"clearance={-f[2]:.4f} m\n")
         yaml.dump(doc, fh, default_flow_style=False, sort_keys=False)
 
     print(f"\nWritten: {out_path}")
