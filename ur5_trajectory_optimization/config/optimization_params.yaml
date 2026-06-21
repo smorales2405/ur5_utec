@@ -3,14 +3,21 @@
 # fijos, orientación, duración) se leen de ur5_pick_place/config/pick_place_params.yaml.
 
 # ── Variable de decisión: posición del punto de via ──────────────────────────
-# Dominio de búsqueda en el frame Pinocchio (= frame world del URDF del robot).
-# Referencia: point_via nominal = [0.65, 0.00, -0.32].
-via_x_min:  0.55
-via_x_max:  0.75
-via_y_min: -0.10
-via_y_max:  0.10
-via_z_min: -0.45
-via_z_max: -0.15
+# Dominio de búsqueda en frame base_link (= world frame del URDF Pinocchio).
+# Los puntos fijos de la trayectoria (en el mismo frame) son:
+#   point_A      = [0.65,  0.55, 0.20]   # gripper_tcp, base_link
+#   point_B      = [0.65, -0.55, 0.20]   # gripper_tcp, base_link
+#   obstacle top ≈ z = -0.37 m           # tapa del surgery_table en base_link
+#
+# Rango x: cubre desde el centro del obstaculo (x=0.30) hasta la posicion A/B (x=0.65).
+# Rango y: franja central sobre el obstaculo (|y| < 0.30 = half_extent_y).
+# Rango z: desde justo sobre la mesa (z=0.10) hasta la altura nominal actual (z=0.60).
+via_x_min:  0.25
+via_x_max:  0.70
+via_y_min: -0.25
+via_y_max:  0.25
+via_z_min:  0.10
+via_z_max:  0.50   # DLS IK converge hasta z≈0.52; limite conservador (C++ QP llega a 0.55)
 
 # ── Muestreo de la trayectoria para el optimizador ───────────────────────────
 # pts_per_seg más pequeño → evaluación más rápida (suficiente para el NSGA-II).
@@ -29,7 +36,7 @@ n_epsilon_steps: 25
 epsilon_obj_idx: 0
 
 # ── Solver IK (damped least-squares) ────────────────────────────────────────
-ik_max_iter:  80
+ik_max_iter: 120
 ik_tol:       1.0e-4   # norma del error de pose [m / rad]
 ik_lambda:    0.05     # factor de amortiguamiento (Levenberg-Marquardt)
 ik_alpha:     0.8      # step size

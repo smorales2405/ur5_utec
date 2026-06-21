@@ -146,7 +146,7 @@ def main():
 
     # ── URDF path ────────────────────────────────────────────────────────────
     kin_share = get_package_share_directory('ur5_kinematics')
-    urdf_path = os.path.join(kin_share, 'ur5.urdf')
+    urdf_path = os.path.join(kin_share, 'ur5e.urdf')
     print(f"  URDF: {urdf_path}")
 
     # ── Bounds ───────────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ def main():
         [opt_params['via_y_min'], opt_params['via_y_max']],
         [opt_params['via_z_min'], opt_params['via_z_max']],
     ])
-    print(f"\nDecision variable bounds (Pinocchio frame):")
+    print(f"\nDecision variable bounds (base_link frame):")
     print(f"  x_via ∈ [{bounds[0,0]:.2f}, {bounds[0,1]:.2f}]  m")
     print(f"  y_via ∈ [{bounds[1,0]:.2f}, {bounds[1,1]:.2f}]  m")
     print(f"  z_via ∈ [{bounds[2,0]:.2f}, {bounds[2,1]:.2f}]  m")

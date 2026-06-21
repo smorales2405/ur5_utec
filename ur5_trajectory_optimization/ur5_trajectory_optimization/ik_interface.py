@@ -1,9 +1,9 @@
 """
-Damped-least-squares IK for the UR5 + gripper_tcp offset.
+Damped-least-squares IK for the UR5 + gripper_tcp frame.
 
-Mirrors the C++ IKWrapper: the input target is the gripper_tcp position
-(tool0 + 0.141 m along tool0 z-axis), not the tool0 frame origin.
-Uses Pinocchio FK + frame Jacobian internally.
+Mirrors the C++ IKWrapper: registers 'gripper_tcp' as a fixed operational
+frame in the Pinocchio model at TCP_OFFSET_Z along tool0's local Z-axis.
+The IK is solved directly for gripper_tcp — no analytical offset required.
 
 Intended for offline batch evaluation during trajectory optimization; not
 connected to ROS 2 or Gazebo.
@@ -35,39 +35,61 @@ class IKInterface:
     """
     Damped least-squares IK solver wrapping Pinocchio.
 
-    Solves for joint angles q such that gripper_tcp = target_pos with
-    orientation target_R, where:
-        gripper_tcp = tool0_origin + tool0_R @ [0, 0, TCP_OFFSET_Z]
+    At construction, 'gripper_tcp' is registered in the Pinocchio model as
+    a fixed operational frame at TCP_OFFSET_Z along tool0's local Z-axis.
+    This mirrors UR5Kinematics::registerFixedFrame() / setTargetFrame() in C++.
+
+    Combined offset from ur5_robotiq_2f85.urdf.xacro:
+      ur_to_robotiq_joint   0.000 m
+      gripper_side_joint    0.011 m  (ur_to_robotiq_adapter.urdf.xacro:36)
+      robotiq_85_base_joint 0.000 m
+      gripper_tcp_joint     0.130 m
+      ──────────────────────────────
+      TCP_OFFSET_Z          0.141 m
 
     Uses the Levenberg-Marquardt update:
         Δq = Jᵀ (J Jᵀ + λ² I)⁻¹ err
     with a warm-start chain along the trajectory for fast convergence.
     """
 
-    TCP_OFFSET_Z = 0.141   # metres along tool0 z-axis (adapter 0.011 + gripper 0.130)
+    TCP_OFFSET_Z = 0.141  # metres along tool0 z-axis (adapter 0.011 + gripper 0.130)
 
     def __init__(self, urdf_path: str) -> None:
         self._model = pin.buildModelFromUrdf(urdf_path)
-        self._data  = self._model.createData()
-        self._fid   = self._model.getFrameId('tool0')
-        if self._fid >= self._model.nframes:
+
+        # Verify tool0 exists
+        tool0_id = self._model.getFrameId('tool0')
+        if tool0_id >= self._model.nframes:
             raise RuntimeError("Frame 'tool0' not found in URDF")
+
+        # Register gripper_tcp as a fixed operational frame at TCP_OFFSET_Z from tool0
+        tool0_frame = self._model.frames[tool0_id]
+        offset      = pin.SE3(np.eye(3), np.array([0.0, 0.0, self.TCP_OFFSET_Z]))
+
+        tcp_frame = pin.Frame(
+            'gripper_tcp',
+            tool0_frame.parentJoint,                # same parent joint as tool0
+            tool0_id,                               # parent frame
+            tool0_frame.placement * offset,         # SE3 in parent joint frame
+            pin.FrameType.OP_FRAME,
+        )
+        self._fid  = self._model.addFrame(tcp_frame)
+        self._data = self._model.createData()
 
     # ------------------------------------------------------------------
     def tcp_pose(self, q: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Returns (tcp_pos, tcp_R) in world frame for joint config q.
-        tcp_pos = tool0_origin + tool0_R @ [0, 0, TCP_OFFSET_Z]
+        Returns (tcp_pos, tcp_R) of gripper_tcp in world frame for joint config q.
+        Pinocchio evaluates the full chain — no analytical offset needed.
         """
         pin.forwardKinematics(self._model, self._data, q)
         pin.updateFramePlacements(self._model, self._data)
-        oMf     = self._data.oMf[self._fid]
-        tcp_pos = oMf.translation + oMf.rotation @ np.array([0.0, 0.0, self.TCP_OFFSET_Z])
-        return tcp_pos, oMf.rotation
+        oMf = self._data.oMf[self._fid]
+        return oMf.translation.copy(), oMf.rotation.copy()
 
     # ------------------------------------------------------------------
     def _frame_jacobian(self, q: np.ndarray) -> np.ndarray:
-        """6×6 frame Jacobian at tool0, world-aligned (translational rows 0:3)."""
+        """6×nv Jacobian at gripper_tcp, world-aligned."""
         pin.computeJointJacobians(self._model, self._data, q)
         pin.updateFramePlacements(self._model, self._data)
         return pin.getFrameJacobian(
@@ -94,7 +116,7 @@ class IKInterface:
             q        — joint angles (6,), best-effort even if not converged
             success  — True if ‖error‖ < tol before max_iter
         """
-        q = q_init.copy()
+        q  = q_init.copy()
         I6 = np.eye(6)
 
         for _ in range(max_iter):
@@ -107,24 +129,10 @@ class IKInterface:
             if np.linalg.norm(err) < tol:
                 return q, True
 
-            # Jacobian at tool0; rows 0:3 = translational, rows 3:6 = rotational.
-            J_tool0 = self._frame_jacobian(q)
-
-            # TCP translational Jacobian: J_tcp = J_pos + [R_tcpOffset]× @ J_rot
-            # where offset_world = tcp_R @ [0,0,TCP_OFFSET_Z].
-            # This is the translational contribution from the offset point.
-            offset_world = tcp_R @ np.array([0.0, 0.0, self.TCP_OFFSET_Z])
-            # Skew of offset:
-            ox, oy, oz = offset_world
-            S = np.array([[   0, -oz,  oy],
-                          [  oz,   0, -ox],
-                          [ -oy,  ox,   0]])
-            J_tcp_pos = J_tool0[:3, :] + S @ J_tool0[3:, :]
-
-            J_full    = np.vstack([
-                w_pos    * J_tcp_pos,
-                w_orient * J_tool0[3:, :],
-            ])
+            # Full 6×nv Jacobian at gripper_tcp — Pinocchio accounts for the
+            # fixed offset from tool0, so no manual correction needed.
+            J      = self._frame_jacobian(q)
+            J_full = np.vstack([w_pos * J[:3, :], w_orient * J[3:, :]])
 
             JJt = J_full @ J_full.T
             dq  = J_full.T @ np.linalg.solve(JJt + lam * lam * I6, err)
