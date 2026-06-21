@@ -70,4 +70,9 @@ install(TARGETS ik_wrapper trajectory_generator pick_place_node
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config launch urdf worlds meshes DESTINATION share/${PROJECT_NAME})
 
+install(PROGRAMS
+  scripts/waypoint_markers_node.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()
