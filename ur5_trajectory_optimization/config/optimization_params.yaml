@@ -1,0 +1,39 @@
+# Parámetros de optimización multiobjetivo — CU3 (ur5_trajectory_optimization)
+# Leídos por run_optimization.py. Los parámetros de la trayectoria base (puntos
+# fijos, orientación, duración) se leen de ur5_pick_place/config/pick_place_params.yaml.
+
+# ── Variable de decisión: posición del punto de via ──────────────────────────
+# Dominio de búsqueda en el frame Pinocchio (= frame world del URDF del robot).
+# Referencia: point_via nominal = [0.65, 0.00, -0.32].
+via_x_min:  0.55
+via_x_max:  0.75
+via_y_min: -0.10
+via_y_max:  0.10
+via_z_min: -0.45
+via_z_max: -0.15
+
+# ── Muestreo de la trayectoria para el optimizador ───────────────────────────
+# pts_per_seg más pequeño → evaluación más rápida (suficiente para el NSGA-II).
+# Usar pts_per_seg >= 20 solo para la evaluación final del candidato seleccionado.
+pts_per_seg: 8
+
+# ── Parámetros NSGA-II (pymoo) ───────────────────────────────────────────────
+pop_size:  60
+n_gen:    120
+seed:      42
+
+# ── Parámetros ε-constraint (scipy.optimize) ─────────────────────────────────
+# Barrido de n_epsilon_steps valores de ε sobre f1 o f2 manteniendo el tercero.
+n_epsilon_steps: 25
+# Índice del objetivo a usar como límite ε: 0=f1 (esfuerzo), 1=f2 (longitud)
+epsilon_obj_idx: 0
+
+# ── Solver IK (damped least-squares) ────────────────────────────────────────
+ik_max_iter:  80
+ik_tol:       1.0e-4   # norma del error de pose [m / rad]
+ik_lambda:    0.05     # factor de amortiguamiento (Levenberg-Marquardt)
+ik_alpha:     0.8      # step size
+
+# ── Directorio de resultados ──────────────────────────────────────────────────
+# Vacío → $HOME/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results
+results_dir: ""

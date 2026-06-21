@@ -62,9 +62,9 @@ pick_place_node:
     # ── Geometría del obstáculo (frame Pinocchio) ────────────────────────────
     # AABB de mesa_bidones inflado por r_grip + delta_safe para evaluar holgura.
     # Calibrar contra worlds/lab_base_world.sdf (mesa_bidones pose: 0.3 0.0 0.289901).
-    # z_pin = z_gazebo − 0.63  →  centro z ≈ 0.290 − 0.63 = −0.340 (base de mesa)
-    obstacle_center:       [0.50,  0.00, -0.38]  # [x,y,z] en metros (Pinocchio)
-    obstacle_half_extents: [0.25,  0.30,  0.09]  # semidimensiones del AABB [m]
+    # z_pin = z_gazebo − 0.63  →  tapa de mesa ≈ −0.37, base ≈ −0.55 (altura mesa ≈ 0.18 m)
+    obstacle_center:       [0.30,  0.00, -0.46]  # [x,y,z] en metros (Pinocchio)
+    obstacle_half_extents: [0.20,  0.30,  0.09]  # semidimensiones del AABB [m]
     obstacle_r_grip:       0.05   # radio envolvente del gripper [m]
     obstacle_delta_safe:   0.05   # margen de seguridad adicional [m]
 
