@@ -146,7 +146,7 @@ def main():
 
     # ── URDF path ────────────────────────────────────────────────────────────
     kin_share = get_package_share_directory('ur5_kinematics')
-    urdf_path = os.path.join(kin_share, 'ur5.urdf')
+    urdf_path = os.path.join(kin_share, 'ur5e.urdf')
     print(f"  URDF: {urdf_path}")
 
     # ── Bounds ───────────────────────────────────────────────────────────────

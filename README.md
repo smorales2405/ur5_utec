@@ -317,7 +317,8 @@ ur5_utec/
 │   ├── src/
 │   │   └── kinematics.cpp                  # Pinocchio + OsqpEigen implementation
 │   └── urdf/
-│       └── ur5.urdf                        # UR5 URDF used by Pinocchio for kinematics
+│       ├── ur5.urdf                        # Legacy UR5 (classic) — kept for reference
+│       └── ur5e.urdf                       # UR5e URDF (accurate parameters) used by Pinocchio
 │
 ├── robotiq_description/                    # Gripper description (2F-85 only)
 │   ├── meshes/
