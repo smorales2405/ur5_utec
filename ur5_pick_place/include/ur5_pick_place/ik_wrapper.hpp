@@ -6,28 +6,28 @@
 
 namespace ur5_pick_place {
 
-// Thin wrapper around UR5Kinematics that corrects for the gripper_tcp offset.
+// Wrapper around UR5Kinematics that targets the 'gripper_tcp' frame directly.
 //
-// UR5Kinematics solves IK for the 'tool0' frame using Pinocchio + OsqpEigen.
-// This class adjusts the desired pose so that the resolved tool0 position
-// places 'gripper_tcp' at the requested Cartesian target.
+// At construction the gripper_tcp operational frame is registered in the
+// Pinocchio model at kGripperTcpOffsetZ along tool0's local Z-axis.
+// The offset matches the chain defined in ur5_robotiq_2f85.urdf.xacro:
+//   ur_to_robotiq_joint   0.000 m
+//   gripper_side_joint    0.011 m  (ur_to_robotiq_adapter.urdf.xacro:36)
+//   robotiq_85_base_joint 0.000 m
+//   gripper_tcp_joint     0.130 m
+//   ──────────────────────────────
+//   total                 0.141 m  → kGripperTcpOffsetZ
 //
-// Fixed offset (tool0 → gripper_tcp, along tool0 Z-axis):
-//   0.000 m  ur_to_robotiq_joint  (no Z offset in joint origin)
-//   0.011 m  gripper_side_joint   (ur_to_robotiq_adapter.urdf.xacro:36)
-//   0.000 m  robotiq_85_base_joint (origin 0 0 0 in ur5_robotiq_2f85.urdf.xacro)
-//   0.130 m  gripper_tcp_joint    (added in ur5_robotiq_2f85.urdf.xacro)
-//   ──────
-//   0.141 m  kTcpOffsetZ
+// IK is solved so that gripper_tcp reaches the requested (pos, orient).
 class IKWrapper {
 public:
-    // urdf_path: absolute path to the UR5-only URDF (no gripper) used by Pinocchio.
-    // The gripper is NOT part of the IK model; the TCP offset is applied analytically.
+    // urdf_path: absolute path to the UR5-only URDF used by Pinocchio.
+    // gripper_tcp is added as a fixed operational frame at build time.
     explicit IKWrapper(const std::string& urdf_path);
 
-    // Solve IK so that gripper_tcp reaches (tcp_pos, tcp_orient) in the world frame.
+    // Solve IK so that gripper_tcp reaches (tcp_pos, tcp_orient) in base_link frame.
     // q_initial: seed joint configuration [6] (rad).
-    // Returns joint angles [6] (rad) or the best-effort result if not converged.
+    // Returns joint angles [6] (rad) or best-effort result if not converged.
     Eigen::VectorXd solve(
         const Eigen::VectorXd& q_initial,
         const Eigen::Vector3d& tcp_pos,
@@ -39,8 +39,8 @@ public:
 
 private:
     UR5Kinematics kin_;
-    // Total Z offset from tool0 origin to gripper_tcp origin (in tool0 local frame).
-    static constexpr double kTcpOffsetZ = 0.141;
+    // Combined Z offset from tool0 to gripper_tcp (tool0 local frame, metres).
+    static constexpr double kGripperTcpOffsetZ = 0.141;
 };
 
 }  // namespace ur5_pick_place

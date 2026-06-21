@@ -13,32 +13,34 @@ pick_place_node:
 
     # -- Retardo antes del primer waypoint ---------------------------------------
     # Spawn ur5e en Gazebo: [0, -pi/2, 0, -pi/2, 0, 0].
-    # Delta_max ~= 2.0 rad (codo) -> a 3 rad/s: ~0.67 s sim. Con 1.5 s hay margen.
-    # Con RTF ~= 7.4%: 1.5 s sim = ~20 s reales para llegar a A_pre.
-    start_delay: 1.5
+    # A_pre en [0.0, 0.7, 0.25] requiere q0~=pi/2: delta_max ~= 1.7 rad.
+    # A 2.09 rad/s (limite UR5e): minimo ~0.8 s sim. Con 2.5 s hay margen amplio.
+    start_delay: 2.5
 
     # -- Orientacion fija del TCP ------------------------------------------------
     # rpy = [pi, 0, -pi/2]: gripper apuntando hacia abajo (verificado con FK ur5e).
     tcp_orientation_rpy: [3.14159, 0.0, -1.5708]
 
-    # -- Puntos clave en frame base_link (= world frame de ur5e.urdf / Pinocchio) --
-    # Coordenadas del gripper_tcp [x, y, z] en metros; z=0 en la base del robot.
+    # -- Puntos clave en frame base_link (= world frame de Pinocchio) -----------
+    # Coordenadas [x, y, z] en metros del frame gripper_tcp; z=0 en la base del robot.
     #
-    # El IKWrapper usa estos valores directamente como target en frame base_link.
+    # Pinocchio resuelve la IK apuntando directamente al frame 'gripper_tcp',
+    # registrado en el modelo como frame fijo a 0.141 m de tool0 en Z local
+    # (offset derivado de ur5_robotiq_2f85.urdf.xacro, ver IKWrapper).
     # Conversion a Gazebo world: z_Gazebo = z + 0.63
-    #   Ejemplo: z=0.25 aqui -> gripper a z_Gazebo=0.88 m en Gazebo.
     #
     # En RViz (Fixed Frame = base_link): los markers aparecen en estas coordenadas.
-    #   surgery_table (RViz): tapa a z=0.00 m  -> waypoints con z>0 quedan encima.
 
-    point_A_pre:  [0.0,  0.7, 0.65]   
-    point_A:      [0.65,  0.55, 0.65]  
-    point_via:    [0.65,  0.00, 0.8]   
-    point_B:      [0.65, -0.55, 0.65]   
-    point_B_post: [0.0, -0.7, 0.65] 
+    point_A_pre:  [0.0,  0.7, 0.15]   
+    point_A:      [0.65,  0.55, 0.2]  
+    point_via:    [0.65,  0.00, 0.55]   
+    point_B:      [0.65, -0.55, 0.2]   
+    point_B_post: [0.0, -0.7, 0.15] 
 
-    # Duracion [s sim] de los segmentos de aproximacion/retirada.
-    pre_post_duration: 0.5
+    # Duracion [s sim] de los segmentos de aproximacion/retirada (A_pre->A y B->B_post).
+    # A_pre->[0.0,0.7] a A->[0.65,0.55]: delta q0~=0.87 rad -> minimo ~0.4 s sim.
+    # Con 2.0 s hay margen para velocidades de joint <= 0.5 rad/s (bien dentro del limite).
+    pre_post_duration: 2.0
 
     # -- Seed articular para la IK del primer waypoint ---------------------------
     # Verificado con ur5e.urdf: IK converge en toda la cadena A_pre->A->via->B->B_post.

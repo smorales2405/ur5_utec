@@ -15,6 +15,37 @@ UR5Kinematics::UR5Kinematics(const std::string& urdf_path) {
     std::cout << "Modelo cinemático cargado correctamente desde " << urdf_path << std::endl;
 }
 
+void UR5Kinematics::registerFixedFrame(const std::string& name,
+                                        const pinocchio::SE3& offset_from_tool0)
+{
+    if (!model_->existFrame("tool0")) {
+        throw std::runtime_error("Cannot register frame '" + name +
+                                 "': 'tool0' not found in model.");
+    }
+    const pinocchio::FrameIndex tool0_id    = model_->getFrameId("tool0");
+    const pinocchio::Frame&     tool0_frame = model_->frames[tool0_id];
+
+    model_->addFrame(pinocchio::Frame(
+        name,
+        tool0_frame.parent,                   // same parent joint as tool0
+        tool0_id,                             // parent frame
+        tool0_frame.placement * offset_from_tool0,
+        pinocchio::OP_FRAME
+    ));
+    data_ = std::make_unique<pinocchio::Data>(*model_);
+    std::cout << "Frame '" << name << "' registrado en el modelo cinemático." << std::endl;
+}
+
+void UR5Kinematics::setTargetFrame(const std::string& frame_name)
+{
+    if (!model_->existFrame(frame_name)) {
+        throw std::runtime_error("Frame '" + frame_name + "' no existe en el modelo.");
+    }
+    tool_frame_id_ = model_->getFrameId(frame_name);
+    std::cout << "Frame objetivo cambiado a '" << frame_name
+              << "' (id=" << tool_frame_id_ << ")." << std::endl;
+}
+
 pinocchio::SE3 UR5Kinematics::forwardKinematics(const Eigen::VectorXd& q) {
     pinocchio::forwardKinematics(*model_, *data_, q);
     pinocchio::updateFramePlacement(*model_, *data_, tool_frame_id_);

@@ -46,6 +46,14 @@ public:
     // Cinemática Directa (útil para obtener la pose actual)
     pinocchio::SE3 forwardKinematics(const Eigen::VectorXd& q);
 
+    // Registra un frame operacional fijo a 'offset_from_tool0' desde tool0.
+    // Permite añadir gripper_tcp u otros frames sin modificar el URDF.
+    void registerFixedFrame(const std::string& name,
+                            const pinocchio::SE3& offset_from_tool0);
+
+    // Cambia el frame destino del IK / FK (debe existir en el modelo).
+    void setTargetFrame(const std::string& frame_name);
+
 private:
     std::unique_ptr<pinocchio::Model> model_;
     std::unique_ptr<pinocchio::Data> data_;
