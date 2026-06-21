@@ -7,17 +7,23 @@
 # Los puntos fijos de la trayectoria (en el mismo frame) son:
 #   point_B      = [0.65,  0.55, 0.20]   # gripper_tcp, base_link
 #   point_C      = [0.65, -0.55, 0.20]   # gripper_tcp, base_link
-#   obstacle top ≈ z = -0.37 m           # tapa del surgery_table en base_link
+#   obstacle      center=[0.85, 0.00, 0.10], half=[0.20, 0.30, 0.10]
+#   obstacle top  z = 0.20 m  (= z_B = z_C)
 #
-# Rango x: cubre desde el centro del obstaculo (x=0.30) hasta la posicion A/B (x=0.65).
-# Rango y: franja central sobre el obstaculo (|y| < 0.30 = half_extent_y).
-# Rango z: desde justo sobre la mesa (z=0.10) hasta la altura nominal actual (z=0.60).
-via_x_min:  0.25
-via_x_max:  0.70
+# IMPORTANTE: via_z_min >= 0.25 para garantizar que el via-point esté SIEMPRE
+# por encima del plano de pick/place (z=0.20) y del obstáculo (top z=0.20).
+# Si via_z_min < 0.20 el optimizador puede elegir trayectorias que bajan entre
+# B y C, lo que genera picos de velocidad en joint 2 que abortan el controlador.
+#
+# Rango x: cubre el volumen sobre el obstáculo (x=[0.65,1.05]) y sus alrededores.
+# Rango y: franja central sobre el obstáculo (|y| < 0.30 = half_extent_y).
+# Rango z: siempre por encima del plano B-C (z>0.20) hasta la altura nominal (z=0.60).
+via_x_min:  0.40
+via_x_max:  0.95
 via_y_min: -0.25
 via_y_max:  0.25
-via_z_min:  0.10
-via_z_max:  0.50   # DLS IK converge hasta z≈0.52; limite conservador (C++ QP llega a 0.55)
+via_z_min:  0.25   # >= 0.20 (z_B = z_C = top obstáculo); evita arcos que bajan
+via_z_max:  0.60   # DLS IK converge hasta z≈0.52; limite conservador (C++ QP llega a 0.55)
 
 # ── Muestreo de la trayectoria para el optimizador ───────────────────────────
 # pts_per_seg más pequeño → evaluación más rápida (suficiente para el NSGA-II).
