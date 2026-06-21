@@ -71,6 +71,7 @@
     </model>
 
 
+    <!-- Base donde está montado el UR5 -->
     <model name='mesa_base'>
       <include>
             <uri>model://ur5_base</uri>
@@ -78,12 +79,45 @@
       <pose>-0.0 -0.0 -0.000817 0 -0 0</pose>
       <static>true</static>
     </model>
-    
-    <model name='mesa_bidones'>
+
+    <!-- Mesa de trabajo del UR5 (superficie sobre la que opera el efector final)
+         z=0.0: patas del mesh en el piso de Gazebo (z_local=0 = base de la mesh) -->
+    <model name='surgery_table'>
       <include>
             <uri>model://surgery_table</uri>
       </include>
-      <pose>0.3 0.0 0.289901 0 -0 0</pose>
+      <pose>0.3 0.0 0.0 0 0 0</pose>
+      <static>true</static>
+    </model>
+
+    <!-- Obstáculo: caja AABB correspondiente a pick_place_params.yaml
+         obstacle_center=[0.85, 0.00, 0.10] (base_link) -> z_Gazebo = 0.10+0.63 = 0.73
+         half_extents=[0.20, 0.30, 0.10] -> box size = 2*half_extents = 0.40 x 0.60 x 0.20
+         Si se cambia el YAML: pose z = obstacle_center[2] + 0.63, size = 2*half_extents. -->
+    <model name='obstacle'>
+      <static>true</static>
+      <link name='link'>
+        <collision name='collision'>
+          <geometry>
+            <box>
+              <size>0.40 0.60 0.20</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name='visual'>
+          <geometry>
+            <box>
+              <size>0.40 0.60 0.20</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.85 0.15 0.10 0.8</ambient>
+            <diffuse>0.85 0.15 0.10 0.8</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <pose>0.85 0.00 0.73 0 0 0</pose>
     </model>
 
     <light name='sun' type='directional'>

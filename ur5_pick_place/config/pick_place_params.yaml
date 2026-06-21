@@ -32,10 +32,10 @@ pick_place_node:
     # En RViz (Fixed Frame = base_link): los markers aparecen en estas coordenadas.
 
     point_A:  [0.0,  0.7, 0.15]   
-    point_B:      [0.65,  0.55, 0.2]  
-    point_O:    [0.65,  0.00, 0.55]   
-    point_C:      [0.65, -0.55, 0.2]   
-    point_D: [0.0, -0.7, 0.15] 
+    point_B:  [0.65,  0.55, 0.2]  
+    point_O:  [0.75,  0.00, 0.40]   
+    point_C:  [0.65, -0.55, 0.2]   
+    point_D:  [0.0, -0.7, 0.15] 
 
     # Duracion [s sim] de los segmentos de aproximacion/retirada (A->B y C->D).
     # A->[0.0,0.7] a B->[0.65,0.55]: delta q0~=0.87 rad -> minimo ~0.4 s sim.
@@ -55,12 +55,13 @@ pick_place_node:
     # -- Exportacion CSV ---------------------------------------------------------
     csv_output_dir: ""
 
-    # -- Geometria del obstaculo (frame Pinocchio) --------------------------------
-    # AABB de mesa_bidones + margen seguridad.
-    # mesa_bidones Gazebo pose: (0.3, 0.0, 0.289901); escala mesh 0.01.
-    # z_pin = z_gazebo - 0.63 -> tapa ~= -0.37 m, base ~= -0.55 m.
-    obstacle_center:       [0.30,  0.00, -0.46]
-    obstacle_half_extents: [0.20,  0.30,  0.09]
+    # -- Geometria del obstaculo (frame base_link / Pinocchio) -------------------
+    # Caja AABB encima de surgery_table, entre puntos B y C.
+    # Conversion a Gazebo world: z_Gazebo = z_base_link + 0.63
+    #   -> pose Gazebo centro: (0.85, 0.00, 0.73)
+    # La colision en Gazebo usa <box size="0.40 0.60 0.20"> en lab_base_world.sdf.
+    obstacle_center:       [0.85,  0.00, 0.1]
+    obstacle_half_extents: [0.20,  0.30,  0.1]
     obstacle_r_grip:       0.05
     obstacle_delta_safe:   0.05
 

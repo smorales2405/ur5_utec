@@ -82,6 +82,18 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /scene_markers
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Obstáculo AABB
+      Namespaces:
+        obstacle: true
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /obstacle_markers
+      Value: true
     - Class: rviz_default_plugins/Axes
       Enabled: true
       Length: 0.3
