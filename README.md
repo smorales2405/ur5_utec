@@ -166,7 +166,7 @@ ros2 launch ur5_pick_place pick_place.launch.py method:=piecewise_linear
 
 ### 4.4 Pick-and-place with optimised via-point (CU3)
 
-After running the optimisation (see [Section 5](#5-cu3--multi-objective-trajectory-optimisation)), pass the selected solution as a parameter override:
+After running the optimisation (see [Section 5](#5-cu3--multi-objective-trajectory-optimisation)), pass the selected solution via the `extra_params_file` launch argument:
 
 ```bash
 # Terminal 1 — simulation
@@ -174,12 +174,19 @@ ros2 launch ur5_pick_place ur5_robotiq_gz.launch.py
 
 # Terminal 2 — node with optimised via-point
 ros2 launch ur5_pick_place pick_place.launch.py \
+  extra_params_file:=$HOME/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/selected_solution.yaml
+```
+
+`extra_params_file` is loaded after `pick_place_params.yaml`; only `point_via` is overridden, all other parameters remain unchanged.
+
+Alternatively, using `ros2 run` directly:
+
+```bash
+ros2 run ur5_pick_place pick_place_node \
   --ros-args \
   --params-file ~/ur5_ws/src/ur5_utec/ur5_pick_place/config/pick_place_params.yaml \
   --params-file ~/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/selected_solution.yaml
 ```
-
-The second `--params-file` overrides only `point_via`; all other parameters come from `pick_place_params.yaml`.
 
 ---
 
