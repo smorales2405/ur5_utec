@@ -1,74 +1,68 @@
 pick_place_node:
   ros__parameters:
 
-    # ── Método de interpolación ──────────────────────────────────────────────
+    # -- Metodo de interpolacion --------------------------------------------------
     method: "clamped_spline"
 
-    # ── Número de waypoints por segmento ────────────────────────────────────
+    # -- Numero de waypoints por segmento ----------------------------------------
     points_per_segment: 20
 
-    # ── Duración total del movimiento A→vía→B (segundos) ────────────────────
-    # Con RTF ≈ 7.4%: 2.0s sim = ~27s reales (demo visible y razonable).
+    # -- Duracion total del movimiento A->via->B (segundos) ----------------------
+    # Con RTF ~= 7.4%: 2.0 s sim = ~27 s reales.
     total_duration: 2.0
 
-    # ── Retardo antes del primer waypoint ────────────────────────────────────
-    # La posición inicial real de Gazebo es [0,-π/2,0,-π/2,0,0].
-    # Δmax=1.57 rad → a 3 rad/s: mínimo 0.5s sim. Con 1.0s sim hay margen suficiente.
-    # Con RTF ≈ 7.4%: 1.0s sim = ~14s reales para llegar a A.
-    start_delay: 1.0
+    # -- Retardo antes del primer waypoint ---------------------------------------
+    # Spawn ur5e en Gazebo: [0, -pi/2, 0, -pi/2, 0, 0].
+    # Delta_max ~= 2.0 rad (codo) -> a 3 rad/s: ~0.67 s sim. Con 1.5 s hay margen.
+    # Con RTF ~= 7.4%: 1.5 s sim = ~20 s reales para llegar a A_pre.
+    start_delay: 1.5
 
-    # ── Orientación fija del TCP ──────────────────────────────────────────────
-    # rpy = [π, 0, -π/2]: gripper apuntando hacia abajo (verificado con FK).
+    # -- Orientacion fija del TCP ------------------------------------------------
+    # rpy = [pi, 0, -pi/2]: gripper apuntando hacia abajo (verificado con FK ur5e).
     tcp_orientation_rpy: [3.14159, 0.0, -1.5708]
 
-    # ── Puntos clave en el frame Pinocchio (= frame world del URDF del robot) ─
-    # Coordenadas del gripper_tcp [x, y, z] en metros.
+    # -- Puntos clave en frame base_link (= world frame de ur5e.urdf / Pinocchio) --
+    # Coordenadas del gripper_tcp [x, y, z] en metros; z=0 en la base del robot.
     #
-    # Referencia geométrica:
-    #   - Base del robot = z=0 en Pinocchio = z=0.63m en Gazebo
-    #   - mesa_bidones: Gazebo pose (0.3, 0.0, 0.289901), z_pin = z_gz - 0.63
-    #   - Nivel de pick/place (superficie mesa):  tcp_z ≈ -0.50
-    #   - Nivel sobre el obstáculo (arco visible): tcp_z = -0.32  (margen ~180mm)
+    # El IKWrapper usa estos valores directamente como target en frame base_link.
+    # Conversion a Gazebo world: z_Gazebo = z + 0.63
+    #   Ejemplo: z=0.25 aqui -> gripper a z_Gazebo=0.88 m en Gazebo.
     #
-    # Verificado con IK: convergencia en <15 iters, sin riesgo de auto-colisión.
-    #   q_A   = [0.319, -1.392, 1.377, -1.556, -1.571,  0.319]
-    #   q_via = [-0.220,-1.400, 0.788, -0.959, -1.571, -0.220]
-    #   q_B   = [-0.702,-1.392, 1.377, -1.556, -1.571, -0.702]
+    # En RViz (Fixed Frame = base_link): los markers aparecen en estas coordenadas.
+    #   surgery_table (RViz): tapa a z=0.00 m  -> waypoints con z>0 quedan encima.
 
-    point_A_pre:  [0.10,  0.70, -0.54]   # aproximación sobre A  (arriba del pick)
-    point_A:      [0.75,  0.38, -0.50]   # pick — lado izquierdo de mesa_bidones
-    point_via:    [0.65,  0.00, -0.32]   # arco sobre el obstáculo  ← variable CU3
-    point_B:      [0.75, -0.48, -0.50]   # place — lado derecho de mesa_bidones
-    point_B_post: [0.10, -0.70, -0.54]   # retirada sobre B     (arriba del place)
+    point_A_pre:  [0.0,  0.7, 0.65]   
+    point_A:      [0.65,  0.55, 0.65]  
+    point_via:    [0.65,  0.00, 0.8]   
+    point_B:      [0.65, -0.55, 0.65]   
+    point_B_post: [0.0, -0.7, 0.65] 
 
-    # Duración [s sim] de los segmentos de aproximación/retirada (pre_A→A y B→post_B).
-    # total_duration controla el arco central A→via→B.
+    # Duracion [s sim] de los segmentos de aproximacion/retirada.
     pre_post_duration: 0.5
 
-    # ── Seed articular para la IK del primer waypoint ─────────────────────────
-    home_joint_angles: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+    # -- Seed articular para la IK del primer waypoint ---------------------------
+    # Verificado con ur5e.urdf: IK converge en toda la cadena A_pre->A->via->B->B_post.
+    home_joint_angles: [0.87, -0.80, 2.00, -2.20, -1.5708, 0.87]
 
-    # ── Parámetros del solver QP ─────────────────────────────────────────────
-    # 3 rondas × 150 iters = 450 total (cap interno de inverseKinematicsQP2 = 150)
+    # -- Parametros del solver QP ------------------------------------------------
     ik_max_iterations: 450
     ik_alpha: 0.5
     ik_weight_pos: 1.0
     ik_weight_orient: 1.0
 
-    # ── Exportación CSV ──────────────────────────────────────────────────────
-    # Vacío → $HOME/ur5_ws/src/ur5_utec/ur5_pick_place/data  (ver pick_place_node.cpp)
+    # -- Exportacion CSV ---------------------------------------------------------
     csv_output_dir: ""
 
-    # ── Geometría del obstáculo (frame Pinocchio) ────────────────────────────
-    # AABB de mesa_bidones inflado por r_grip + delta_safe para evaluar holgura.
-    # Calibrar contra worlds/lab_base_world.sdf (mesa_bidones pose: 0.3 0.0 0.289901).
-    # z_pin = z_gazebo − 0.63  →  tapa de mesa ≈ −0.37, base ≈ −0.55 (altura mesa ≈ 0.18 m)
-    obstacle_center:       [0.30,  0.00, -0.46]  # [x,y,z] en metros (Pinocchio)
-    obstacle_half_extents: [0.20,  0.30,  0.09]  # semidimensiones del AABB [m]
-    obstacle_r_grip:       0.05   # radio envolvente del gripper [m]
-    obstacle_delta_safe:   0.05   # margen de seguridad adicional [m]
+    # -- Geometria del obstaculo (frame Pinocchio) --------------------------------
+    # AABB de mesa_bidones + margen seguridad.
+    # mesa_bidones Gazebo pose: (0.3, 0.0, 0.289901); escala mesh 0.01.
+    # z_pin = z_gazebo - 0.63 -> tapa ~= -0.37 m, base ~= -0.55 m.
+    obstacle_center:       [0.30,  0.00, -0.46]
+    obstacle_half_extents: [0.20,  0.30,  0.09]
+    obstacle_r_grip:       0.05
+    obstacle_delta_safe:   0.05
 
-    # ── Límites articulares UR5 [rad] ────────────────────────────────────────
-    # Fuente: UR5/UR5e datasheet (±360° todos los joints; codo ±180°).
+    # -- Limites articulares UR5e [rad] ------------------------------------------
+    # Fuente: UR5e datasheet (+-360 deg todos; codo +-180 deg).
     joint_q_min: [-6.2832, -6.2832, -3.1416, -6.2832, -6.2832, -6.2832]
     joint_q_max: [ 6.2832,  6.2832,  3.1416,  6.2832,  6.2832,  6.2832]
