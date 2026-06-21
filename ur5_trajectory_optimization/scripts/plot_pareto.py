@@ -35,18 +35,32 @@ def _load_csv(path: str) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _load_selected(results_dir: str):
-    import yaml
+    import yaml, re
     path = os.path.join(results_dir, 'selected_solution.yaml')
     if not os.path.exists(path):
         return None
     with open(path) as f:
-        doc = yaml.safe_load(f)
-    info = doc.get('_cu3_info', {})
-    return {
-        'f1': info.get('f1_effort_Nm2s'),
-        'f2': info.get('f2_arclen_m'),
-        'f3': -info.get('f3_clearance_m', 0),   # f3 = -clearance
-    }
+        content = f.read()
+
+    doc = yaml.safe_load(content)
+    try:
+        via = doc['pick_place_node']['ros__parameters']['point_via']
+    except (KeyError, TypeError):
+        return None
+
+    # Metadata lives in comment lines: "# f1_effort=X  f2_arclen=Y  clearance=Z"
+    f1 = f2 = f3 = None
+    m = re.search(r'f1_effort=([\d.]+)', content)
+    if m:
+        f1 = float(m.group(1))
+    m = re.search(r'f2_arclen=([\d.]+)', content)
+    if m:
+        f2 = float(m.group(1))
+    m = re.search(r'clearance=([\d.]+)', content)
+    if m:
+        f3 = -float(m.group(1))   # f3 = −clearance (objective to minimise)
+
+    return {'via': via, 'f1': f1, 'f2': f2, 'f3': f3}
 
 
 def _select_knee(F: np.ndarray) -> int:
@@ -181,9 +195,11 @@ def main():
         _, F_e = _load_csv(eps_csv)
 
     selected = _load_selected(results_d)
-    if selected:
+    if selected and selected.get('f1') is not None:
         print(f"Selected solution: f1={selected['f1']:.4f}  "
               f"f2={selected['f2']:.4f}  clearance={-selected['f3']:.4f} m")
+    elif selected:
+        print(f"Selected solution: via={selected['via']}  (metadata not in file)")
 
     fig1 = plot_3d(F_n, F_e, selected)
     fig2 = plot_2d_projections(F_n, F_e, selected)
