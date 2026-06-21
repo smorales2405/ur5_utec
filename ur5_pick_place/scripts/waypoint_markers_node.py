@@ -26,7 +26,8 @@ COLORS = [
     (0.2, 0.9, 0.7, 0.9),   # B_post — cian
 ]
 
-MARKER_FRAME = 'base_link'
+MARKER_FRAME        = 'base_link'
+ROBOT_BASE_Z_GAZEBO = 0.63   # altura de la base del robot en Gazebo [m]
 
 # surgery_table: mesh bottom at z_local=0; model at z_Gazebo=0.289901.
 #   Para que las patas toquen el piso de RViz (grid z=-0.63), marker en z_pin=-0.63.
@@ -84,9 +85,10 @@ class WaypointMarkersNode(Node):
             m.id   = i
             m.type = Marker.SPHERE
             m.action = Marker.ADD
+            z_base = float(pt[2]) - ROBOT_BASE_Z_GAZEBO
             m.pose.position.x = float(pt[0])
             m.pose.position.y = float(pt[1])
-            m.pose.position.z = float(pt[2])
+            m.pose.position.z = z_base
             m.pose.orientation.w = 1.0
             m.scale.x = m.scale.y = m.scale.z = 0.07
             m.color.r, m.color.g, m.color.b, m.color.a = color
@@ -102,7 +104,7 @@ class WaypointMarkersNode(Node):
             t.action = Marker.ADD
             t.pose.position.x = float(pt[0])
             t.pose.position.y = float(pt[1])
-            t.pose.position.z = float(pt[2]) + 0.06
+            t.pose.position.z = z_base + 0.06
             t.pose.orientation.w = 1.0
             t.scale.z = 0.07
             t.color.r = t.color.g = t.color.b = t.color.a = 1.0
