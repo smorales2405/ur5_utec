@@ -47,10 +47,10 @@ def _build_config(pp_params: dict, opt_params: dict) -> dict:
     rpy = p['tcp_orientation_rpy']
     cfg = {
         # Trajectory fixed points
-        'point_A_pre':    p['point_A_pre'],
-        'point_A':        p['point_A'],
+        'point_A':    p['point_A'],
         'point_B':        p['point_B'],
-        'point_B_post':   p['point_B_post'],
+        'point_C':        p['point_C'],
+        'point_D':   p['point_D'],
         'R_tcp':          rpy_to_matrix(*rpy),
         'total_duration': p['total_duration'],
         'pre_post_duration': p['pre_post_duration'],
@@ -106,7 +106,7 @@ def _save_selected_yaml(path: str, via: np.ndarray, F: np.ndarray, idx: int):
     doc = {
         'pick_place_node': {
             'ros__parameters': {
-                'point_via': [round(float(v), 6) for v in via],
+                'point_O': [round(float(v), 6) for v in via],
             }
         },
     }

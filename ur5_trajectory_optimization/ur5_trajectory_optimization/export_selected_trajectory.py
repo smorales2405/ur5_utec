@@ -77,7 +77,7 @@ def main(argv=None):
     f   = F[idx]
 
     print(f"Selected solution:")
-    print(f"  point_via = {via.tolist()}")
+    print(f"  point_O = {via.tolist()}")
     print(f"  f1 (effort)    = {f[0]:.4f} N²·m²·s")
     print(f"  f2 (arc-len)   = {f[1]:.4f} m")
     print(f"  f3 (clearance) = {-f[2]:.4f} m")
@@ -88,7 +88,7 @@ def main(argv=None):
     doc = {
         'pick_place_node': {
             'ros__parameters': {
-                'point_via': [round(float(v), 6) for v in via],
+                'point_O': [round(float(v), 6) for v in via],
             }
         },
     }

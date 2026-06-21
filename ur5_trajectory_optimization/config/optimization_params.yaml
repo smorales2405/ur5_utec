@@ -5,8 +5,8 @@
 # ── Variable de decisión: posición del punto de via ──────────────────────────
 # Dominio de búsqueda en frame base_link (= world frame del URDF Pinocchio).
 # Los puntos fijos de la trayectoria (en el mismo frame) son:
-#   point_A      = [0.65,  0.55, 0.20]   # gripper_tcp, base_link
-#   point_B      = [0.65, -0.55, 0.20]   # gripper_tcp, base_link
+#   point_B      = [0.65,  0.55, 0.20]   # gripper_tcp, base_link
+#   point_C      = [0.65, -0.55, 0.20]   # gripper_tcp, base_link
 #   obstacle top ≈ z = -0.37 m           # tapa del surgery_table en base_link
 #
 # Rango x: cubre desde el centro del obstaculo (x=0.30) hasta la posicion A/B (x=0.65).

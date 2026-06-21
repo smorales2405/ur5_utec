@@ -46,11 +46,11 @@ public:
         declare_parameter("total_duration",     8.0);
         declare_parameter("start_delay",        5.0);
         declare_parameter("tcp_orientation_rpy", std::vector<double>{M_PI, 0.0, 0.0});
-        declare_parameter("point_A_pre", std::vector<double>{0.45,  0.35, 0.45});
-        declare_parameter("point_A",     std::vector<double>{0.45,  0.35, 0.30});
-        declare_parameter("point_via",   std::vector<double>{0.55,  0.00, 0.55});
-        declare_parameter("point_B",     std::vector<double>{0.45, -0.35, 0.30});
-        declare_parameter("point_B_post",std::vector<double>{0.45, -0.35, 0.45});
+        declare_parameter("point_A", std::vector<double>{0.45,  0.35, 0.45});
+        declare_parameter("point_B",     std::vector<double>{0.45,  0.35, 0.30});
+        declare_parameter("point_O",   std::vector<double>{0.55,  0.00, 0.55});
+        declare_parameter("point_C",     std::vector<double>{0.45, -0.35, 0.30});
+        declare_parameter("point_D",std::vector<double>{0.45, -0.35, 0.45});
         declare_parameter("pre_post_duration", 0.5);
         declare_parameter("home_joint_angles",
             std::vector<double>{0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0});
@@ -65,11 +65,11 @@ public:
         total_duration_  = get_parameter("total_duration").as_double();
         start_delay_     = get_parameter("start_delay").as_double();
         auto rpy         = get_parameter("tcp_orientation_rpy").as_double_array();
-        auto pAp         = get_parameter("point_A_pre").as_double_array();
-        auto pA          = get_parameter("point_A").as_double_array();
-        auto pV          = get_parameter("point_via").as_double_array();
+        auto pA         = get_parameter("point_A").as_double_array();
         auto pB          = get_parameter("point_B").as_double_array();
-        auto pBp         = get_parameter("point_B_post").as_double_array();
+        auto pO          = get_parameter("point_O").as_double_array();
+        auto pC          = get_parameter("point_C").as_double_array();
+        auto pD         = get_parameter("point_D").as_double_array();
         pre_post_dur_    = get_parameter("pre_post_duration").as_double();
         auto home_arr    = get_parameter("home_joint_angles").as_double_array();
         home_q_          = Eigen::Map<const Eigen::VectorXd>(home_arr.data(), 6);
@@ -86,20 +86,20 @@ public:
         }
 
         tcp_orient_   = rpy_to_matrix(rpy[0], rpy[1], rpy[2]);
-        point_A_pre_  = {pAp[0], pAp[1], pAp[2]};
-        point_A_      = {pA[0],  pA[1],  pA[2]};
-        point_via_    = {pV[0],  pV[1],  pV[2]};
+        point_A_  = {pA[0], pA[1], pA[2]};
         point_B_      = {pB[0],  pB[1],  pB[2]};
-        point_B_post_ = {pBp[0], pBp[1], pBp[2]};
+        point_O_    = {pO[0],  pO[1],  pO[2]};
+        point_C_      = {pC[0],  pC[1],  pC[2]};
+        point_D_ = {pD[0], pD[1], pD[2]};
 
         // ── IK wrapper ───────────────────────────────────────────────────
         std::string urdf_path =
             ament_index_cpp::get_package_share_directory("ur5_kinematics") +
-            "/ur5.urdf";
+            "/ur5e.urdf";
         ik_ = std::make_unique<IKWrapper>(urdf_path);
 
         // ── Pinocchio model for RNEA (torque logging) ─────────────────────
-        // Uses the same URDF as the IK (no gripper; TCP offset handled
+        // Uses ur5e.urdf (correct UR5e kinematics; TCP offset handled
         // analytically by IKWrapper). Gravity = (0,0,-9.81) by buildModel.
         pinocchio::urdf::buildModel(urdf_path, pin_model_);
         pin_data_ = std::make_unique<pinocchio::Data>(pin_model_);
@@ -143,7 +143,7 @@ private:
     double           start_delay_;
     double           pre_post_dur_;
     Eigen::Matrix3d  tcp_orient_;
-    Eigen::Vector3d  point_A_pre_, point_A_, point_via_, point_B_, point_B_post_;
+    Eigen::Vector3d  point_A_, point_B_, point_O_, point_C_, point_D_;
     Eigen::VectorXd  home_q_;
     int              ik_max_iter_;
     double           ik_alpha_, ik_weight_pos_, ik_weight_orient_;
@@ -162,18 +162,18 @@ private:
             return;
         }
 
-        // Build keypoints: pre_A → A → via → B → post_B
-        // pre_post_dur_ controls the approach (pre_A→A) and retreat (B→post_B) segments.
-        // total_duration_ controls the central arc A→via→B (split evenly in two).
+        // Build keypoints: A → B → O → C → D
+        // pre_post_dur_ controls the approach (A→B) and retreat (C→D) segments.
+        // total_duration_ controls the central arc B→O→C (split evenly in two).
         const double t0    = start_delay_;
         const double t_pp  = pre_post_dur_;
         const double t_mid = total_duration_ / 2.0;
         std::vector<CartesianWaypoint> keypoints = {
-            {point_A_pre_, tcp_orient_, t0},
-            {point_A_,     tcp_orient_, t0 + t_pp},
-            {point_via_,   tcp_orient_, t0 + t_pp + t_mid},
-            {point_B_,     tcp_orient_, t0 + t_pp + total_duration_},
-            {point_B_post_,tcp_orient_, t0 + t_pp + total_duration_ + t_pp},
+            {point_A_, tcp_orient_, t0},
+            {point_B_,     tcp_orient_, t0 + t_pp},
+            {point_O_,   tcp_orient_, t0 + t_pp + t_mid},
+            {point_C_,     tcp_orient_, t0 + t_pp + total_duration_},
+            {point_D_,tcp_orient_, t0 + t_pp + total_duration_ + t_pp},
         };
 
         // Generate dense cartesian trajectory
@@ -183,10 +183,10 @@ private:
             RCLCPP_INFO(get_logger(), "Using piecewise linear — %zu waypoints",
                         cart_traj.size());
         } else {
-            // 3 independent clamped-spline segments → v=0 at A_pre, A, B, and B_post.
-            // Seg 1: A_pre→A  (2 kp → v=0 at both ends)
-            // Seg 2: A→via→B  (3 kp → v=0 at both ends)
-            // Seg 3: B→B_post (2 kp → v=0 at both ends)
+            // 3 independent clamped-spline segments → v=0 at A, B, C, D.
+            // Seg 1: A→B  (2 kp → v=0 at both ends)
+            // Seg 2: B→O→C  (3 kp → v=0 at both ends)
+            // Seg 3: C→D (2 kp → v=0 at both ends)
             std::vector<CartesianWaypoint> kp1 = {keypoints[0], keypoints[1]};
             std::vector<CartesianWaypoint> kp2 = {keypoints[1], keypoints[2], keypoints[3]};
             std::vector<CartesianWaypoint> kp3 = {keypoints[3], keypoints[4]};
@@ -343,11 +343,11 @@ private:
 
         // ── Keypoint tags ─────────────────────────────────────────────────
         // 4 segments × pts_per_seg_ steps each → N = 4*pts_per_seg_ + 1
-        // Index 0                → pre_A  (tag=1)
-        // Index   pts_per_seg_   → A      (tag=2)
-        // Index 2*pts_per_seg_   → via    (tag=3)
-        // Index 3*pts_per_seg_   → B      (tag=4)
-        // Index N-1              → post_B (tag=5)
+        // Index 0                → A  (tag=1)
+        // Index   pts_per_seg_   → B  (tag=2)
+        // Index 2*pts_per_seg_   → O  (tag=3)
+        // Index 3*pts_per_seg_   → C  (tag=4)
+        // Index N-1              → D  (tag=5)
         std::vector<int> kp_tag(N, 0);
         kp_tag[0]                = 1;
         kp_tag[pts_per_seg_]     = 2;

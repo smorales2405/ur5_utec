@@ -6,9 +6,9 @@ ur5_pick_place/src/trajectory_generator.cpp so that the optimizer evaluates
 the exact same trajectory shape as the ROS 2 node.
 
 Segment layout (mirrors pick_place_node.cpp):
-  kp1 = [pre_A, A]      → 2-point spline (velocity = 0 at both ends)
-  kp2 = [A, via, B]     → 3-point spline (velocity = 0 at both ends)
-  kp3 = [B, post_B]     → 2-point spline (velocity = 0 at both ends)
+  kp1 = [A, B]      → 2-point spline (velocity = 0 at both ends)
+  kp2 = [B, O, C]   → 3-point spline (velocity = 0 at both ends)
+  kp3 = [C, D]      → 2-point spline (velocity = 0 at both ends)
 
 Combined by discarding the duplicate boundary point at each junction.
 Total samples = 4 * pts_per_seg + 1.
@@ -151,39 +151,39 @@ def clamped_cubic_spline(
 
 
 def build_trajectory(
-    point_via: np.ndarray,
+    point_O: np.ndarray,
     fixed_pts: dict,
     pts_per_seg: int,
 ) -> List[CartesianWaypoint]:
     """
     Build the full pick-place trajectory replicating pick_place_node.cpp logic.
 
-    fixed_pts keys: pre_A, A, B, post_B, R_tcp, t_pre_A, t_A, t_B, t_post_B
-    point_via is the decision variable [x, y, z] in Pinocchio frame.
+    fixed_pts keys: A, B, C, D, R_tcp, t_A, t_B, t_O, t_C, t_D
+    point_O is the decision variable [x, y, z] in Pinocchio frame.
 
     Segment structure:
-      kp1 = [pre_A, A]      → clampedCubicSpline
-      kp2 = [A, via, B]     → clampedCubicSpline
-      kp3 = [B, post_B]     → clampedCubicSpline
+      kp1 = [A, B]   → clampedCubicSpline
+      kp2 = [B, O, C] → clampedCubicSpline
+      kp3 = [C, D]   → clampedCubicSpline
     Combined with boundary deduplication.
     """
     R = fixed_pts['R_tcp']
 
-    t_pre_A  = fixed_pts['t_pre_A']
-    t_A      = fixed_pts['t_A']
-    t_via    = fixed_pts['t_via']
+    t_A  = fixed_pts['t_A']
     t_B      = fixed_pts['t_B']
-    t_post_B = fixed_pts['t_post_B']
+    t_O    = fixed_pts['t_O']
+    t_C      = fixed_pts['t_C']
+    t_D = fixed_pts['t_D']
 
-    kp_pre_A  = CartesianWaypoint(fixed_pts['pre_A'], R, t_pre_A)
-    kp_A      = CartesianWaypoint(fixed_pts['A'],     R, t_A)
-    kp_via    = CartesianWaypoint(point_via,           R, t_via)
+    kp_A  = CartesianWaypoint(fixed_pts['A'], R, t_A)
     kp_B      = CartesianWaypoint(fixed_pts['B'],     R, t_B)
-    kp_post_B = CartesianWaypoint(fixed_pts['post_B'],R, t_post_B)
+    kp_O    = CartesianWaypoint(point_O,           R, t_O)
+    kp_C      = CartesianWaypoint(fixed_pts['C'],     R, t_C)
+    kp_D = CartesianWaypoint(fixed_pts['D'],R, t_D)
 
-    t1 = clamped_cubic_spline([kp_pre_A, kp_A],              pts_per_seg)
-    t2 = clamped_cubic_spline([kp_A, kp_via, kp_B],          pts_per_seg)
-    t3 = clamped_cubic_spline([kp_B, kp_post_B],             pts_per_seg)
+    t1 = clamped_cubic_spline([kp_A, kp_B],              pts_per_seg)
+    t2 = clamped_cubic_spline([kp_B, kp_O, kp_C],          pts_per_seg)
+    t3 = clamped_cubic_spline([kp_C, kp_D],             pts_per_seg)
 
     traj = t1 + t2[1:] + t3[1:]
     return traj

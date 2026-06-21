@@ -13,7 +13,7 @@ pick_place_node:
 
     # -- Retardo antes del primer waypoint ---------------------------------------
     # Spawn ur5e en Gazebo: [0, -pi/2, 0, -pi/2, 0, 0].
-    # A_pre en [0.0, 0.7, 0.25] requiere q0~=pi/2: delta_max ~= 1.7 rad.
+    # A en [0.0, 0.7, 0.25] requiere q0~=pi/2: delta_max ~= 1.7 rad.
     # A 2.09 rad/s (limite UR5e): minimo ~0.8 s sim. Con 2.5 s hay margen amplio.
     start_delay: 2.5
 
@@ -31,19 +31,19 @@ pick_place_node:
     #
     # En RViz (Fixed Frame = base_link): los markers aparecen en estas coordenadas.
 
-    point_A_pre:  [0.0,  0.7, 0.15]   
-    point_A:      [0.65,  0.55, 0.2]  
-    point_via:    [0.65,  0.00, 0.55]   
-    point_B:      [0.65, -0.55, 0.2]   
-    point_B_post: [0.0, -0.7, 0.15] 
+    point_A:  [0.0,  0.7, 0.15]   
+    point_B:      [0.65,  0.55, 0.2]  
+    point_O:    [0.65,  0.00, 0.55]   
+    point_C:      [0.65, -0.55, 0.2]   
+    point_D: [0.0, -0.7, 0.15] 
 
-    # Duracion [s sim] de los segmentos de aproximacion/retirada (A_pre->A y B->B_post).
-    # A_pre->[0.0,0.7] a A->[0.65,0.55]: delta q0~=0.87 rad -> minimo ~0.4 s sim.
+    # Duracion [s sim] de los segmentos de aproximacion/retirada (A->B y C->D).
+    # A->[0.0,0.7] a B->[0.65,0.55]: delta q0~=0.87 rad -> minimo ~0.4 s sim.
     # Con 2.0 s hay margen para velocidades de joint <= 0.5 rad/s (bien dentro del limite).
     pre_post_duration: 2.0
 
     # -- Seed articular para la IK del primer waypoint ---------------------------
-    # Verificado con ur5e.urdf: IK converge en toda la cadena A_pre->A->via->B->B_post.
+    # Verificado con ur5e.urdf: IK converge en toda la cadena A->B->O->C->D.
     home_joint_angles: [0.87, -0.80, 2.00, -2.20, -1.5708, 0.87]
 
     # -- Parametros del solver QP ------------------------------------------------

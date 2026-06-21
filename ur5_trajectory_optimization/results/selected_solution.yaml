@@ -1,8 +1,8 @@
-# CU3 selected solution — knee idx=70
-# f1_effort=5977.4067 N2*m2*s  f2_arclen=2.3105 m  clearance=0.1480 m
+# CU3 selected solution — source=pareto_nsga2.csv  idx=20
+# f1_effort=4585.1788 N2*m2*s  f2_arclen=1.4356 m  clearance=0.1438 m
 pick_place_node:
   ros__parameters:
-    point_via:
-    - 0.648023
-    - -0.005618
-    - -0.45
+    point_O:
+    - 0.250627
+    - -0.000184
+    - -0.111811

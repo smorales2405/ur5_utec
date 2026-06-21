@@ -44,7 +44,7 @@ def _load_selected(results_dir: str):
 
     doc = yaml.safe_load(content)
     try:
-        via = doc['pick_place_node']['ros__parameters']['point_via']
+        via = doc['pick_place_node']['ros__parameters']['point_O']
     except (KeyError, TypeError):
         return None
 

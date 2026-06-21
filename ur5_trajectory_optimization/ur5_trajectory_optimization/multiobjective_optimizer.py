@@ -51,16 +51,16 @@ class TrajectoryEvaluator:
         td  = config['total_duration']
         t0  = 0.0
         self._fixed = {
-            'pre_A':   np.array(config['point_A_pre']),
-            'A':       np.array(config['point_A']),
+            'A':   np.array(config['point_A']),
             'B':       np.array(config['point_B']),
-            'post_B':  np.array(config['point_B_post']),
+            'C':       np.array(config['point_C']),
+            'D':  np.array(config['point_D']),
             'R_tcp':   config['R_tcp'],
-            't_pre_A': t0,
-            't_A':     t0 + pp,
-            't_via':   t0 + pp + td / 2.0,
-            't_B':     t0 + pp + td,
-            't_post_B':t0 + pp + td + pp,
+            't_A': t0,
+            't_B':     t0 + pp,
+            't_O':   t0 + pp + td / 2.0,
+            't_C':     t0 + pp + td,
+            't_D':t0 + pp + td + pp,
         }
 
         self._q_home       = np.array(config['home_joint_angles'])
@@ -98,11 +98,11 @@ class TrajectoryEvaluator:
         # Build keypoints list for f2 (arc-length of spline segments)
         R = self._fixed['R_tcp']
         keypoints = [
-            CartesianWaypoint(self._fixed['pre_A'],  R, self._fixed['t_pre_A']),
-            CartesianWaypoint(self._fixed['A'],       R, self._fixed['t_A']),
-            CartesianWaypoint(via,                    R, self._fixed['t_via']),
+            CartesianWaypoint(self._fixed['A'],  R, self._fixed['t_A']),
             CartesianWaypoint(self._fixed['B'],       R, self._fixed['t_B']),
-            CartesianWaypoint(self._fixed['post_B'], R, self._fixed['t_post_B']),
+            CartesianWaypoint(via,                    R, self._fixed['t_O']),
+            CartesianWaypoint(self._fixed['C'],       R, self._fixed['t_C']),
+            CartesianWaypoint(self._fixed['D'], R, self._fixed['t_D']),
         ]
 
         result = evaluate_candidate(

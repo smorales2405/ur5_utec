@@ -15,15 +15,15 @@ from visualization_msgs.msg import Marker, MarkerArray
 from ament_index_python.packages import get_package_share_directory
 
 
-WAYPOINT_KEYS = ['point_A_pre', 'point_A', 'point_via', 'point_B', 'point_B_post']
-LABELS        = ['A_pre', 'A', 'via', 'B', 'B_post']
+WAYPOINT_KEYS = ['point_A', 'point_B', 'point_O', 'point_C', 'point_D']
+LABELS        = ['A', 'B', 'O', 'C', 'D']
 
 COLORS = [
-    (0.2, 0.9, 0.2, 0.9),   # A_pre  — verde
-    (0.9, 0.2, 0.2, 0.9),   # A      — rojo
-    (0.2, 0.4, 1.0, 0.9),   # via    — azul
-    (1.0, 0.5, 0.0, 0.9),   # B      — naranja
-    (0.2, 0.9, 0.7, 0.9),   # B_post — cian
+    (0.2, 0.9, 0.2, 0.9),   # A — verde
+    (0.9, 0.2, 0.2, 0.9),   # B — rojo
+    (0.2, 0.4, 1.0, 0.9),   # O — azul
+    (1.0, 0.5, 0.0, 0.9),   # C — naranja
+    (0.2, 0.9, 0.7, 0.9),   # D — cian
 ]
 
 MARKER_FRAME = 'base_link'

@@ -1,7 +1,7 @@
 %% plots_trajectory.m
 % Graficas de la trayectoria pick-and-place del UR5.
 %
-%   Figura 1 — Trayectoria 3D del TCP: keypoints pre_A/A/via/B/post_B y obstáculo
+%   Figura 1 — Trayectoria 3D del TCP: keypoints A/B/O/C/D y obstáculo
 %   Figura 2 — Posición cartesiana:    x(t), y(t), z(t)           [subplot 3×1]
 %   Figura 3 — Velocidad cartesiana:   vx(t), vy(t), vz(t)        [subplot 3×1]
 %   Figura 4 — Aceleración cartesiana: ax(t), ay(t), az(t)        [subplot 3×1]
@@ -27,18 +27,18 @@ EXPORT_PNG = false;
 
 % Posiciones de referencia de los keypoints [x, y, z] en frame Pinocchio.
 % Deben coincidir con los valores en pick_place_params.yaml.
-KP_REF = [ 0.10,  0.70, -0.54;   % A  (point_A_pre)
-            0.75,  0.38, -0.5;   % B  (point_A)
-            0.65,  0.00, -0.32;   % O  (point_via)
-            0.75, -0.48, -0.5;   % C  (point_B)
-            0.10, -0.70, -0.54];  % D  (point_B_post)
+KP_REF = [ 0.10,  0.70, -0.54;   % A  (point_A)
+            0.75,  0.38, -0.5;   % B  (point_B)
+            0.65,  0.00, -0.32;   % O  (point_O)
+            0.75, -0.48, -0.5;   % C  (point_C)
+            0.10, -0.70, -0.54];  % D  (point_D)
 KP_NAMES = {'A','B','O','C','D'};
 
 % ── 1. Carga del CSV ──────────────────────────────────────────────────────────
-data_dir = fullfile(getenv('HOME'), 'ur5_ws', 'src', 'ur5_pick_place', 'data');
+data_dir = fullfile(getenv('HOME'), 'ur5_ws', 'src', 'ur5_utec','ur5_pick_place', 'data');
 
 if isempty(FILE_OVERRIDE)
-    files = dir(fullfile(data_dir, 'trajectory_20260517_201319_piecewise_linear.csv'));
+    files = dir(fullfile(data_dir, 'trajectory_20260621_094326_clamped_spline.csv'));
     if isempty(files)
         error('No se encontró ningún CSV en %s.\nEjecutar pick_place_node primero.', ...
               data_dir);
@@ -64,11 +64,11 @@ y   = T.tcp_y;
 z   = T.tcp_z;
 wpt = T.waypoint;
 %   0 = interpolado
-%   1 = pre_A   (aproximación sobre pick)
-%   2 = A       (pick)
-%   3 = via     (sobre obstáculo)
-%   4 = B       (place)
-%   5 = post_B  (retirada sobre place)
+%   1 = A   (aproximación sobre pick)
+%   2 = B   (pick)
+%   3 = O   (sobre obstáculo)
+%   4 = C   (place)
+%   5 = D   (retirada sobre place)
 
 % Velocidades y aceleraciones cartesianas
 vx = T.vel_x;   vy = T.vel_y;   vz = T.vel_z;
@@ -144,11 +144,11 @@ fprintf('%s\n\n', repmat('═', 1, 52));
 lw       = 1.6;
 fs       = 11;
 c_traj   = [0.0000 0.4470 0.7410];   % azul         — trayectoria
-c_pre    = [0.4660 0.8740 0.1880];   % verde claro  — pre_A
-c_A      = [0.1660 0.6740 0.1880];   % verde        — A (pick)
-c_via    = [0.4940 0.1840 0.5560];   % morado       — vía
-c_B      = [0.8500 0.3250 0.0980];   % naranja      — B (place)
-c_post   = [1.0000 0.6500 0.3000];   % naranja claro— post_B
+c_pre    = [0.4660 0.8740 0.1880];   % verde claro  — A
+c_A      = [0.1660 0.6740 0.1880];   % verde        — B (pick)
+c_via    = [0.4940 0.1840 0.5560];   % morado       — O (via)
+c_B      = [0.8500 0.3250 0.0980];   % naranja      — C (place)
+c_post   = [1.0000 0.6500 0.3000];   % naranja claro— D
 c_obs    = [0.6350 0.0780 0.1840];   % rojo         — obstáculo
 
 % Colores por articulación (tableau-10)

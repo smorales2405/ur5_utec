@@ -160,7 +160,7 @@ def evaluate_candidate(
     taus = compute_rnea_torques(pin_model, pin_data, ik_joint, times)
     f1   = f1_joint_effort(taus, times)
 
-    # f2 (analytic from spline segments kp1=[pre_A,A], kp2=[A,via,B], kp3=[B,post_B])
+    # f2 (analytic from spline segments kp1=[A,B], kp2=[B,O,C], kp3=[C,D])
     f2 = (
         spline_arc_length([keypoints[0], keypoints[1]], pts_per_seg)
         + spline_arc_length([keypoints[1], keypoints[2], keypoints[3]], pts_per_seg)
