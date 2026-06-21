@@ -28,14 +28,14 @@ COLORS = [
 
 MARKER_FRAME = 'base_link'
 
-# Gazebo spawn poses → base_link frame: z_base_link = z_Gazebo − 0.63
-# surgery_table Gazebo: (0.3, 0.0, 0.289901)  → base_link: (0.3, 0.0, −0.340)
-# ur5_base      Gazebo: (0.0, 0.0, −0.000817) → base_link: (0.0, 0.0, −0.631)
+# surgery_table: mesh bottom at z_local=0; model at z_Gazebo=0.289901.
+#   Para que las patas toquen el piso de RViz (grid z=-0.63), marker en z_pin=-0.63.
+# ur5_base: model at z_Gazebo=-0.000817; marker en z_pin=-0.631.
 SCENE_MESHES = [
     {
         'id':       0,
         'ns':       'scene',
-        'pos':      (0.300,  0.000, -0.340),
+        'pos':      (0.300,  0.000, -0.630),
         'scale':    0.01,
         'color':    (0.80, 0.75, 0.65, 0.85),
         'mesh_uri': 'package://ur5_pick_place/meshes/surgery_table/meshes/surgery_table.dae',
@@ -102,11 +102,11 @@ class WaypointMarkersNode(Node):
             t.action = Marker.ADD
             t.pose.position.x = float(pt[0])
             t.pose.position.y = float(pt[1])
-            t.pose.position.z = float(pt[2]) + 0.10
+            t.pose.position.z = float(pt[2]) + 0.06
             t.pose.orientation.w = 1.0
-            t.scale.z = 0.06
+            t.scale.z = 0.07
             t.color.r = t.color.g = t.color.b = t.color.a = 1.0
-            t.text = f'{label}  [{pt[0]:.2f}, {pt[1]:.2f}, {pt[2]:.2f}]'
+            t.text = label
             t.lifetime.sec = 0
             t.lifetime.nanosec = 0
             wp_arr.markers.append(t)
