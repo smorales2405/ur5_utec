@@ -56,6 +56,7 @@ target_link_libraries(pick_place_node
   ik_wrapper
   trajectory_generator
   Eigen3::Eigen
+  ${PINOCCHIO_LIBRARIES}
 )
 ament_target_dependencies(pick_place_node
   rclcpp rclcpp_action control_msgs trajectory_msgs sensor_msgs ament_index_cpp)

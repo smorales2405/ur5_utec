@@ -8,7 +8,8 @@ namespace ur5_pick_place {
 struct CartesianWaypoint {
     Eigen::Vector3d position;
     Eigen::Matrix3d orientation;
-    double timestamp;  // seconds from trajectory start
+    double timestamp;                              // seconds from trajectory start
+    Eigen::Vector3d jerk{0.0, 0.0, 0.0};          // TCP jerk [m/s³]: analytic for spline, 0 for linear
 };
 
 class TrajectoryGenerator {

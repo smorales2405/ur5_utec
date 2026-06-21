@@ -112,6 +112,16 @@ std::vector<CartesianWaypoint> TrajectoryGenerator::clampedCubicSpline(
     for (int seg = 0; seg < n_segs; ++seg) {
         double dt_seg = kp[seg + 1].timestamp - kp[seg].timestamp;
         int steps = (seg == n_segs - 1) ? pts_per_seg + 1 : pts_per_seg;
+
+        // Jerk = p'''(t) = 6·d / dt_seg³  (constant within the segment).
+        // The spline is parameterised by s ∈ [0,1] where s = (t − t0)/dt_seg,
+        // so each time-derivative gains a factor of 1/dt_seg.
+        double inv_dt3 = 1.0 / (dt_seg * dt_seg * dt_seg);
+        Eigen::Vector3d seg_jerk(
+            6.0 * cx[seg][3] * inv_dt3,
+            6.0 * cy[seg][3] * inv_dt3,
+            6.0 * cz[seg][3] * inv_dt3);
+
         for (int j = 0; j < steps; ++j) {
             double s = static_cast<double>(j) / pts_per_seg;  // ∈ [0,1]
             double s2 = s * s, s3 = s2 * s;
@@ -121,9 +131,10 @@ std::vector<CartesianWaypoint> TrajectoryGenerator::clampedCubicSpline(
             };
 
             CartesianWaypoint wp;
-            wp.position   = {eval(cx[seg]), eval(cy[seg]), eval(cz[seg])};
+            wp.position    = {eval(cx[seg]), eval(cy[seg]), eval(cz[seg])};
             wp.orientation = slerp(kp[seg].orientation, kp[seg + 1].orientation, s);
             wp.timestamp   = kp[seg].timestamp + s * dt_seg;
+            wp.jerk        = seg_jerk;
             out.push_back(wp);
         }
     }

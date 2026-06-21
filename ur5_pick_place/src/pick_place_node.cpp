@@ -1,6 +1,8 @@
 #include "ur5_pick_place/ik_wrapper.hpp"
 #include "ur5_pick_place/trajectory_generator.hpp"
 
+#include <pinocchio/algorithm/rnea.hpp>
+
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <control_msgs/action/follow_joint_trajectory.hpp>
@@ -79,9 +81,8 @@ public:
         csv_output_dir_ = get_parameter("csv_output_dir").as_string();
         if (csv_output_dir_.empty()) {
             const char* home_env = std::getenv("HOME");
-            csv_output_dir_ = home_env
-                ? std::string(home_env) + "/ur5_ws/src/ur5_pick_place/data"
-                : "/tmp/ur5_pick_place_data";
+            std::string home = home_env ? home_env : "/tmp";
+            csv_output_dir_ = home + "/ur5_ws/src/ur5_utec/ur5_pick_place/data";
         }
 
         tcp_orient_   = rpy_to_matrix(rpy[0], rpy[1], rpy[2]);
@@ -96,6 +97,13 @@ public:
             ament_index_cpp::get_package_share_directory("ur5_kinematics") +
             "/ur5.urdf";
         ik_ = std::make_unique<IKWrapper>(urdf_path);
+
+        // ── Pinocchio model for RNEA (torque logging) ─────────────────────
+        // Uses the same UR5-only URDF as the IK (no gripper; TCP offset is
+        // handled analytically by IKWrapper). Gravity is set automatically
+        // to (0,0,-9.81) by buildModel.
+        pinocchio::urdf::buildModel(urdf_path, pin_model_);
+        pin_data_ = std::make_unique<pinocchio::Data>(pin_model_);
 
         // ── Action client ─────────────────────────────────────────────────
         ac_ = rclcpp_action::create_client<FollowJT>(
@@ -123,6 +131,8 @@ public:
 private:
     // ── Members ───────────────────────────────────────────────────────────────
     std::unique_ptr<IKWrapper>  ik_;
+    pinocchio::Model                    pin_model_;
+    std::unique_ptr<pinocchio::Data>    pin_data_;
     rclcpp_action::Client<FollowJT>::SharedPtr ac_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr js_sub_;
     rclcpp::TimerBase::SharedPtr timer_;
@@ -306,6 +316,32 @@ private:
             }
         }
 
+        // ── Joint accelerations (central differences on dq, rad/s²) ─────
+        std::vector<Eigen::VectorXd> ddq(N, Eigen::VectorXd::Zero(6));
+        for (int i = 0; i < N; ++i) {
+            if (i == 0) {
+                double dt = cart_traj[1].timestamp - cart_traj[0].timestamp;
+                ddq[i] = (dq[1] - dq[0]) / dt;
+            } else if (i == N - 1) {
+                double dt = cart_traj[N-1].timestamp - cart_traj[N-2].timestamp;
+                ddq[i] = (dq[N-1] - dq[N-2]) / dt;
+            } else {
+                double dt = cart_traj[i+1].timestamp - cart_traj[i-1].timestamp;
+                ddq[i] = (dq[i+1] - dq[i-1]) / dt;
+            }
+        }
+
+        // ── Joint torques via RNEA (Nm) ──────────────────────────────────
+        // τ = M(q)·q̈ + C(q,q̇)·q̇ + g(q), computed with Pinocchio.
+        // dq and ddq come from finite differences on the IK solution, so
+        // torque values are approximate but consistent with the trajectory.
+        std::vector<Eigen::VectorXd> tau(N);
+        for (int i = 0; i < N; ++i) {
+            tau[i] = pinocchio::rnea(
+                pin_model_, *pin_data_,
+                joint_traj[i], dq[i], ddq[i]);
+        }
+
         // ── Keypoint tags ─────────────────────────────────────────────────
         // 4 segments × pts_per_seg_ steps each → N = 4*pts_per_seg_ + 1
         // Index 0                → pre_A  (tag=1)
@@ -327,26 +363,33 @@ private:
           << "vel_x,vel_y,vel_z,"
           << "acc_x,acc_y,acc_z,"
           << "q0,q1,q2,q3,q4,q5,"
-          << "dq0,dq1,dq2,dq3,dq4,dq5\n";
+          << "dq0,dq1,dq2,dq3,dq4,dq5,"
+          << "tau0,tau1,tau2,tau3,tau4,tau5,"
+          << "jerk_x,jerk_y,jerk_z\n";
 
         f << std::fixed << std::setprecision(6);
 
         for (int i = 0; i < N; ++i) {
-            const auto& p  = cart_traj[i].position;
-            const auto& v  = vel[i];
-            const auto& a  = acc[i];
-            const auto& q  = joint_traj[i];
-            const auto& dqi = dq[i];
+            const auto& p    = cart_traj[i].position;
+            const auto& jk   = cart_traj[i].jerk;
+            const auto& v    = vel[i];
+            const auto& a    = acc[i];
+            const auto& q    = joint_traj[i];
+            const auto& dqi  = dq[i];
+            const auto& taui = tau[i];
 
             f << cart_traj[i].timestamp << ","
               << p.x() << "," << p.y() << "," << p.z() << ","
               << kp_tag[i] << ","
               << v.x() << "," << v.y() << "," << v.z() << ","
               << a.x() << "," << a.y() << "," << a.z() << ","
-              << q[0]   << "," << q[1]   << "," << q[2]   << ","
-              << q[3]   << "," << q[4]   << "," << q[5]   << ","
-              << dqi[0] << "," << dqi[1] << "," << dqi[2] << ","
-              << dqi[3] << "," << dqi[4] << "," << dqi[5] << "\n";
+              << q[0]    << "," << q[1]    << "," << q[2]    << ","
+              << q[3]    << "," << q[4]    << "," << q[5]    << ","
+              << dqi[0]  << "," << dqi[1]  << "," << dqi[2]  << ","
+              << dqi[3]  << "," << dqi[4]  << "," << dqi[5]  << ","
+              << taui[0] << "," << taui[1] << "," << taui[2] << ","
+              << taui[3] << "," << taui[4] << "," << taui[5] << ","
+              << jk.x()  << "," << jk.y()  << "," << jk.z()  << "\n";
         }
 
         f.close();

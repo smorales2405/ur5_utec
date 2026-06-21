@@ -26,28 +26,26 @@ pick_place_node:
     #
     # Referencia geométrica:
     #   - Base del robot = z=0 en Pinocchio = z=0.63m en Gazebo
-    #   - mesa_bidones: Gazebo (x=0.50, y=0, z=0.290) → Pinocchio x=0.55, z=-0.340
-    #   - Nivel de pick/place (superficie mesa):  tcp_z = -0.34
-    #   - Nivel sobre el obstáculo (arco visible): tcp_z = -0.12  (220mm de margen)
+    #   - mesa_bidones: Gazebo pose (0.3, 0.0, 0.289901), z_pin = z_gz - 0.63
+    #   - Nivel de pick/place (superficie mesa):  tcp_z ≈ -0.50
+    #   - Nivel sobre el obstáculo (arco visible): tcp_z = -0.32  (margen ~180mm)
     #
     # Verificado con IK: convergencia en <15 iters, sin riesgo de auto-colisión.
     #   q_A   = [0.319, -1.392, 1.377, -1.556, -1.571,  0.319]
     #   q_via = [-0.220,-1.400, 0.788, -0.959, -1.571, -0.220]
     #   q_B   = [-0.702,-1.392, 1.377, -1.556, -1.571, -0.702]
 
-    point_A_pre: [0.1,  0.7, -0.54]   # aproximación sobre A  (15 cm arriba de A)
-    point_A:     [0.75,  0.38, -0.5]   # pick — lado izquierdo de mesa_bidones
-    point_via:   [0.65,  0.00, -0.32]   # arco sobre el obstáculo
-    point_B:     [0.75, -0.48, -0.5]   # place — lado derecho de mesa_bidones
-    point_B_post: [0.1, -0.7, -0.54]   # retirada sobre B     (15 cm arriba de B)
+    point_A_pre:  [0.10,  0.70, -0.54]   # aproximación sobre A  (arriba del pick)
+    point_A:      [0.75,  0.38, -0.50]   # pick — lado izquierdo de mesa_bidones
+    point_via:    [0.65,  0.00, -0.32]   # arco sobre el obstáculo  ← variable CU3
+    point_B:      [0.75, -0.48, -0.50]   # place — lado derecho de mesa_bidones
+    point_B_post: [0.10, -0.70, -0.54]   # retirada sobre B     (arriba del place)
 
     # Duración [s sim] de los segmentos de aproximación/retirada (pre_A→A y B→post_B).
-    # total_duration sigue controlando el arco central A→via→B.
+    # total_duration controla el arco central A→via→B.
     pre_post_duration: 0.5
 
     # ── Seed articular para la IK del primer waypoint ─────────────────────────
-    # Configuración home del UR5: da tool0=[0.537, 0.109, -0.198] con rpy=[π,0,-π/2].
-    # La distancia cartesiana desde home hasta A es ≈ 0.14m → convergencia rápida.
     home_joint_angles: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
 
     # ── Parámetros del solver QP ─────────────────────────────────────────────
@@ -58,5 +56,19 @@ pick_place_node:
     ik_weight_orient: 1.0
 
     # ── Exportación CSV ──────────────────────────────────────────────────────
-    # Directorio de salida. Vacío = ~/ur5_ws/data/
-    csv_output_dir: "/home/sergio/ur5_ws/src/ur5_pick_place/data"
+    # Vacío → $HOME/ur5_ws/src/ur5_utec/ur5_pick_place/data  (ver pick_place_node.cpp)
+    csv_output_dir: ""
+
+    # ── Geometría del obstáculo (frame Pinocchio) ────────────────────────────
+    # AABB de mesa_bidones inflado por r_grip + delta_safe para evaluar holgura.
+    # Calibrar contra worlds/lab_base_world.sdf (mesa_bidones pose: 0.3 0.0 0.289901).
+    # z_pin = z_gazebo − 0.63  →  centro z ≈ 0.290 − 0.63 = −0.340 (base de mesa)
+    obstacle_center:       [0.50,  0.00, -0.38]  # [x,y,z] en metros (Pinocchio)
+    obstacle_half_extents: [0.25,  0.30,  0.09]  # semidimensiones del AABB [m]
+    obstacle_r_grip:       0.05   # radio envolvente del gripper [m]
+    obstacle_delta_safe:   0.05   # margen de seguridad adicional [m]
+
+    # ── Límites articulares UR5 [rad] ────────────────────────────────────────
+    # Fuente: UR5/UR5e datasheet (±360° todos los joints; codo ±180°).
+    joint_q_min: [-6.2832, -6.2832, -3.1416, -6.2832, -6.2832, -6.2832]
+    joint_q_max: [ 6.2832,  6.2832,  3.1416,  6.2832,  6.2832,  6.2832]
