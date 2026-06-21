@@ -95,12 +95,12 @@ public:
         // ── IK wrapper ───────────────────────────────────────────────────
         std::string urdf_path =
             ament_index_cpp::get_package_share_directory("ur5_kinematics") +
-            "/ur5e.urdf";
+            "/ur5.urdf";
         ik_ = std::make_unique<IKWrapper>(urdf_path);
 
         // ── Pinocchio model for RNEA (torque logging) ─────────────────────
-        // Uses the UR5e URDF (no gripper; TCP offset handled analytically by
-        // IKWrapper). Gravity is set automatically to (0,0,-9.81) by buildModel.
+        // Uses the same URDF as the IK (no gripper; TCP offset handled
+        // analytically by IKWrapper). Gravity = (0,0,-9.81) by buildModel.
         pinocchio::urdf::buildModel(urdf_path, pin_model_);
         pin_data_ = std::make_unique<pinocchio::Data>(pin_model_);
 
