@@ -32,13 +32,15 @@ from ament_index_python.packages import get_package_share_directory
 from .multiobjective_optimizer import select_solution
 
 
-def _results_dir(opt_params: dict) -> str:
-    d = opt_params.get('results_dir', '')
-    if not d:
-        home = os.environ.get('HOME', '/tmp')
-        d = os.path.join(home, 'ur5_ws', 'src', 'ur5_utec',
-                         'ur5_trajectory_optimization', 'results')
-    return d
+def _results_dir(opt_params: dict, test_id: int | None = None) -> str:
+    home = os.environ.get('HOME', '/tmp')
+    base = opt_params.get('results_dir', '') or os.path.join(
+        home, 'ur5_ws', 'src', 'ur5_utec', 'ur5_trajectory_optimization', 'results')
+    if test_id is not None:
+        base = os.path.join(
+            home, 'ur5_ws', 'src', 'ur5_utec', 'ur5_trajectory_optimization',
+            'results', f'test{test_id}')
+    return base
 
 
 def main(argv=None):
@@ -51,6 +53,8 @@ def main(argv=None):
     parser.add_argument('--method', choices=['knee', 'min_effort', 'weighted'],
                         default='',
                         help='Selection method when --index=-1 (overrides config)')
+    parser.add_argument('--test', '-t', type=int, default=None, metavar='N',
+                        help='Test number N: read/write from results/testN/')
     args = parser.parse_args(argv)
 
     # Load optimization params for results_dir
@@ -59,7 +63,7 @@ def main(argv=None):
     with open(opt_yaml) as f:
         opt_params = yaml.safe_load(f)
 
-    results_d = _results_dir(opt_params)
+    results_d = _results_dir(opt_params, test_id=args.test)
     csv_name  = f'pareto_{args.source}.csv'
     csv_path  = os.path.join(results_d, csv_name)
 

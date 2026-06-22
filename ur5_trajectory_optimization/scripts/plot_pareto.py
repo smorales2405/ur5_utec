@@ -20,10 +20,20 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def _default_results_dir() -> str:
+def _pkg_base() -> str:
     home = os.environ.get('HOME', '/tmp')
     return os.path.join(home, 'ur5_ws', 'src', 'ur5_utec',
-                        'ur5_trajectory_optimization', 'results')
+                        'ur5_trajectory_optimization')
+
+
+def _default_results_dir(test_id: int | None = None) -> str:
+    base = os.path.join(_pkg_base(), 'results')
+    return os.path.join(base, f'test{test_id}') if test_id is not None else base
+
+
+def _default_plots_dir(test_id: int | None = None) -> str:
+    base = os.path.join(_pkg_base(), 'plots', 'pareto')
+    return os.path.join(base, f'test{test_id}') if test_id is not None else base
 
 
 def _load_csv(path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -202,13 +212,25 @@ def plot_convergence(conv_path: str):
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--results', default='', help='Path to results directory')
+    parser.add_argument('--results', default='',
+                        help='Explicit path to results directory (overrides --test)')
+    parser.add_argument('--plots-dir', default='',
+                        help='Explicit directory for PNG output (overrides --test)')
+    parser.add_argument('--test', '-t', type=int, default=None, metavar='N',
+                        help='Test number N: read from results/testN/, '
+                             'save to plots/pareto/testN/')
     parser.add_argument('--save', action='store_true',
                         help='Save figures as PNG instead of showing')
     args = parser.parse_args()
 
-    results_d = args.results or _default_results_dir()
-    print(f"Results directory: {results_d}")
+    results_d = args.results or _default_results_dir(args.test)
+    plots_d   = args.plots_dir or (
+        _default_plots_dir(args.test) if args.test is not None else results_d)
+    os.makedirs(plots_d, exist_ok=True)
+
+    print(f"Results directory : {results_d}")
+    if plots_d != results_d:
+        print(f"Plots directory   : {plots_d}")
 
     nsga2_csv = os.path.join(results_d, 'pareto_nsga2.csv')
     eps_csv   = os.path.join(results_d, 'pareto_epsilon.csv')
@@ -244,11 +266,11 @@ def main():
 
     if args.save:
         for fig, name in [(fig1, '3d'), (fig2, '2d'), (fig3, 'parallel')]:
-            path = os.path.join(results_d, f'pareto_{name}.png')
+            path = os.path.join(plots_d, f'pareto_{name}.png')
             fig.savefig(path, dpi=150, bbox_inches='tight')
             print(f"Saved: {path}")
         if fig_conv is not None:
-            path = os.path.join(results_d, 'convergence.png')
+            path = os.path.join(plots_d, 'convergence.png')
             fig_conv.savefig(path, dpi=150, bbox_inches='tight')
             print(f"Saved: {path}")
     else:

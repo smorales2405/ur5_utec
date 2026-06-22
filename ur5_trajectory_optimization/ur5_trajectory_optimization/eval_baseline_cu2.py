@@ -13,7 +13,7 @@ Usage:
 """
 
 from __future__ import annotations
-import os, re
+import argparse, os, re
 import numpy as np
 import yaml
 import matplotlib
@@ -23,7 +23,7 @@ import matplotlib.ticker as mticker
 
 from ament_index_python.packages import get_package_share_directory
 
-from .run_optimization import _load_yaml, _build_config, _results_dir
+from .run_optimization import _load_yaml, _build_config, _results_dir, _pkg_base
 from .multiobjective_optimizer import TrajectoryEvaluator
 
 
@@ -144,9 +144,19 @@ def _save_bar_chart(path, f1_b, f2_b, cl_b, f1_o, f2_o, cl_o,
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description='Evaluate CU2 baseline vs CU3 optimised via-point (B3).')
+    parser.add_argument('--test', '-t', type=int, default=None, metavar='N',
+                        help='Test number N: read selected_solution.yaml from '
+                             'results/testN/, save CSV to results/testN/ and '
+                             'PNG to plots/pareto/testN/')
+    args, _ = parser.parse_known_args(argv)
+
     print("=" * 60)
     print("CU3 — Baseline CU2 vs optimised via-point evaluation (B3)")
+    if args.test is not None:
+        print(f"     Test #{args.test}")
     print("=" * 60)
 
     # ── Config ───────────────────────────────────────────────────────────────
@@ -158,7 +168,16 @@ def main():
     opt_params = _load_yaml(os.path.join(opt_share, 'config', 'optimization_params.yaml'))
     urdf_path  = os.path.join(kin_share, 'ur5e.urdf')
     config     = _build_config(pp_params, opt_params)
-    results_d  = _results_dir(opt_params)
+
+    base_results = _results_dir(opt_params)
+    if args.test is not None:
+        results_d = os.path.join(_pkg_base(), 'results',        f'test{args.test}')
+        plots_d   = os.path.join(_pkg_base(), 'plots', 'pareto', f'test{args.test}')
+    else:
+        results_d = base_results
+        plots_d   = base_results
+    os.makedirs(results_d, exist_ok=True)
+    os.makedirs(plots_d,   exist_ok=True)
 
     # ── CU2 baseline: fixed point_O from pick_place_params.yaml ─────────────
     p       = pp_params['pick_place_node']['ros__parameters']
@@ -212,7 +231,7 @@ def main():
         pct_f1, pct_f2, pct_cl,
     )
     _save_bar_chart(
-        os.path.join(results_d, 'baseline_comparison.png'),
+        os.path.join(plots_d, 'baseline_comparison.png'),
         f1_b, f2_b, cl_b, f1_o, f2_o, cl_o,
         pct_f1, pct_f2, pct_cl,
     )

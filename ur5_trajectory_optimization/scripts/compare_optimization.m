@@ -45,13 +45,26 @@ JTC_POS_TOL = 0.200;
 % Exportar figuras
 EXPORT_PNG = true;
 
+% Número de prueba (0 = sin subdirectorio; 1..N → test1, test2, …)
+%   results leídos de:  ur5_trajectory_optimization/results/testN/
+%   figuras escritas en: ur5_trajectory_optimization/plots/comparison/testN/
+TEST_ID = 0;
+
 % ═══════════════════════════════════════════════════════════════════════
 %  DIRECTORIOS
 % ═══════════════════════════════════════════════════════════════════════
 repo_root = fullfile(getenv('HOME'), 'ur5_ws', 'src', 'ur5_utec');
 data_dir  = fullfile(repo_root, 'ur5_pick_place', 'data');
-res_dir   = fullfile(repo_root, 'ur5_trajectory_optimization', 'results');
-out_dir   = fullfile(repo_root, 'ur5_trajectory_optimization', 'plots', 'comparison');
+pkg_root  = fullfile(repo_root, 'ur5_trajectory_optimization');
+
+if TEST_ID > 0
+    test_sub = sprintf('test%d', TEST_ID);
+    res_dir  = fullfile(pkg_root, 'results',              test_sub);
+    out_dir  = fullfile(pkg_root, 'plots', 'comparison',  test_sub);
+else
+    res_dir  = fullfile(pkg_root, 'results');
+    out_dir  = fullfile(pkg_root, 'plots', 'comparison');
+end
 
 KP_NAMES = {'A', 'B', 'O', 'C', 'D'};
 

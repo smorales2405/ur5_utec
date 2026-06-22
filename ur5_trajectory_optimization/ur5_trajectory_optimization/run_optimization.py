@@ -17,7 +17,7 @@ Results written to:
 """
 
 from __future__ import annotations
-import os, sys, time
+import argparse, os, sys, time
 import numpy as np
 import yaml
 
@@ -82,14 +82,34 @@ def _build_config(pp_params: dict, opt_params: dict) -> dict:
     return cfg
 
 
+def _pkg_base() -> str:
+    home = os.environ.get('HOME', '/tmp')
+    return os.path.join(home, 'ur5_ws', 'src', 'ur5_utec',
+                        'ur5_trajectory_optimization')
+
+
 def _results_dir(opt_params: dict) -> str:
-    d = opt_params.get('results_dir', '')
-    if not d:
-        home = os.environ.get('HOME', '/tmp')
-        d = os.path.join(home, 'ur5_ws', 'src', 'ur5_utec',
-                         'ur5_trajectory_optimization', 'results')
+    d = opt_params.get('results_dir', '') or os.path.join(_pkg_base(), 'results')
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def _test_dirs(opt_params: dict, test_id: int | None):
+    """
+    Return (results_d, pareto_plots_d) resolving any --test N override.
+
+    test_id=None  → results/,               results/           (backward-compat)
+    test_id=N     → results/testN/,         plots/pareto/testN/
+    """
+    base = _results_dir(opt_params)
+    if test_id is None:
+        return base, base
+    sub       = f'test{test_id}'
+    results_d = os.path.join(_pkg_base(), 'results', sub)
+    plots_d   = os.path.join(_pkg_base(), 'plots', 'pareto', sub)
+    os.makedirs(results_d, exist_ok=True)
+    os.makedirs(plots_d,   exist_ok=True)
+    return results_d, plots_d
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -227,9 +247,18 @@ def _save_selected_yaml(
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description='CU3 multi-objective trajectory optimisation.')
+    parser.add_argument('--test', '-t', type=int, default=None, metavar='N',
+                        help='Test number N: results → results/testN/, '
+                             'Pareto plots → plots/pareto/testN/')
+    args, _ = parser.parse_known_args(argv)
+
     print("=" * 60)
     print("CU3 — Multi-objective trajectory optimisation")
+    if args.test is not None:
+        print(f"     Test #{args.test}")
     print("=" * 60)
 
     # ── Load config ──────────────────────────────────────────────────────────
@@ -246,7 +275,7 @@ def main():
     pp_params  = _load_yaml(pp_yaml)
     opt_params = _load_yaml(opt_yaml)
     config     = _build_config(pp_params, opt_params)
-    results_d  = _results_dir(opt_params)
+    results_d, _ = _test_dirs(opt_params, args.test)
 
     # ── URDF path ────────────────────────────────────────────────────────────
     kin_share = get_package_share_directory('ur5_kinematics')
@@ -364,7 +393,12 @@ def main():
         method=sel_method, norm_dist=norm_dist,
     )
 
-    print(f"\nDone. Results in {results_d}/")
+    if args.test is not None:
+        print(f"\nTest #{args.test} results in {results_d}/")
+        print(f"  → Pareto plots: run 'plot_pareto.py --test {args.test} --save'")
+        print(f"  → Baseline:     run 'eval_baseline_cu2 --test {args.test}'")
+    else:
+        print(f"\nDone. Results in {results_d}/")
     print(
         "\nTo validate in Gazebo:\n"
         "  ros2 launch ur5_pick_place ur5_robotiq_gz.launch.py\n"
