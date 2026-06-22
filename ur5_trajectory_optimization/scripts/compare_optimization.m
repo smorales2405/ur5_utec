@@ -23,6 +23,8 @@
 
 clear; clc; close all;
 
+% Interpreter 'latex' se aplica solo en los elementos con notación math
+
 % ═══════════════════════════════════════════════════════════════════════
 %  CONFIGURACIÓN
 % ═══════════════════════════════════════════════════════════════════════
@@ -41,7 +43,7 @@ OBS_HX = 0.20;  OBS_HY = 0.30;  OBS_HZ = 0.10;
 JTC_POS_TOL = 0.200;
 
 % Exportar figuras
-EXPORT_PNG = true;
+EXPORT_PNG = false;
 
 % ═══════════════════════════════════════════════════════════════════════
 %  DIRECTORIOS
@@ -196,14 +198,14 @@ if ~any(isnan(O_N))
     plot3(O_N(1),O_N(2),O_N(3),'s','MarkerSize',13,'MarkerFaceColor',c_N, ...
         'MarkerEdgeColor','k','LineWidth',1.5,'HandleVisibility','off');
     text(O_N(1)+0.03, O_N(2), O_N(3)+0.02, ...
-        sprintf('O_N  [%.2f, %.2f, %.2f]', O_N(1),O_N(2),O_N(3)), ...
-        'Color',c_N,'FontSize',fs-1,'FontWeight','bold');
+        sprintf('$O_N$  [%.2f, %.2f, %.2f]', O_N(1),O_N(2),O_N(3)), ...
+        'Interpreter','latex','Color',c_N,'FontSize',fs-1,'FontWeight','bold');
 end
 plot3(O_E(1),O_E(2),O_E(3),'^','MarkerSize',13,'MarkerFaceColor',c_E, ...
     'MarkerEdgeColor','k','LineWidth',1.5,'HandleVisibility','off');
 text(O_E(1)+0.03, O_E(2), O_E(3)-0.03, ...
-    sprintf('O_{ε}  [%.2f, %.2f, %.2f]', O_E(1),O_E(2),O_E(3)), ...
-    'Color',c_E,'FontSize',fs-1,'FontWeight','bold');
+    sprintf('$O_{\\varepsilon}$  [%.2f, %.2f, %.2f]', O_E(1),O_E(2),O_E(3)), ...
+    'Interpreter','latex','Color',c_E,'FontSize',fs-1,'FontWeight','bold');
 
 text(OBS_CX+OBS_HX+0.02, OBS_CY, OBS_CZ+OBS_HZ+0.02, 'Obstáculo', ...
     'FontSize',fs-1,'FontWeight','bold','Color',c_ob,'Clipping','on');
@@ -271,7 +273,7 @@ set(gcf,'Color','w','Position',[80 100 760 600]);
 tl3 = tiledlayout(3,1,'TileSpacing','compact','Padding','compact');
 
 dN3 = {spdN, accnN, jrkN};  dE3 = {spdE, accnE, jrkE};
-yl3  = {'$\|\mathbf{v}\|$ [m/s]', '$\|\mathbf{a}\|$ [m/s²]', '$\|\mathbf{j}\|$ [m/s³]'};
+yl3  = {'$\|\mathbf{v}\|$ [m/s]', '$\|\mathbf{a}\|$ [m/s$^2$]', '$\|\mathbf{j}\|$ [m/s$^3$]'};
 
 hNk3 = []; hEk3 = [];
 for i = 1:3
@@ -333,7 +335,7 @@ for j = 1:6
         text(x_ann, max(dqE(:,j))*0.65, ...
             sprintf('max = %.3f rad/s', ymx_e), ...
             'Color',c_E,'FontSize',fs-2,'FontWeight','bold');
-        ttl_j = sprintf('Joint %d  ← abort  (tol pos. = %.3f rad)', j-1, JTC_POS_TOL);
+        ttl_j = sprintf('Joint %d  \\leftarrow abort  (tol pos. = %.3f rad)', j-1, JTC_POS_TOL);
     else
         ttl_j = sprintf('Joint %d', j-1);
     end
@@ -345,7 +347,7 @@ for j = 1:6
     grid on; box on; set(ax4,'FontSize',fs-1); xlim(xlim_t);
 end
 xlabel('Tiempo [s]','FontSize',fs);
-sgtitle('Velocidades articulares q̇₀..q̇₅ — diagnóstico abort JTC', ...
+sgtitle('Velocidades articulares — diagnóstico abort JTC', ...
     'FontSize',13,'FontWeight','bold');
 legend(ax4_first, [hN4leg, hE4leg], {lbl_N,'ε-constraint'}, ...
     'Orientation','horizontal','FontSize',fs-1,'Location','best');
@@ -365,13 +367,13 @@ for j = 1:6
     hE5 = plot(tE, tauE(:,j), '-',  'Color',c_E, 'LineWidth',lw);
     if j == 1, hN5leg = hN5; hE5leg = hE5; end
     add_kp_lines(ax5, tE, kpE, kp_col, kp_sty);
-    ylabel(sprintf('$\\tau_%d$ [N·m]', j-1), 'Interpreter','latex','FontSize',fs-1);
+    ylabel(sprintf('$\\tau_%d$ [N$\\cdot$m]', j-1), 'Interpreter','latex','FontSize',fs-1);
     title(sprintf('Joint %d', j-1),'FontSize',fs-1);
     grid on; box on; set(ax5,'FontSize',fs-1); xlim(xlim_t);
 end
 xlabel('Tiempo [s]','FontSize',fs);
-sgtitle(sprintf('Torques articulares (f₁) — NSGA-II: %.0f  |  ε: %.0f  N²·m²·s', ...
-    effort_N, effort_E), 'FontSize',13,'FontWeight','bold');
+sgtitle(sprintf('Torques articulares ($f_1$) - NSGA-II: %.0f $|$ $\\varepsilon$: %.0f [N$^2\\cdot$m$^2\\cdot$s]', ...
+    effort_N, effort_E), 'FontSize',13,'FontWeight','bold','Interpreter','latex');
 legend(ax5_first, [hN5leg, hE5leg], {lbl_N,'ε-constraint'}, ...
     'Orientation','horizontal','FontSize',fs-1,'Location','best');
 
@@ -412,8 +414,8 @@ if isfile(pareto_n_file) && isfile(pareto_e_file)
         'MarkerSize',13,'MarkerFaceColor',c_N,'MarkerEdgeColor','k','LineWidth',1.5);
     h6sE = plot(PE.f1_effort(idx_pE), PE.f2_arclen(idx_pE), '^', ...
         'MarkerSize',13,'MarkerFaceColor',c_E,'MarkerEdgeColor','k','LineWidth',1.5);
-    xlabel('$f_1$ — Esfuerzo [N²·m²·s]','Interpreter','latex','FontSize',fs);
-    ylabel('$f_2$ — Longitud de arco [m]','Interpreter','latex','FontSize',fs);
+    xlabel('$f_1$ - Esfuerzo [$\mathrm{N}^2\cdot\mathrm{m}^2\cdot\mathrm{s}$]','Interpreter','latex','FontSize',fs);
+    ylabel('$f_2$ - Longitud de arco [m]','Interpreter','latex','FontSize',fs);
     legend([h6pN, h6pE, h6sN, h6sE], ...
         {'NSGA-II (Pareto)','ε-constraint (Pareto)','Sel. NSGA-II','Sel. ε-constr'}, ...
         'Location','best','FontSize',fs-1);
@@ -431,9 +433,9 @@ if isfile(pareto_n_file) && isfile(pareto_e_file)
     h6sEc = plot(PE.f1_effort(idx_pE), -PE.f3_clearance(idx_pE), '^', ...
         'MarkerSize',13,'MarkerFaceColor',c_E,'MarkerEdgeColor','k','LineWidth',1.5);
     yline(0.05,'k--','LineWidth',1.1, ...
-        'Label','r_{grip} = 0.05 m', ...
+        'Label','$r_\mathrm{grip} = 0.05$ m','Interpreter','latex', ...
         'LabelHorizontalAlignment','left','LabelVerticalAlignment','bottom');
-    xlabel('$f_1$ — Esfuerzo [N²·m²·s]','Interpreter','latex','FontSize',fs);
+    xlabel('$f_1$ - Esfuerzo [$\mathrm{N}^2\cdot\mathrm{m}^2\cdot\mathrm{s}$]','Interpreter','latex','FontSize',fs);
     ylabel('Clearance TCP–obstáculo [m]','FontSize',fs);
     legend([h6pNc, h6pEc, h6sNc, h6sEc], ...
         {'NSGA-II (Pareto)','ε-constraint (Pareto)','Sel. NSGA-II','Sel. ε-constr'}, ...
