@@ -21,6 +21,7 @@ ROS 2 workspace for pick-and-place motion planning with a UR5e robot and Robotiq
 6. [Package Structure](#6-package-structure)
 7. [Parameters](#7-parameters)
 8. [Output Data](#8-output-data)
+9. [Test organisation](#9-test-organisation)
 
 ---
 
@@ -301,36 +302,50 @@ The optimizer (`objective_evaluators.py`), the C++ pick-and-place node, and the 
 
 ### Two-stage optimisation
 
-**Stage 1 — NSGA-II** (pymoo): approximates the Pareto front with `pop_size=60`, `n_gen=120`.
+**Stage 1 — NSGA-II** (pymoo): approximates the Pareto front with `pop_size=60`, `n_gen=120`.  
+Per-generation hypervolume is tracked via a `Callback` and saved to `convergence_nsga2.csv` (B1).
 
-**Stage 2 — ε-constraint** (scipy SLSQP): sweeps 25 ε-levels across the f₁ range to refine compromise solutions along the frontier.
+**Stage 2 — ε-constraint 2D** (scipy SLSQP): two independent sweeps over the Pareto range:
+- Sweep 1: `n_epsilon_f1=20` ε-levels over f₁ → minimise f₂ + f₃
+- Sweep 2: `n_epsilon_f3=15` ε-levels over f₃ → minimise f₁ + f₂
 
-A **knee point** is selected automatically by minimum normalised distance to the utopia point.
+The f₃ sweep adds solutions with varied clearance, giving 30× wider f₂ coverage than a single-axis f₁ sweep.
+
+**Compromise selection**: minimum Euclidean distance to utopia in the space normalised over the **combined** NSGA-II + ε front (method configurable: `knee` | `min_effort` | `weighted`). The selection method and `norm_dist_utopia` are recorded in `selected_solution.yaml`.
 
 ### Running the optimisation
 
 ```bash
 source ~/ur5_ws/install/setup.bash
 
-# Run both stages (~10–20 min depending on hardware)
+# Run both stages (~20–30 min depending on hardware)
 ros2 run ur5_trajectory_optimization run_optimization
+
+# Run and store results under results/test1/
+ros2 run ur5_trajectory_optimization run_optimization --test 1
 ```
 
-Results are written to `ur5_trajectory_optimization/results/`:
+Results are written to `ur5_trajectory_optimization/results/` (or `results/testN/` with `--test N`):
 
 | File | Description |
 |---|---|
 | `pareto_nsga2.csv` | Non-dominated front from NSGA-II (columns: via_x/y/z, f1, f2, f3, g1) |
-| `pareto_epsilon.csv` | Compromise solutions from ε-constraint sweep (columns: via_x/y/z, f1, f2, f3) |
-| `selected_solution.yaml` | ROS 2 param override with the knee-point `point_O` |
+| `pareto_epsilon.csv` | Compromise solutions from 2D ε-constraint sweep (columns: via_x/y/z, f1, f2, f3) |
+| `selected_solution.yaml` | ROS 2 param override — sets `point_O` in `pick_place_node` |
+| `convergence_nsga2.csv` | Per-generation hypervolume + non-dominated set size (B1) |
+| `method_comparison.csv` | Comparative metrics table: HV, spacing, IGD, C-metric, time, evals (B2) |
 
 ### Selecting and exporting a solution
 
-`export_trajectory` uses Python argparse — arguments go **directly after the command**, without `--ros-args`.
+`export_trajectory` uses Python argparse — arguments go **directly after the command**, without `--ros-args`.  
+`selected_solution.yaml` is **always written to `results/`** root regardless of `--test`, so `extra_params_file` never needs to change.
 
 ```bash
 # Knee point from ε-constraint (default — recommended):
 ros2 run ur5_trajectory_optimization export_trajectory
+
+# Read CSVs from test1/, write YAML to results/ root:
+ros2 run ur5_trajectory_optimization export_trajectory --test 1
 
 # Knee point from NSGA-II:
 ros2 run ur5_trajectory_optimization export_trajectory --source nsga2
@@ -347,12 +362,32 @@ ros2 run ur5_trajectory_optimization export_trajectory --source nsga2 --index 7
 ### Visualising the Pareto front
 
 ```bash
-# Interactive 3-panel plot (3D scatter, 2D projections, parallel coordinates):
-python3 ~/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/scripts/plot_pareto.py
+SCRIPT=~/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/scripts/plot_pareto.py
 
-# Save PNG figures to results/:
-python3 ~/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/scripts/plot_pareto.py --save
+# Interactive (3D scatter, 2D projections, parallel coordinates, convergence):
+python3 $SCRIPT
+
+# Save PNGs to results/ (no --test):
+python3 $SCRIPT --save
+
+# Save PNGs to results/test1/plots/pareto/:
+python3 $SCRIPT --test 1 --save
 ```
+
+When `convergence_nsga2.csv` is present a fourth figure is produced showing hypervolume and non-dominated set size per generation (B1 convergence curve).
+
+### Baseline comparison (B3)
+
+Evaluates the CU2 fixed via-point `[0.75, 0.00, 0.40]` with the same objectives and compares it against the selected CU3 solution:
+
+```bash
+# Compare against results in results/test1/:
+ros2 run ur5_trajectory_optimization eval_baseline_cu2 --test 1
+```
+
+Outputs:
+- `results/testN/baseline_vs_optimized.csv` — f₁, f₂, clearance + % improvement per objective
+- `results/testN/plots/baseline_comparison.png` — grouped bar chart
 
 ---
 
@@ -411,25 +446,33 @@ ur5_utec/
 │
 └── ur5_trajectory_optimization/            # CU3 multi-objective optimizer (Python)
     ├── config/
-    │   └── optimization_params.yaml        # NSGA-II / ε-constraint / IK / search domain
-    ├── plots/
-    │   └── comparison/                     # MATLAB comparison figures (PNG + EPS)
-    ├── results/                            # Auto-generated optimisation outputs
-    │   ├── pareto_nsga2.csv
-    │   ├── pareto_epsilon.csv
-    │   ├── selected_solution.yaml
-    │   └── pareto_*.png                    # Pareto visualisation exports
+    │   └── optimization_params.yaml        # NSGA-II / ε-constraint / selection / IK / search domain
+    ├── results/                            # All optimisation outputs (auto-generated)
+    │   ├── selected_solution.yaml          # Active ROS 2 param override (always at root)
+    │   └── testN/                          # Per-test outputs (--test N)
+    │       ├── pareto_nsga2.csv            # NSGA-II non-dominated front
+    │       ├── pareto_epsilon.csv          # ε-constraint 2D sweep solutions
+    │       ├── convergence_nsga2.csv       # HV + n_nondom per generation (B1)
+    │       ├── method_comparison.csv       # HV, spacing, IGD, C-metric, time, evals (B2)
+    │       ├── baseline_vs_optimized.csv   # CU2 vs CU3 objectives + % improvement (B3)
+    │       ├── selected_solution.yaml      # Internal copy for the test run
+    │       └── plots/
+    │           ├── pareto/                 # plot_pareto.py output (PNG)
+    │           ├── traj_comparison/        # compare_optimization.m output (PNG + EPS)
+    │           └── baseline_comparison.png # eval_baseline_cu2 output (B3)
     ├── scripts/
-    │   ├── plot_pareto.py                  # Pareto front visualisation (3 figure types)
-    │   └── compare_optimization.m          # MATLAB: compare NSGA-II vs ε-constraint trajectories
+    │   ├── plot_pareto.py                  # Pareto + convergence visualisation (--test N)
+    │   └── compare_optimization.m          # MATLAB: compare NSGA-II vs ε-constraint (TEST_ID)
     └── ur5_trajectory_optimization/
         ├── trajectory_model.py             # Python port of clamped cubic spline (exact C++ match)
         ├── ik_interface.py                 # Damped least-squares IK with gripper_tcp offset
         ├── objective_evaluators.py         # f1 (RNEA), f2 (arc length), f3 (AABB clearance)
         ├── constraints.py                  # IK convergence + joint limit checks
-        ├── multiobjective_optimizer.py     # NSGA-II (pymoo) + ε-constraint (scipy)
-        ├── run_optimization.py             # Entry point: full two-stage pipeline
-        └── export_selected_trajectory.py  # Export selected solution as param override YAML
+        ├── metrics.py                      # HV, spacing, IGD, C-metric, filter_nondominated (B1/B2)
+        ├── multiobjective_optimizer.py     # NSGA-II + _HVCallback + 2D ε-constraint + selectors
+        ├── run_optimization.py             # Entry point: two-stage pipeline + CSV outputs
+        ├── export_selected_trajectory.py  # Export selected solution to results/ root YAML
+        └── eval_baseline_cu2.py           # CU2 baseline vs CU3 comparison + bar chart (B3)
 ```
 
 ---
@@ -477,8 +520,10 @@ All Cartesian parameters (waypoints, obstacle) are expressed in the **`base_link
 | `pop_size` | `60` | NSGA-II population size |
 | `n_gen` | `120` | NSGA-II generations |
 | `seed` | `42` | Random seed |
-| `n_epsilon_steps` | `25` | Number of ε levels in the ε-constraint sweep |
-| `epsilon_obj_idx` | `0` | Objective bounded by ε (0 = f₁ effort, 1 = f₂ arc length) |
+| `n_epsilon_f1` | `20` | ε-constraint steps over f₁ range (minimises f₂ + f₃) |
+| `n_epsilon_f3` | `15` | ε-constraint steps over f₃ range (minimises f₁ + f₂); `0` = 1D sweep only |
+| `selection_method` | `knee` | Compromise selector: `knee` \| `min_effort` \| `weighted` |
+| `weights` | `[1,1,1]` | Per-objective weights for `weighted` method [w_f1, w_f2, w_f3] |
 | `ik_max_iter` | `120` | Optimiser IK max iterations |
 | `ik_tol` | `1e-4` | Optimiser IK convergence tolerance [m/rad] |
 | `ik_lambda` | `0.05` | Levenberg-Marquardt damping factor |
@@ -507,11 +552,22 @@ Each execution of `pick_place_node` exports a timestamped CSV to `ur5_pick_place
 
 ### 8.2 Optimisation results
 
+Files at `results/` root (constant across tests):
+
+| File | Description |
+|---|---|
+| `selected_solution.yaml` | Active ROS 2 param override — sets `point_O` in `pick_place_node` |
+
+Files at `results/testN/` (one set per `--test N` run):
+
 | File | Columns | Description |
 |---|---|---|
-| `pareto_nsga2.csv` | `via_x, via_y, via_z, f1_effort, f2_arclen, f3_clearance, g1_constr` | Pareto front from NSGA-II |
-| `pareto_epsilon.csv` | `via_x, via_y, via_z, f1_effort, f2_arclen, f3_clearance` | Compromise solutions from ε-constraint |
-| `selected_solution.yaml` | — | ROS 2 param override — sets `point_O` in `pick_place_node` |
+| `pareto_nsga2.csv` | `via_x, via_y, via_z, f1_effort, f2_arclen, f3_clearance, g1_constr` | NSGA-II non-dominated front |
+| `pareto_epsilon.csv` | `via_x, via_y, via_z, f1_effort, f2_arclen, f3_clearance` | 2D ε-constraint solutions |
+| `convergence_nsga2.csv` | `gen, hypervolume, n_nondominated` | Per-generation HV (ref: `[20000, 3.0, 0.0]`) |
+| `method_comparison.csv` | `method, n_solutions, n_nondominated, hypervolume, spacing, igd_vs_combined, c_vs_other, c_by_other, time_s, n_evals` | Method quality metrics |
+| `baseline_vs_optimized.csv` | `solution, via_x/y/z, f1, f2, clearance_m, pct_improve_*` | CU2 vs CU3 comparison |
+| `selected_solution.yaml` | — | Internal copy for this test run |
 
 ### 8.3 MATLAB analysis scripts
 
@@ -542,14 +598,77 @@ All scripts auto-detect the most recent relevant CSV when no filename is specifi
 | Fig 5 | Joint torques τ₀..τ₅ — f₁ objective comparison |
 | Fig 6 | Pareto fronts: f₁ vs f₂ and f₁ vs clearance, with selected solutions marked |
 
-Pre-generated plots are stored in `ur5_trajectory_optimization/plots/comparison/` (PNG + EPS).
-
 **Usage:**
 ```matlab
 % In MATLAB — run from any directory:
 run('~/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/scripts/compare_optimization.m')
 ```
 
-By default the script auto-detects the two most recent `clamped_spline` CSV files (older = NSGA-II, newer = ε-constraint). To specify files manually, set `FILE_NSGA2` and `FILE_EPSILON` at the top of the script.
+**Configuration block** (top of the script):
 
-Figures are exported to `ur5_trajectory_optimization/plots/comparison/` when `EXPORT_PNG = true` (default).
+| Variable | Default | Description |
+|---|---|---|
+| `FILE_NSGA2` | `''` | Trajectory CSV for NSGA-II run (`''` = auto-detect oldest) |
+| `FILE_EPSILON` | `''` | Trajectory CSV for ε-constraint run (`''` = auto-detect newest) |
+| `TEST_ID` | `0` | Test number: `0` = flat `results/`; `N` → reads `results/testN/`, writes `results/testN/plots/traj_comparison/` |
+| `EXPORT_PNG` | `true` | Export PNG (300 dpi) and EPS when `true` |
+
+By default the script auto-detects the two most recent `clamped_spline` CSV files in `ur5_pick_place/data/` (older = NSGA-II, newer = ε-constraint). Set `FILE_NSGA2` / `FILE_EPSILON` to override.
+
+Figures are written to `results/testN/plots/traj_comparison/` (PNG + EPS) when `TEST_ID > 0`, or `results/plots/traj_comparison/` when `TEST_ID = 0`.
+
+---
+
+## 9. Test organisation
+
+All optimisation scripts accept a `--test N` argument (Python) or `TEST_ID = N` variable (MATLAB) that routes every output to a numbered subdirectory. This allows multiple independent runs to coexist without overwriting each other.
+
+### Complete workflow for test N
+
+```bash
+source ~/ur5_ws/install/setup.bash
+
+# 1. Run optimisation (Stage 1 NSGA-II + Stage 2 ε-constraint)
+ros2 run ur5_trajectory_optimization run_optimization --test N
+
+# 2. Export selected solution to results/ root (used by pick_place_node)
+ros2 run ur5_trajectory_optimization export_trajectory --test N
+
+# 3. Run Gazebo + pick-and-place with NSGA-II via-point
+ros2 launch ur5_pick_place ur5_robotiq_gz.launch.py
+ros2 launch ur5_pick_place pick_place.launch.py \
+  extra_params_file:=$HOME/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/selected_solution.yaml
+
+# 4. (repeat step 3 for the ε-constraint via-point)
+
+# 5. Generate Pareto + convergence plots
+python3 ~/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/scripts/plot_pareto.py --test N --save
+
+# 6. Evaluate baseline CU2 vs CU3
+ros2 run ur5_trajectory_optimization eval_baseline_cu2 --test N
+
+# 7. Generate comparison plots in MATLAB (set TEST_ID = N, FILE_NSGA2, FILE_EPSILON)
+run('~/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/scripts/compare_optimization.m')
+```
+
+### Output layout per test
+
+```
+results/
+├── selected_solution.yaml              ← updated by step 2 (always at root)
+└── testN/
+    ├── pareto_nsga2.csv
+    ├── pareto_epsilon.csv
+    ├── convergence_nsga2.csv           ← step 1 (B1)
+    ├── method_comparison.csv           ← step 1 (B2)
+    ├── baseline_vs_optimized.csv       ← step 6 (B3)
+    ├── selected_solution.yaml          ← internal copy for this test
+    └── plots/
+        ├── pareto/                     ← step 5 (pareto_3d/2d/parallel, convergence)
+        ├── traj_comparison/            ← step 7 (6 figures, PNG + EPS)
+        └── baseline_comparison.png     ← step 6 (B3 bar chart)
+```
+
+### HV reference point
+
+The hypervolume indicator uses a fixed reference point `[20 000, 3.0, 0.0]` (f₁ [N²·m²·s], f₂ [m], f₃) across all tests, ensuring HV values are directly comparable between runs.
