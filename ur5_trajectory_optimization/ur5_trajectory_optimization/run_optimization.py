@@ -98,15 +98,14 @@ def _test_dirs(opt_params: dict, test_id: int | None):
     """
     Return (results_d, pareto_plots_d) resolving any --test N override.
 
-    test_id=None  → results/,               results/           (backward-compat)
-    test_id=N     → results/testN/,         plots/pareto/testN/
+    test_id=None  → results/,  results/                           (backward-compat)
+    test_id=N     → results/testN/,  results/testN/plots/pareto/
     """
     base = _results_dir(opt_params)
     if test_id is None:
         return base, base
-    sub       = f'test{test_id}'
-    results_d = os.path.join(_pkg_base(), 'results', sub)
-    plots_d   = os.path.join(_pkg_base(), 'plots', 'pareto', sub)
+    results_d = os.path.join(_pkg_base(), 'results', f'test{test_id}')
+    plots_d   = os.path.join(results_d, 'plots', 'pareto')
     os.makedirs(results_d, exist_ok=True)
     os.makedirs(plots_d,   exist_ok=True)
     return results_d, plots_d

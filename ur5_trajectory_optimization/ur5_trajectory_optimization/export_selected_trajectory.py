@@ -32,15 +32,19 @@ from ament_index_python.packages import get_package_share_directory
 from .multiobjective_optimizer import select_solution
 
 
-def _results_dir(opt_params: dict, test_id: int | None = None) -> str:
+def _results_root(opt_params: dict) -> str:
+    """Always returns results/ root — used for writing selected_solution.yaml."""
     home = os.environ.get('HOME', '/tmp')
-    base = opt_params.get('results_dir', '') or os.path.join(
+    return opt_params.get('results_dir', '') or os.path.join(
         home, 'ur5_ws', 'src', 'ur5_utec', 'ur5_trajectory_optimization', 'results')
+
+
+def _results_dir(opt_params: dict, test_id: int | None = None) -> str:
+    """Returns the directory where Pareto CSVs are read from (testN/ when given)."""
+    root = _results_root(opt_params)
     if test_id is not None:
-        base = os.path.join(
-            home, 'ur5_ws', 'src', 'ur5_utec', 'ur5_trajectory_optimization',
-            'results', f'test{test_id}')
-    return base
+        return os.path.join(root, f'test{test_id}')
+    return root
 
 
 def main(argv=None):
@@ -63,9 +67,10 @@ def main(argv=None):
     with open(opt_yaml) as f:
         opt_params = yaml.safe_load(f)
 
-    results_d = _results_dir(opt_params, test_id=args.test)
+    csv_dir   = _results_dir(opt_params, test_id=args.test)   # where CSVs live
+    export_d  = _results_root(opt_params)                      # where YAML is written
     csv_name  = f'pareto_{args.source}.csv'
-    csv_path  = os.path.join(results_d, csv_name)
+    csv_path  = os.path.join(csv_dir, csv_name)
 
     if not os.path.exists(csv_path):
         print(f"ERROR: {csv_path} not found. Run 'run_optimization' first.", file=sys.stderr)
@@ -82,7 +87,7 @@ def main(argv=None):
     # the knee is not artificially biased by the narrow range of a single front.
     F_ref = F
     for other_csv in ['pareto_nsga2.csv', 'pareto_epsilon.csv']:
-        other_path = os.path.join(results_d, other_csv)
+        other_path = os.path.join(csv_dir, other_csv)
         if other_path == csv_path or not os.path.exists(other_path):
             continue
         try:
@@ -121,7 +126,7 @@ def main(argv=None):
 
     # Write override YAML — only pick_place_node/ros__parameters is valid for rcl.
     # Extra metadata goes as comments so the file parses cleanly.
-    out_path = os.path.join(results_d, 'selected_solution.yaml')
+    out_path = os.path.join(export_d, 'selected_solution.yaml')
     doc = {
         'pick_place_node': {
             'ros__parameters': {

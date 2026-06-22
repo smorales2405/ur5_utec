@@ -59,11 +59,11 @@ pkg_root  = fullfile(repo_root, 'ur5_trajectory_optimization');
 
 if TEST_ID > 0
     test_sub = sprintf('test%d', TEST_ID);
-    res_dir  = fullfile(pkg_root, 'results',              test_sub);
-    out_dir  = fullfile(pkg_root, 'plots', 'comparison',  test_sub);
+    res_dir  = fullfile(pkg_root, 'results', test_sub);
+    out_dir  = fullfile(pkg_root, 'results', test_sub, 'plots', 'traj_comparison');
 else
     res_dir  = fullfile(pkg_root, 'results');
-    out_dir  = fullfile(pkg_root, 'plots', 'comparison');
+    out_dir  = fullfile(pkg_root, 'results', 'plots', 'traj_comparison');
 end
 
 KP_NAMES = {'A', 'B', 'O', 'C', 'D'};

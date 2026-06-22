@@ -32,8 +32,9 @@ def _default_results_dir(test_id: int | None = None) -> str:
 
 
 def _default_plots_dir(test_id: int | None = None) -> str:
-    base = os.path.join(_pkg_base(), 'plots', 'pareto')
-    return os.path.join(base, f'test{test_id}') if test_id is not None else base
+    if test_id is not None:
+        return os.path.join(_pkg_base(), 'results', f'test{test_id}', 'plots', 'pareto')
+    return _default_results_dir()   # backward-compat: PNGs alongside CSVs
 
 
 def _load_csv(path: str) -> tuple[np.ndarray, np.ndarray]:

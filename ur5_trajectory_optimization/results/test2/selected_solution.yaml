@@ -1,0 +1,9 @@
+# CU3 selected solution — source=pareto_epsilon.csv  method=knee  idx=25
+# f1_effort=13873.8398 N2*m2*s  f2_arclen=2.5684 m  clearance=0.1469 m
+# norm_dist_utopia=0.5105  (normalised over combined NSGA-II+ε front)
+pick_place_node:
+  ros__parameters:
+    point_O:
+    - 0.5
+    - -1.0e-06
+    - 0.398397

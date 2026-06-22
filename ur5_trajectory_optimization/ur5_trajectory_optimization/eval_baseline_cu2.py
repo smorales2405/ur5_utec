@@ -171,8 +171,8 @@ def main(argv=None):
 
     base_results = _results_dir(opt_params)
     if args.test is not None:
-        results_d = os.path.join(_pkg_base(), 'results',        f'test{args.test}')
-        plots_d   = os.path.join(_pkg_base(), 'plots', 'pareto', f'test{args.test}')
+        results_d = os.path.join(_pkg_base(), 'results', f'test{args.test}')
+        plots_d   = os.path.join(results_d, 'plots')
     else:
         results_d = base_results
         plots_d   = base_results
