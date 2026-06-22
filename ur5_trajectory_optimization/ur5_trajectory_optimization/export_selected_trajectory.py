@@ -1,18 +1,25 @@
 """
 Export a selected Pareto-front solution as a ROS 2 param override YAML.
 
-Usage:
-  # Knee point (auto-selected):
+Este script usa argparse (NO es un nodo ROS2): los argumentos van directamente
+después del comando, sin --ros-args ni -p.
+
+Uso:
+  # Knee point automático del frente ε-constraint (recomendado):
   ros2 run ur5_trajectory_optimization export_trajectory
 
-  # Specific index from pareto_nsga2.csv:
-  ros2 run ur5_trajectory_optimization export_trajectory --ros-args -p index:=7
+  # Knee point automático del frente NSGA-II:
+  ros2 run ur5_trajectory_optimization export_trajectory --source nsga2
 
-The generated file <results_dir>/selected_solution.yaml can be passed
-to pick_place_node at runtime:
-  ros2 run ur5_pick_place pick_place_node \\
-    --ros-args --params-file <pick_place_params.yaml> \\
-               --params-file <results_dir>/selected_solution.yaml
+  # Índice específico del frente ε-constraint:
+  ros2 run ur5_trajectory_optimization export_trajectory --index 3
+
+  # Índice específico del frente NSGA-II:
+  ros2 run ur5_trajectory_optimization export_trajectory --source nsga2 --index 7
+
+El archivo generado <results_dir>/selected_solution.yaml se pasa al launch:
+  ros2 launch ur5_pick_place pick_place.launch.py \\
+    extra_params_file:=$HOME/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/selected_solution.yaml
 """
 
 from __future__ import annotations
