@@ -36,10 +36,18 @@ n_gen:    120
 seed:      42
 
 # ── Parámetros ε-constraint (scipy.optimize) ─────────────────────────────────
-# Barrido de n_epsilon_steps valores de ε sobre f1 o f2 manteniendo el tercero.
-n_epsilon_steps: 25
-# Índice del objetivo a usar como límite ε: 0=f1 (esfuerzo), 1=f2 (longitud)
-epsilon_obj_idx: 0
+# Barrido 2D: un barrido sobre f1 (esfuerzo) y otro sobre f3 (clearance).
+# El barrido sobre f3 produce soluciones con variedad de holgura TCP-obstáculo,
+# lo que el barrido solo sobre f1 no cubre (f2 y f3 quedan casi constantes).
+n_epsilon_f1: 20   # pasos ε sobre f1: minimiza f2+f3  s.t. f1 ≤ ε₁
+n_epsilon_f3: 15   # pasos ε sobre f3: minimiza f1+f2  s.t. f3 ≤ ε₃
+
+# ── Selección de la solución de compromiso ────────────────────────────────────
+# knee:        mínima distancia normalizada al punto utopía (recomendado)
+# min_effort:  mínimo f1 (esfuerzo articular)
+# weighted:    suma ponderada en espacio normalizado (usar con weights)
+selection_method: knee
+weights: [1.0, 1.0, 1.0]   # pesos [w_f1, w_f2, w_f3] para method=weighted
 
 # ── Solver IK (damped least-squares) ────────────────────────────────────────
 ik_max_iter: 120

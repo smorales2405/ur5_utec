@@ -29,7 +29,7 @@ import yaml
 
 from ament_index_python.packages import get_package_share_directory
 
-from .multiobjective_optimizer import select_knee_point
+from .multiobjective_optimizer import select_solution
 
 
 def _results_dir(opt_params: dict) -> str:
@@ -45,9 +45,12 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         description='Export a Pareto-front solution as ROS 2 param override YAML.')
     parser.add_argument('--index', '-i', type=int, default=-1,
-                        help='Row index in pareto_nsga2.csv (-1 = knee point)')
+                        help='Row index in the chosen CSV (-1 = auto-select)')
     parser.add_argument('--source', choices=['nsga2', 'epsilon'], default='epsilon',
                         help='Which CSV to use (default: epsilon)')
+    parser.add_argument('--method', choices=['knee', 'min_effort', 'weighted'],
+                        default='',
+                        help='Selection method when --index=-1 (overrides config)')
     args = parser.parse_args(argv)
 
     # Load optimization params for results_dir
@@ -71,14 +74,37 @@ def main(argv=None):
     X = data[:, :3]    # via_x, via_y, via_z
     F = data[:, 3:6]   # f1, f2, f3
 
+    # Build combined reference front (NSGA-II + ε) for normalisation, so that
+    # the knee is not artificially biased by the narrow range of a single front.
+    F_ref = F
+    for other_csv in ['pareto_nsga2.csv', 'pareto_epsilon.csv']:
+        other_path = os.path.join(results_d, other_csv)
+        if other_path == csv_path or not os.path.exists(other_path):
+            continue
+        try:
+            other = np.loadtxt(other_path, delimiter=',', skiprows=1)
+            if other.ndim == 1:
+                other = other[np.newaxis, :]
+            F_ref = np.vstack([F_ref, other[:, 3:6]])
+        except Exception:
+            pass
+
+    sel_method  = args.method or opt_params.get('selection_method', 'knee')
+    sel_weights = opt_params.get('weights', [1.0, 1.0, 1.0])
+    norm_dist   = None
+
     if args.index < 0:
-        idx = select_knee_point(F)
-        print(f"Auto-selected knee point: index {idx}")
+        idx, norm_dist = select_solution(
+            F, method=sel_method, weights=sel_weights, F_ref=F_ref,
+        )
+        print(f"Auto-selected ({sel_method}): index {idx}  "
+              f"norm_dist={norm_dist:.4f}")
     else:
         idx = args.index
         if idx >= len(X):
             print(f"ERROR: index {idx} out of range (Pareto front has {len(X)} solutions).")
             sys.exit(1)
+        sel_method = 'manual'
 
     via = X[idx]
     f   = F[idx]
@@ -100,10 +126,14 @@ def main(argv=None):
         },
     }
     with open(out_path, 'w') as fh:
-        fh.write(f"# CU3 selected solution — source={csv_name}  idx={idx}\n")
+        fh.write(f"# CU3 selected solution — source={csv_name}"
+                 f"  method={sel_method}  idx={idx}\n")
         fh.write(f"# f1_effort={f[0]:.4f} N2*m2*s  "
                  f"f2_arclen={f[1]:.4f} m  "
                  f"clearance={-f[2]:.4f} m\n")
+        if norm_dist is not None:
+            fh.write(f"# norm_dist_utopia={norm_dist:.4f}"
+                     f"  (normalised over combined NSGA-II+ε front)\n")
         yaml.dump(doc, fh, default_flow_style=False, sort_keys=False)
 
     print(f"\nWritten: {out_path}")

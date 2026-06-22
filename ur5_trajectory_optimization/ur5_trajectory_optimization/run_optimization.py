@@ -28,7 +28,8 @@ from .multiobjective_optimizer import (
     TrajectoryEvaluator,
     run_nsga2,
     run_epsilon_constraint,
-    select_knee_point,
+    run_epsilon_constraint_2d,
+    select_solution,
 )
 
 
@@ -102,7 +103,14 @@ def _save_pareto_csv(path: str, X: np.ndarray, F: np.ndarray, G: np.ndarray | No
 # Selected solution YAML
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _save_selected_yaml(path: str, via: np.ndarray, F: np.ndarray, idx: int):
+def _save_selected_yaml(
+    path:      str,
+    via:       np.ndarray,
+    F:         np.ndarray,
+    idx:       int,
+    method:    str   = 'knee',
+    norm_dist: float | None = None,
+):
     doc = {
         'pick_place_node': {
             'ros__parameters': {
@@ -111,10 +119,13 @@ def _save_selected_yaml(path: str, via: np.ndarray, F: np.ndarray, idx: int):
         },
     }
     with open(path, 'w') as f:
-        f.write(f"# CU3 selected solution — knee idx={idx}\n")
+        f.write(f"# CU3 selected solution — method={method}  idx={idx}\n")
         f.write(f"# f1_effort={F[0]:.4f} N2*m2*s  "
                 f"f2_arclen={F[1]:.4f} m  "
                 f"clearance={-F[2]:.4f} m\n")
+        if norm_dist is not None:
+            f.write(f"# norm_dist_utopia={norm_dist:.4f}"
+                    f"  (normalised over combined NSGA-II+ε front)\n")
         yaml.dump(doc, f, default_flow_style=False, sort_keys=False)
     print(f"  saved → {path}")
 
@@ -188,15 +199,24 @@ def main():
         os.path.join(results_d, 'pareto_nsga2.csv'), X_f, F_f, G_f)
 
     # ── Stage 2: ε-constraint ────────────────────────────────────────────────
-    n_eps      = opt_params.get('n_epsilon_steps', 25)
-    eps_obj    = opt_params.get('epsilon_obj_idx', 0)
+    n_eps_f1 = opt_params.get('n_epsilon_f1',
+                               opt_params.get('n_epsilon_steps', 25))
+    n_eps_f3 = opt_params.get('n_epsilon_f3', 0)
 
-    print(f"\n── Stage 2: ε-constraint  (n_ε={n_eps}, obj={eps_obj}) ──")
     t1 = time.time()
-    eps_res = run_epsilon_constraint(
-        evaluator, F_f, X_f, bounds,
-        eps_obj_idx=eps_obj, n_steps=n_eps, verbose=True,
-    )
+    if n_eps_f3 > 0:
+        print(f"\n── Stage 2: ε-constraint 2D  (f1={n_eps_f1}, f3={n_eps_f3}) ──")
+        eps_res = run_epsilon_constraint_2d(
+            evaluator, F_f, X_f, bounds,
+            n_epsilon_f1=n_eps_f1, n_epsilon_f3=n_eps_f3, verbose=True,
+        )
+    else:
+        eps_obj = opt_params.get('epsilon_obj_idx', 0)
+        print(f"\n── Stage 2: ε-constraint 1D  (n_ε={n_eps_f1}, obj={eps_obj}) ──")
+        eps_res = run_epsilon_constraint(
+            evaluator, F_f, X_f, bounds,
+            eps_obj_idx=eps_obj, n_steps=n_eps_f1, verbose=True,
+        )
     print(f"  Elapsed: {time.time() - t1:.1f} s")
 
     X_e = eps_res['X']
@@ -209,19 +229,26 @@ def main():
     _save_pareto_csv(
         os.path.join(results_d, 'pareto_epsilon.csv'), X_e, F_e)
 
-    # ── Select knee point ────────────────────────────────────────────────────
+    # ── Select compromise solution ───────────────────────────────────────────
     combined_F = np.vstack([F_f, F_e]) if len(F_e) else F_f
     combined_X = np.vstack([X_f, X_e]) if len(X_e) else X_f
-    knee_idx   = select_knee_point(combined_F)
 
-    print(f"\n── Knee-point selection ──")
-    print(f"  idx = {knee_idx}")
-    print(f"  via = {combined_X[knee_idx]}")
-    print(f"  F   = {combined_F[knee_idx]}")
+    sel_method  = opt_params.get('selection_method', 'knee')
+    sel_weights = opt_params.get('weights', [1.0, 1.0, 1.0])
+    sel_idx, norm_dist = select_solution(
+        combined_F, method=sel_method, weights=sel_weights, F_ref=combined_F,
+    )
+
+    print(f"\n── Solution selection  (method={sel_method}) ──")
+    print(f"  idx       = {sel_idx}")
+    print(f"  via       = {combined_X[sel_idx]}")
+    print(f"  F         = {combined_F[sel_idx]}")
+    print(f"  norm_dist = {norm_dist:.4f}  (to utopia, normalised over combined front)")
 
     _save_selected_yaml(
         os.path.join(results_d, 'selected_solution.yaml'),
-        combined_X[knee_idx], combined_F[knee_idx], knee_idx,
+        combined_X[sel_idx], combined_F[sel_idx], sel_idx,
+        method=sel_method, norm_dist=norm_dist,
     )
 
     print(f"\nDone. Results in {results_d}/")

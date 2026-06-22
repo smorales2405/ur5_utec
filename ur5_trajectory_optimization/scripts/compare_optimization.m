@@ -43,7 +43,7 @@ OBS_HX = 0.20;  OBS_HY = 0.30;  OBS_HZ = 0.10;
 JTC_POS_TOL = 0.200;
 
 % Exportar figuras
-EXPORT_PNG = false;
+EXPORT_PNG = true;
 
 % ═══════════════════════════════════════════════════════════════════════
 %  DIRECTORIOS

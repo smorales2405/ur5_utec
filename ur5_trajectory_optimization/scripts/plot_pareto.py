@@ -63,14 +63,6 @@ def _load_selected(results_dir: str):
     return {'via': via, 'f1': f1, 'f2': f2, 'f3': f3}
 
 
-def _select_knee(F: np.ndarray) -> int:
-    utopia = F.min(axis=0)
-    nadir  = F.max(axis=0)
-    denom  = nadir - utopia
-    denom[denom == 0] = 1.0
-    return int(np.argmin(np.linalg.norm((F - utopia) / denom, axis=1)))
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 def plot_3d(F_n: np.ndarray, F_e: np.ndarray | None, selected, title_suffix=''):
     fig = plt.figure(figsize=(9, 7))
@@ -89,11 +81,7 @@ def plot_3d(F_n: np.ndarray, F_e: np.ndarray | None, selected, title_suffix=''):
 
     if selected:
         ax.scatter(selected['f1'], selected['f2'], -selected['f3'],
-                   c='red', s=120, marker='*', zorder=10, label='Selected (knee)')
-
-    knee_idx = _select_knee(F_n)
-    ax.scatter(F_n[knee_idx, 0], F_n[knee_idx, 1], _c(F_n)[knee_idx],
-               c='green', s=100, marker='D', label='Knee (NSGA-II)')
+                   c='red', s=160, marker='*', zorder=10, label='Selected (knee)')
 
     ax.set_xlabel('f₁ — Joint effort [N²·m²·s]', labelpad=10)
     ax.set_ylabel('f₂ — Arc length [m]',          labelpad=10)

@@ -256,18 +256,114 @@ def run_epsilon_constraint(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Knee-point selector (min-distance to utopia on normalised front)
+# Compromise-solution selectors
 # ─────────────────────────────────────────────────────────────────────────────
 
-def select_knee_point(F: np.ndarray) -> int:
+def select_solution(
+    F:       np.ndarray,
+    method:  str                      = 'knee',
+    weights: Optional[List[float]]    = None,
+    F_ref:   Optional[np.ndarray]     = None,
+) -> Tuple[int, float]:
+    """
+    Select a compromise solution from Pareto front F.
+
+    Parameters
+    ----------
+    F      : (n, 3) objective values to select from.
+    method : 'knee'       — min Euclidean distance to utopia (normalised).
+             'min_effort' — minimum f1 (joint effort).
+             'weighted'   — min weighted sum in normalised space.
+    weights: [w1, w2, w3] used only when method='weighted'.
+    F_ref  : (m, 3) reference front for normalisation bounds.
+             Pass the combined NSGA-II + ε front so that the normalisation
+             uses the full objective range, not just the selected sub-front.
+             Falls back to F when None.
+
+    Returns
+    -------
+    idx       : index into F of the selected solution.
+    norm_dist : Euclidean distance from the selected point to the utopia
+                in the normalised space defined by F_ref.
+    """
+    ref    = F_ref if F_ref is not None else F
+    utopia = ref.min(axis=0)
+    nadir  = ref.max(axis=0)
+    denom  = nadir - utopia
+    denom[denom == 0] = 1.0
+    F_norm = (F - utopia) / denom
+
+    if method == 'min_effort':
+        idx = int(np.argmin(F[:, 0]))
+    elif method == 'weighted':
+        w = np.array(weights if weights else [1.0, 1.0, 1.0], dtype=float)
+        w = w / w.sum()
+        idx = int(np.argmin((F_norm * w).sum(axis=1)))
+    else:   # 'knee'
+        idx = int(np.argmin(np.linalg.norm(F_norm, axis=1)))
+
+    norm_dist = float(np.linalg.norm(F_norm[idx]))
+    return idx, norm_dist
+
+
+def select_knee_point(F: np.ndarray, F_ref: Optional[np.ndarray] = None) -> int:
     """
     Returns the index of the solution closest to the utopia point
     on the normalised objective space (min-distance method).
+
+    F_ref: optional reference front for normalisation (e.g., combined
+           NSGA-II + ε). Falls back to F when None.
     """
-    utopia   = F.min(axis=0)
-    nadir    = F.max(axis=0)
-    denom    = nadir - utopia
-    denom[denom == 0] = 1.0
-    F_norm   = (F - utopia) / denom
-    dist     = np.linalg.norm(F_norm, axis=1)
-    return int(np.argmin(dist))
+    idx, _ = select_solution(F, method='knee', F_ref=F_ref)
+    return idx
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2-D ε-constraint sweep (f1 axis + f3 axis)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_epsilon_constraint_2d(
+    evaluator:    TrajectoryEvaluator,
+    pareto_F:     np.ndarray,
+    pareto_X:     np.ndarray,
+    bounds:       np.ndarray,
+    n_epsilon_f1: int  = 20,
+    n_epsilon_f3: int  = 15,
+    verbose:      bool = True,
+) -> Dict:
+    """
+    2-D ε-constraint sweep combining two independent 1-D sweeps:
+
+    Sweep 1/2 — ε over f1  (n_epsilon_f1 steps):
+        minimise f2 + f3  subject to  f1 ≤ ε₁  and  g1 ≤ 0
+    Sweep 2/2 — ε over f3  (n_epsilon_f3 steps):
+        minimise f1 + f2  subject to  f3 ≤ ε₃  and  g1 ≤ 0
+
+    The f3 sweep produces solutions with varied clearance values, giving
+    coverage of the Pareto front that a pure f1 sweep misses (the f1 sweep
+    collapses to a narrow band in f2–f3 space).
+
+    Returns dict with keys:
+      X       — (n_epsilon_f1 + n_epsilon_f3, 3) decision variables
+      F       — (n_epsilon_f1 + n_epsilon_f3, 3) objective values
+      success — bool array, scipy convergence per step
+    """
+    if verbose:
+        print(f"  2D sweep — ε/f1 ({n_epsilon_f1} steps):")
+    res_f1 = run_epsilon_constraint(
+        evaluator, pareto_F, pareto_X, bounds,
+        eps_obj_idx=0, n_steps=n_epsilon_f1, verbose=verbose,
+    )
+
+    if verbose:
+        print(f"  2D sweep — ε/f3 ({n_epsilon_f3} steps):")
+    res_f3 = run_epsilon_constraint(
+        evaluator, pareto_F, pareto_X, bounds,
+        eps_obj_idx=2, n_steps=n_epsilon_f3, verbose=verbose,
+    )
+
+    return {
+        'X':       np.vstack([res_f1['X'],       res_f3['X']]),
+        'F':       np.vstack([res_f1['F'],        res_f3['F']]),
+        'success': np.concatenate([res_f1['success'], res_f3['success']]),
+    }
