@@ -39,8 +39,8 @@ def main(argv=None):
         description='Export a Pareto-front solution as ROS 2 param override YAML.')
     parser.add_argument('--index', '-i', type=int, default=-1,
                         help='Row index in pareto_nsga2.csv (-1 = knee point)')
-    parser.add_argument('--source', choices=['nsga2', 'epsilon'], default='nsga2',
-                        help='Which CSV to use (default: nsga2)')
+    parser.add_argument('--source', choices=['nsga2', 'epsilon'], default='epsilon',
+                        help='Which CSV to use (default: epsilon)')
     args = parser.parse_args(argv)
 
     # Load optimization params for results_dir

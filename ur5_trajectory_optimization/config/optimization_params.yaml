@@ -18,7 +18,7 @@
 # Rango x: cubre el volumen sobre el obstáculo (x=[0.65,1.05]) y sus alrededores.
 # Rango y: franja central sobre el obstáculo (|y| < 0.30 = half_extent_y).
 # Rango z: siempre por encima del plano B-C (z>0.20) hasta la altura nominal (z=0.60).
-via_x_min:  0.40
+via_x_min:  0.50   # >= 0.50 evita retraccion excesiva del brazo (Joint 2 abort en JTC)
 via_x_max:  0.95
 via_y_min: -0.25
 via_y_max:  0.25
