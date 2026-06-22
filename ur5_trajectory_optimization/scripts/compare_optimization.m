@@ -30,8 +30,8 @@ clear; clc; close all;
 % ═══════════════════════════════════════════════════════════════════════
 
 % Archivos de trayectoria  ('' = auto-detección)
-FILE_NSGA2   = '';    % ej. 'trajectory_20260622_110000_clamped_spline.csv'
-FILE_EPSILON = '';    % ej. 'trajectory_20260622_120000_clamped_spline.csv'
+FILE_NSGA2   = 'trajectory_20260622_120154_clamped_spline.csv';    % ej. 'trajectory_20260622_110000_clamped_spline.csv'
+FILE_EPSILON = 'trajectory_20260622_120057_clamped_spline.csv';    % ej. 'trajectory_20260622_120000_clamped_spline.csv'
 
 % Obstáculo AABB — debe coincidir con pick_place_params.yaml:
 %   obstacle_center:       [0.85, 0.00, 0.10]
@@ -48,7 +48,7 @@ EXPORT_PNG = true;
 % Número de prueba (0 = sin subdirectorio; 1..N → test1, test2, …)
 %   results leídos de:  ur5_trajectory_optimization/results/testN/
 %   figuras escritas en: ur5_trajectory_optimization/plots/comparison/testN/
-TEST_ID = 0;
+TEST_ID = 2;
 
 % ═══════════════════════════════════════════════════════════════════════
 %  DIRECTORIOS
