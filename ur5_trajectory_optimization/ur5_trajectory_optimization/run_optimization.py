@@ -31,6 +31,14 @@ from .multiobjective_optimizer import (
     run_epsilon_constraint_2d,
     select_solution,
 )
+from .metrics import (
+    HV_REF_POINT,
+    compute_hv,
+    compute_spacing,
+    compute_igd,
+    compute_coverage,
+    filter_nondominated,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -87,6 +95,91 @@ def _results_dir(opt_params: dict) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # CSV helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _save_convergence_csv(path: str, history: list, ref_point: np.ndarray) -> None:
+    """Save per-generation (gen, hypervolume, n_nondominated) to convergence_nsga2.csv."""
+    with open(path, 'w') as fh:
+        fh.write(f'# NSGA-II convergence — HV reference point: {list(ref_point)}\n')
+        fh.write('gen,hypervolume,n_nondominated\n')
+        for gen, hv, n_nd in history:
+            hv_str = f'{hv:.6f}' if hv == hv else 'nan'   # NaN-safe
+            fh.write(f'{gen},{hv_str},{n_nd}\n')
+    print(f"  saved → {path}")
+
+
+def _save_method_comparison_csv(
+    path:       str,
+    F_N:        np.ndarray,
+    F_E:        np.ndarray,
+    t_nsga2:    float,
+    t_eps:      float,
+    n_eval_N:   int,
+    n_eval_E:   int,
+) -> None:
+    """
+    Compute and write method_comparison.csv (one row per method).
+
+    Columns:
+      method, n_solutions, n_nondominated, hypervolume, spacing,
+      igd_vs_combined, c_vs_other, c_by_other, time_s, n_evals
+
+    Metrics:
+      hypervolume     — HV of non-dominated subset w.r.t. HV_REF_POINT.
+      spacing         — Schott spacing of non-dominated subset.
+      igd_vs_combined — IGD from this method's ND front to the combined ND front.
+      c_vs_other      — C(A,B): fraction of other method's ND front dominated by A.
+      c_by_other      — C(B,A): fraction of A's ND front dominated by other method.
+    """
+    has_eps = len(F_E) > 0
+
+    mask_N = filter_nondominated(F_N)
+    FN_nd  = F_N[mask_N]
+
+    if has_eps:
+        mask_E = filter_nondominated(F_E)
+        FE_nd  = F_E[mask_E]
+        combined = np.vstack([FN_nd, FE_nd])
+    else:
+        FE_nd    = np.zeros((0, 3))
+        combined = FN_nd
+
+    comb_mask = filter_nondominated(combined)
+    F_comb_nd = combined[comb_mask]
+
+    def _metrics(F_all, F_nd):
+        if len(F_nd) < 2:
+            return 0.0, 0.0, 0.0
+        hv  = compute_hv(F_nd)
+        sp  = compute_spacing(F_nd)
+        igd = compute_igd(F_nd, F_comb_nd) if len(F_comb_nd) >= 1 else 0.0
+        return hv, sp, igd
+
+    hv_N,  sp_N,  igd_N  = _metrics(F_N, FN_nd)
+    hv_E,  sp_E,  igd_E  = _metrics(F_E, FE_nd)
+
+    if has_eps and len(FN_nd) and len(FE_nd):
+        c_N_vs_E = compute_coverage(FN_nd, FE_nd)
+        c_E_vs_N = compute_coverage(FE_nd, FN_nd)
+    else:
+        c_N_vs_E = c_E_vs_N = 0.0
+
+    cols = ('method,n_solutions,n_nondominated,hypervolume,spacing,'
+            'igd_vs_combined,c_vs_other,c_by_other,time_s,n_evals')
+    rows = [
+        ('NSGA-II',       len(F_N), len(FN_nd), hv_N, sp_N, igd_N,
+         c_N_vs_E, c_E_vs_N, t_nsga2, n_eval_N),
+        ('e-constraint',  len(F_E), len(FE_nd), hv_E, sp_E, igd_E,
+         c_E_vs_N, c_N_vs_E, t_eps,   n_eval_E),
+    ]
+    with open(path, 'w') as fh:
+        fh.write('# CU3 — method comparison metrics\n')
+        fh.write(f'# HV ref_point: {list(HV_REF_POINT)}\n')
+        fh.write(cols + '\n')
+        for r in rows:
+            fh.write(f'{r[0]},{r[1]},{r[2]},{r[3]:.6f},{r[4]:.6f},'
+                     f'{r[5]:.6f},{r[6]:.4f},{r[7]:.4f},{r[8]:.1f},{r[9]}\n')
+    print(f"  saved → {path}")
+
 
 def _save_pareto_csv(path: str, X: np.ndarray, F: np.ndarray, G: np.ndarray | None = None):
     header = 'via_x,via_y,via_z,f1_effort,f2_arclen,f3_clearance'
@@ -177,10 +270,13 @@ def main():
     seed     = opt_params.get('seed',    42)
 
     print(f"\n── Stage 1: NSGA-II  (pop={pop_size}, gen={n_gen}) ──")
-    t0 = time.time()
+    t0_nsga2  = time.time()
     evaluator = TrajectoryEvaluator(config, urdf_path)
-    nsga2_res = run_nsga2(evaluator, bounds, pop_size, n_gen, seed, verbose=True)
-    print(f"  Elapsed: {time.time() - t0:.1f} s")
+    nsga2_res = run_nsga2(evaluator, bounds, pop_size, n_gen, seed, verbose=True,
+                           hv_ref_point=HV_REF_POINT)
+    t_nsga2   = time.time() - t0_nsga2
+    n_eval_N  = nsga2_res.get('n_eval', 0)
+    print(f"  Elapsed: {t_nsga2:.1f} s  |  evaluations: {n_eval_N}")
 
     X_p, F_p, G_p = nsga2_res['X'], nsga2_res['F'], nsga2_res['G']
     print(f"  Pareto front: {len(X_p)} solutions")
@@ -198,12 +294,21 @@ def main():
     _save_pareto_csv(
         os.path.join(results_d, 'pareto_nsga2.csv'), X_f, F_f, G_f)
 
+    # B1 — save per-generation HV convergence
+    conv_data = nsga2_res.get('convergence', [])
+    if conv_data:
+        _save_convergence_csv(
+            os.path.join(results_d, 'convergence_nsga2.csv'),
+            conv_data, HV_REF_POINT,
+        )
+
     # ── Stage 2: ε-constraint ────────────────────────────────────────────────
     n_eps_f1 = opt_params.get('n_epsilon_f1',
                                opt_params.get('n_epsilon_steps', 25))
     n_eps_f3 = opt_params.get('n_epsilon_f3', 0)
 
-    t1 = time.time()
+    evaluator.reset_eval_counter()   # count only ε-constraint evaluations
+    t0_eps = time.time()
     if n_eps_f3 > 0:
         print(f"\n── Stage 2: ε-constraint 2D  (f1={n_eps_f1}, f3={n_eps_f3}) ──")
         eps_res = run_epsilon_constraint_2d(
@@ -217,7 +322,9 @@ def main():
             evaluator, F_f, X_f, bounds,
             eps_obj_idx=eps_obj, n_steps=n_eps_f1, verbose=True,
         )
-    print(f"  Elapsed: {time.time() - t1:.1f} s")
+    t_eps    = time.time() - t0_eps
+    n_eval_E = evaluator.n_eval
+    print(f"  Elapsed: {t_eps:.1f} s  |  evaluations: {n_eval_E}")
 
     X_e = eps_res['X']
     F_e = eps_res['F']
@@ -228,6 +335,12 @@ def main():
 
     _save_pareto_csv(
         os.path.join(results_d, 'pareto_epsilon.csv'), X_e, F_e)
+
+    # B2 — method comparison table
+    _save_method_comparison_csv(
+        os.path.join(results_d, 'method_comparison.csv'),
+        F_f, F_e, t_nsga2, t_eps, n_eval_N, n_eval_E,
+    )
 
     # ── Select compromise solution ───────────────────────────────────────────
     combined_F = np.vstack([F_f, F_e]) if len(F_e) else F_f

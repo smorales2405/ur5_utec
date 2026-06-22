@@ -159,6 +159,47 @@ def plot_parallel_coords(F_n: np.ndarray, F_e: np.ndarray | None):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def plot_convergence(conv_path: str):
+    """
+    Plot hypervolume vs. generation from convergence_nsga2.csv (B1).
+
+    The first line of the file is a comment with the HV reference point.
+    Columns: gen, hypervolume, n_nondominated.
+    """
+    ref_line = ''
+    with open(conv_path) as fh:
+        for line in fh:
+            if line.startswith('#'):
+                ref_line = line.strip('# \n')
+            else:
+                break
+
+    data = np.genfromtxt(conv_path, delimiter=',', comments='#',
+                          skip_header=1)   # skip column-header row
+    if data.ndim == 1:
+        data = data[np.newaxis, :]
+
+    gen  = data[:, 0]
+    hv   = data[:, 1]     # may contain NaN for early infeasible generations
+    n_nd = data[:, 2]
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 6), sharex=True)
+
+    ax1.plot(gen, hv, color='steelblue', lw=1.5)
+    ax1.set_ylabel('Hypervolume indicator', fontsize=10)
+    ax1.set_title(f'NSGA-II convergence\n{ref_line}', fontsize=10)
+    ax1.grid(True, linestyle='--', alpha=0.4)
+
+    ax2.plot(gen, n_nd, color='darkorange', lw=1.2)
+    ax2.set_xlabel('Generation', fontsize=10)
+    ax2.set_ylabel('Non-dominated solutions', fontsize=10)
+    ax2.grid(True, linestyle='--', alpha=0.4)
+
+    plt.tight_layout()
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--results', default='', help='Path to results directory')
@@ -193,10 +234,22 @@ def main():
     fig2 = plot_2d_projections(F_n, F_e, selected)
     fig3 = plot_parallel_coords(F_n, F_e)
 
+    # B1 — convergence plot (generated only when convergence_nsga2.csv exists)
+    conv_path = os.path.join(results_d, 'convergence_nsga2.csv')
+    if os.path.exists(conv_path):
+        fig_conv = plot_convergence(conv_path)
+    else:
+        fig_conv = None
+        print("Note: convergence_nsga2.csv not found — re-run optimization to generate it.")
+
     if args.save:
         for fig, name in [(fig1, '3d'), (fig2, '2d'), (fig3, 'parallel')]:
             path = os.path.join(results_d, f'pareto_{name}.png')
             fig.savefig(path, dpi=150, bbox_inches='tight')
+            print(f"Saved: {path}")
+        if fig_conv is not None:
+            path = os.path.join(results_d, 'convergence.png')
+            fig_conv.savefig(path, dpi=150, bbox_inches='tight')
             print(f"Saved: {path}")
     else:
         plt.show()

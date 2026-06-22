@@ -16,10 +16,13 @@ import pinocchio as pin
 from typing import Dict, List, Optional, Tuple
 
 from pymoo.algorithms.moo.nsga2 import NSGA2
+from pymoo.core.callback import Callback
 from pymoo.core.problem import ElementwiseProblem
 from pymoo.optimize import minimize as pymoo_minimize
 from pymoo.termination.default import DefaultMultiObjectiveTermination
 from scipy.optimize import minimize as scipy_minimize
+
+from .metrics import compute_hv, HV_REF_POINT
 
 from .trajectory_model import build_trajectory, CartesianWaypoint
 from .ik_interface import IKInterface
@@ -63,6 +66,7 @@ class TrajectoryEvaluator:
             't_D':t0 + pp + td + pp,
         }
 
+        self.n_eval        = 0
         self._q_home       = np.array(config['home_joint_angles'])
         self._pts_per_seg  = config['pts_per_seg']
         self._q_min        = np.array(config['joint_q_min'])
@@ -79,12 +83,16 @@ class TrajectoryEvaluator:
             'alpha':    config.get('ik_alpha',    0.8),
         }
 
+    def reset_eval_counter(self) -> None:
+        self.n_eval = 0
+
     # ------------------------------------------------------------------
     def evaluate(self, via: np.ndarray) -> Tuple[float, float, float, float]:
         """
         Evaluate objectives and constraint for one via-point candidate.
         Returns (f1, f2, f3, g1).  Infeasible → large penalty values.
         """
+        self.n_eval += 1
         traj = build_trajectory(via, self._fixed, self._pts_per_seg)
 
         qs, ik_ok = self._ik.solve_trajectory(
@@ -120,6 +128,38 @@ class TrajectoryEvaluator:
 # NSGA-II via pymoo
 # ─────────────────────────────────────────────────────────────────────────────
 
+class _HVCallback(Callback):
+    """
+    Records hypervolume and non-dominated set size after each NSGA-II generation.
+
+    Uses a fixed reference point (HV_REF_POINT from metrics.py) so that values
+    are comparable across runs.  Solutions that don't lie strictly below the
+    reference point (e.g., early penalty-dominated generations) are excluded and
+    HV is recorded as NaN.
+    """
+
+    def __init__(self, ref_point: np.ndarray = HV_REF_POINT) -> None:
+        super().__init__()
+        self._ref   = ref_point
+        self.history: List[Tuple[int, float, int]] = []   # (gen, hv, n_nondom)
+
+    def notify(self, algorithm) -> None:
+        opt = getattr(algorithm, 'opt', None)
+        if opt is None or len(opt) == 0:
+            return
+        F = opt.get('F')
+        if F is None or len(F) == 0:
+            return
+        feasible = np.all(F < 1e5, axis=1)
+        F_f = F[feasible]
+        n_nd = int(feasible.sum())
+        try:
+            hv_val = compute_hv(F_f, self._ref) if n_nd > 0 else float('nan')
+        except Exception:
+            hv_val = float('nan')
+        self.history.append((int(algorithm.n_gen), hv_val, n_nd))
+
+
 class _ViaPointProblem(ElementwiseProblem):
     def __init__(self, evaluator: TrajectoryEvaluator, bounds: np.ndarray) -> None:
         xl = bounds[:, 0]
@@ -134,40 +174,62 @@ class _ViaPointProblem(ElementwiseProblem):
 
 
 def run_nsga2(
-    evaluator:   TrajectoryEvaluator,
-    bounds:      np.ndarray,         # shape (3,2): [[xmin,xmax],[ymin,ymax],[zmin,zmax]]
-    pop_size:    int   = 60,
-    n_gen:       int   = 120,
-    seed:        int   = 42,
-    verbose:     bool  = True,
+    evaluator:    TrajectoryEvaluator,
+    bounds:       np.ndarray,          # shape (3,2): [[xmin,xmax],[ymin,ymax],[zmin,zmax]]
+    pop_size:     int              = 60,
+    n_gen:        int              = 120,
+    seed:         int              = 42,
+    verbose:      bool             = True,
+    hv_ref_point: np.ndarray | None = None,
 ) -> Dict:
     """
     Run NSGA-II and return the Pareto-front approximation.
 
+    Parameters
+    ----------
+    hv_ref_point : reference point for per-generation HV tracking (B1).
+        Defaults to HV_REF_POINT from metrics.py when None.
+
     Returns dict with keys:
-      X  — decision variables of non-dominated solutions, shape (n, 3)
-      F  — objective values,                             shape (n, 3)
-      G  — constraint violations,                        shape (n, 1)
+      X           — decision variables of non-dominated solutions, shape (n, 3)
+      F           — objective values,                             shape (n, 3)
+      G           — constraint violations,                        shape (n, 1)
+      convergence — list of (gen, hypervolume, n_nondominated)
+      n_eval      — total number of objective-function evaluations
     """
-    problem = _ViaPointProblem(evaluator, bounds)
-    algorithm = NSGA2(pop_size=pop_size)
+    ref = hv_ref_point if hv_ref_point is not None else HV_REF_POINT
+    callback = _HVCallback(ref_point=ref)
+
+    problem    = _ViaPointProblem(evaluator, bounds)
+    algorithm  = NSGA2(pop_size=pop_size)
     termination = DefaultMultiObjectiveTermination(n_max_gen=n_gen)
 
     result = pymoo_minimize(
         problem, algorithm, termination,
         seed=seed, verbose=verbose, save_history=False,
+        callback=callback,
     )
+
+    n_eval = getattr(result.algorithm.evaluator, 'n_eval', 0)
 
     # result.X/F/G are None when no feasible (non-dominated) solutions exist.
     # Fall back to the final population so callers always get arrays.
     if result.X is not None:
-        return {'X': result.X, 'F': result.F, 'G': result.G}
+        return {
+            'X':           result.X,
+            'F':           result.F,
+            'G':           result.G,
+            'convergence': callback.history,
+            'n_eval':      n_eval,
+        }
 
     pop = result.pop
     return {
-        'X': pop.get('X'),
-        'F': pop.get('F'),
-        'G': pop.get('G'),
+        'X':           pop.get('X'),
+        'F':           pop.get('F'),
+        'G':           pop.get('G'),
+        'convergence': callback.history,
+        'n_eval':      n_eval,
     }
 
 

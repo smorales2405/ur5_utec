@@ -23,8 +23,9 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'run_optimization = ur5_trajectory_optimization.run_optimization:main',
+            'run_optimization  = ur5_trajectory_optimization.run_optimization:main',
             'export_trajectory = ur5_trajectory_optimization.export_selected_trajectory:main',
+            'eval_baseline_cu2 = ur5_trajectory_optimization.eval_baseline_cu2:main',
         ],
     },
 )
