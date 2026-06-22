@@ -184,14 +184,21 @@ def main(argv=None):
     via_cu2 = np.array(p['point_O'], dtype=float)
     print(f"\nCU2 baseline  point_O: {via_cu2.tolist()}")
 
-    # ── CU3 optimised: from selected_solution.yaml ───────────────────────────
-    via_opt, f1_yaml, f2_yaml, cl_yaml = _load_optimized(results_d)
+    # ── CU3 optimised: always from root results/selected_solution.yaml ──────
+    # base_results is always results/ root — same YAML that export_trajectory writes,
+    # so the comparison uses the exact Pareto-front values, not a re-evaluation.
+    via_opt, f1_yaml, f2_yaml, cl_yaml = _load_optimized(base_results)
     if via_opt is None:
-        print("ERROR: selected_solution.yaml not found.  Run 'run_optimization' first.")
+        print("ERROR: selected_solution.yaml not found.  Run 'export_trajectory' first.")
+        return
+    if f1_yaml is None:
+        print("ERROR: f1/f2/clearance not found in selected_solution.yaml comments.")
         return
     print(f"CU3 optimised point_O: {via_opt.tolist()}")
+    f1_o, f2_o, cl_o = f1_yaml, f2_yaml, cl_yaml
+    print(f"  f1={f1_o:.2f}  f2={f2_o:.4f}  clearance={cl_o:.4f}  (from selected_solution.yaml)")
 
-    # ── Evaluate both with the same evaluator ────────────────────────────────
+    # ── Evaluate CU2 baseline ────────────────────────────────────────────────
     print("\nBuilding TrajectoryEvaluator (Pinocchio)…")
     ev = TrajectoryEvaluator(config, urdf_path)
 
@@ -201,18 +208,6 @@ def main(argv=None):
         print("  WARNING: CU2 via-point is INFEASIBLE (penalty returned).")
     cl_b = -f3_b if f3_b < 1e5 else float('nan')
     print(f"  f1={f1_b:.2f}  f2={f2_b:.4f}  clearance={cl_b:.4f}  g1={g1_b:.4f}")
-
-    print("Evaluating CU3 optimised…")
-    f1_o, f2_o, f3_o, g1_o = ev.evaluate(via_opt)
-    if f1_o >= 1e5:
-        # Fall back to stored YAML values (evaluator degraded after long session)
-        print("  WARNING: evaluator returned penalty; using stored YAML values.")
-        f1_o = f1_yaml or float('nan')
-        f2_o = f2_yaml or float('nan')
-        cl_o = cl_yaml or float('nan')
-    else:
-        cl_o = -f3_o
-    print(f"  f1={f1_o:.2f}  f2={f2_o:.4f}  clearance={cl_o:.4f}")
 
     # ── % improvement ─────────────────────────────────────────────────────────
     pct_f1 = _pct(f1_b, f1_o, lower_is_better=True)

@@ -3,4 +3,4 @@
 # f1: lower is better  |  f2: lower is better  |  clearance: higher is better
 solution,via_x,via_y,via_z,f1_effort_N2m2s,f2_arclen_m,clearance_m,pct_improve_f1,pct_improve_f2,pct_improve_clearance
 CU2-baseline,0.750000,0.000000,0.400000,15472.0230,2.5450,0.1269,-,-,-
-CU3-optimized,0.504081,-0.000313,0.430253,13919.5517,2.5922,0.1570,10.03,-1.86,23.74
+CU3-optimized,0.504081,-0.000313,0.430253,13919.5504,2.5922,0.1570,10.03,-1.85,23.72
