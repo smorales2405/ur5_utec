@@ -66,7 +66,9 @@ class TrajectoryEvaluator:
             't_D':t0 + pp + td + pp,
         }
 
-        self.n_eval        = 0
+        self.n_eval           = 0
+        self.n_ik_fail        = 0
+        self.n_clearance_fail = 0
         self._q_home       = np.array(config['home_joint_angles'])
         self._pts_per_seg  = config['pts_per_seg']
         self._q_min        = np.array(config['joint_q_min'])
@@ -84,7 +86,9 @@ class TrajectoryEvaluator:
         }
 
     def reset_eval_counter(self) -> None:
-        self.n_eval = 0
+        self.n_eval           = 0
+        self.n_ik_fail        = 0
+        self.n_clearance_fail = 0
 
     # ------------------------------------------------------------------
     def evaluate(self, via: np.ndarray) -> Tuple[float, float, float, float]:
@@ -101,6 +105,7 @@ class TrajectoryEvaluator:
         feasible, _ = is_feasible(
             ik_ok, qs, self._q_min, self._q_max)
         if not feasible:
+            self.n_ik_fail += 1
             return self._PENALTY, self._PENALTY, self._PENALTY, self._PENALTY
 
         # Build keypoints list for f2 (arc-length of spline segments)
@@ -119,9 +124,13 @@ class TrajectoryEvaluator:
             self._obstacle, self._pts_per_seg,
         )
         if result is None:
+            self.n_ik_fail += 1
             return self._PENALTY, self._PENALTY, self._PENALTY, self._PENALTY
 
-        return result   # (f1, f2, f3, g1)
+        f1, f2, f3, g1 = result
+        if g1 > 0:
+            self.n_clearance_fail += 1
+        return f1, f2, f3, g1
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -264,7 +273,7 @@ def run_epsilon_constraint(
 
     scipy_bounds = [(bounds[i, 0], bounds[i, 1]) for i in range(3)]
 
-    result_X, result_F, successes = [], [], []
+    result_X, result_F, successes, iters = [], [], [], []
 
     for k, eps in enumerate(eps_values):
         # Warm-start from the Pareto-front member closest to current ε
@@ -303,17 +312,19 @@ def run_epsilon_constraint(
         result_X.append(res.x)
         result_F.append([f1, f2, f3])
         successes.append(res.success)
+        iters.append(int(res.nit))
 
         if verbose:
             status = 'OK' if res.success else 'failed'
             print(f"  ε[{k+1:02d}/{n_steps}] = {eps:.4f}  "
-                  f"f={[f1, f2, f3]}  {status}")
+                  f"f={[f1, f2, f3]}  {status}  ({res.nit} iter)")
 
     return {
         'X':          np.array(result_X),
         'F':          np.array(result_F),
         'eps_values': eps_values,
         'success':    np.array(successes),
+        'nit':        np.array(iters, dtype=int),
     }
 
 
@@ -428,4 +439,5 @@ def run_epsilon_constraint_2d(
         'X':       np.vstack([res_f1['X'],       res_f3['X']]),
         'F':       np.vstack([res_f1['F'],        res_f3['F']]),
         'success': np.concatenate([res_f1['success'], res_f3['success']]),
+        'nit':     np.concatenate([res_f1['nit'],     res_f3['nit']]),
     }

@@ -127,27 +127,38 @@ def _save_convergence_csv(path: str, history: list, ref_point: np.ndarray) -> No
 
 
 def _save_method_comparison_csv(
-    path:       str,
-    F_N:        np.ndarray,
-    F_E:        np.ndarray,
-    t_nsga2:    float,
-    t_eps:      float,
-    n_eval_N:   int,
-    n_eval_E:   int,
+    path:               str,
+    F_N:                np.ndarray,
+    F_E:                np.ndarray,
+    t_nsga2:            float,
+    t_eps:              float,
+    n_eval_N:           int,
+    n_eval_E:           int,
+    n_ik_fail_N:        int             = 0,
+    n_clearance_fail_N: int             = 0,
+    n_ik_fail_E:        int             = 0,
+    n_clearance_fail_E: int             = 0,
+    slsqp_success:      np.ndarray | None = None,
+    slsqp_nit:          np.ndarray | None = None,
 ) -> None:
     """
     Compute and write method_comparison.csv (one row per method).
 
     Columns:
       method, n_solutions, n_nondominated, hypervolume, spacing,
-      igd_vs_combined, c_vs_other, c_by_other, time_s, n_evals
+      igd_vs_combined, c_vs_other, c_by_other, time_s, n_evals,
+      n_ik_fail, n_clearance_fail, slsqp_converged, slsqp_total, slsqp_avg_iter
 
     Metrics:
-      hypervolume     — HV of non-dominated subset w.r.t. HV_REF_POINT.
-      spacing         — Schott spacing of non-dominated subset.
-      igd_vs_combined — IGD from this method's ND front to the combined ND front.
-      c_vs_other      — C(A,B): fraction of other method's ND front dominated by A.
-      c_by_other      — C(B,A): fraction of A's ND front dominated by other method.
+      hypervolume          — HV of non-dominated subset w.r.t. HV_REF_POINT.
+      spacing              — Schott spacing of non-dominated subset.
+      igd_vs_combined      — IGD from this method's ND front to the combined ND front.
+      c_vs_other / c_by_other — binary coverage C(A,B) / C(B,A).
+      n_ik_fail            — evaluations discarded due to IK failure or joint-limit violation.
+      n_clearance_fail     — evaluations where obstacle clearance g1 > 0.
+      slsqp_converged      — (ε-constraint only) SLSQP sub-problems that converged.
+      slsqp_total          — (ε-constraint only) total SLSQP sub-problems.
+      slsqp_avg_iter       — (ε-constraint only) average SLSQP iterations per sub-problem.
     """
     has_eps = len(F_E) > 0
 
@@ -182,21 +193,28 @@ def _save_method_comparison_csv(
     else:
         c_N_vs_E = c_E_vs_N = 0.0
 
+    # SLSQP convergence stats (ε-constraint only)
+    s_ok   = slsqp_success if slsqp_success is not None else np.array([], dtype=bool)
+    s_nit  = slsqp_nit    if slsqp_nit    is not None else np.array([], dtype=int)
+    n_ok   = int(s_ok.sum())     if len(s_ok)  else 0
+    n_tot  = len(s_ok)
+    avg_it = float(s_nit.mean()) if len(s_nit) else float('nan')
+    avg_it_str = f'{avg_it:.1f}' if avg_it == avg_it else '-'
+
     cols = ('method,n_solutions,n_nondominated,hypervolume,spacing,'
-            'igd_vs_combined,c_vs_other,c_by_other,time_s,n_evals')
-    rows = [
-        ('NSGA-II',       len(F_N), len(FN_nd), hv_N, sp_N, igd_N,
-         c_N_vs_E, c_E_vs_N, t_nsga2, n_eval_N),
-        ('e-constraint',  len(F_E), len(FE_nd), hv_E, sp_E, igd_E,
-         c_E_vs_N, c_N_vs_E, t_eps,   n_eval_E),
-    ]
+            'igd_vs_combined,c_vs_other,c_by_other,time_s,n_evals,'
+            'n_ik_fail,n_clearance_fail,slsqp_converged,slsqp_total,slsqp_avg_iter')
+
     with open(path, 'w') as fh:
         fh.write('# CU3 — method comparison metrics\n')
         fh.write(f'# HV ref_point: {list(HV_REF_POINT)}\n')
         fh.write(cols + '\n')
-        for r in rows:
-            fh.write(f'{r[0]},{r[1]},{r[2]},{r[3]:.6f},{r[4]:.6f},'
-                     f'{r[5]:.6f},{r[6]:.4f},{r[7]:.4f},{r[8]:.1f},{r[9]}\n')
+        fh.write(f'NSGA-II,{len(F_N)},{len(FN_nd)},{hv_N:.6f},{sp_N:.6f},'
+                 f'{igd_N:.6f},{c_N_vs_E:.4f},{c_E_vs_N:.4f},{t_nsga2:.1f},{n_eval_N},'
+                 f'{n_ik_fail_N},{n_clearance_fail_N},-,-,-\n')
+        fh.write(f'e-constraint,{len(F_E)},{len(FE_nd)},{hv_E:.6f},{sp_E:.6f},'
+                 f'{igd_E:.6f},{c_E_vs_N:.4f},{c_N_vs_E:.4f},{t_eps:.1f},{n_eval_E},'
+                 f'{n_ik_fail_E},{n_clearance_fail_E},{n_ok},{n_tot},{avg_it_str}\n')
     print(f"  saved → {path}")
 
 
@@ -303,8 +321,11 @@ def main(argv=None):
     nsga2_res = run_nsga2(evaluator, bounds, pop_size, n_gen, seed, verbose=True,
                            hv_ref_point=HV_REF_POINT)
     t_nsga2   = time.time() - t0_nsga2
-    n_eval_N  = nsga2_res.get('n_eval', 0)
+    n_eval_N           = nsga2_res.get('n_eval', 0)
+    n_ik_fail_N        = evaluator.n_ik_fail
+    n_clearance_fail_N = evaluator.n_clearance_fail
     print(f"  Elapsed: {t_nsga2:.1f} s  |  evaluations: {n_eval_N}")
+    print(f"  IK failures: {n_ik_fail_N}  |  clearance violations: {n_clearance_fail_N}")
 
     X_p, F_p, G_p = nsga2_res['X'], nsga2_res['F'], nsga2_res['G']
     print(f"  Pareto front: {len(X_p)} solutions")
@@ -350,9 +371,18 @@ def main(argv=None):
             evaluator, F_f, X_f, bounds,
             eps_obj_idx=eps_obj, n_steps=n_eps_f1, verbose=True,
         )
-    t_eps    = time.time() - t0_eps
-    n_eval_E = evaluator.n_eval
+    t_eps              = time.time() - t0_eps
+    n_eval_E           = evaluator.n_eval
+    n_ik_fail_E        = evaluator.n_ik_fail
+    n_clearance_fail_E = evaluator.n_clearance_fail
+    slsqp_success      = eps_res.get('success', np.array([], dtype=bool))
+    slsqp_nit          = eps_res.get('nit',     np.array([], dtype=int))
+    n_conv  = int(slsqp_success.sum()) if len(slsqp_success) else 0
+    n_tot   = len(slsqp_success)
+    avg_it  = float(slsqp_nit.mean()) if len(slsqp_nit) else float('nan')
     print(f"  Elapsed: {t_eps:.1f} s  |  evaluations: {n_eval_E}")
+    print(f"  SLSQP convergence: {n_conv}/{n_tot}  |  avg iter: {avg_it:.1f}")
+    print(f"  IK failures: {n_ik_fail_E}  |  clearance violations: {n_clearance_fail_E}")
 
     X_e = eps_res['X']
     F_e = eps_res['F']
@@ -368,6 +398,9 @@ def main(argv=None):
     _save_method_comparison_csv(
         os.path.join(results_d, 'method_comparison.csv'),
         F_f, F_e, t_nsga2, t_eps, n_eval_N, n_eval_E,
+        n_ik_fail_N=n_ik_fail_N, n_clearance_fail_N=n_clearance_fail_N,
+        n_ik_fail_E=n_ik_fail_E, n_clearance_fail_E=n_clearance_fail_E,
+        slsqp_success=slsqp_success, slsqp_nit=slsqp_nit,
     )
 
     # ── Select compromise solution ───────────────────────────────────────────
