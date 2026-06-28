@@ -1,0 +1,6 @@
+# Pilar 2 — comparación de solvers mono-objetivo con restricciones
+# f1: esfuerzo [N2*m2*s]  |  d_min: holgura TCP-obstáculo [m]
+metodo,xopt_x,xopt_y,xopt_z,f1,d_min,n_eval,n_iter,exito
+steepest_descent,0.500000,-0.003806,0.250000,13743.4893,0.1081,83,3,1
+direct_search,0.500000,-0.003906,0.250000,13743.4893,0.1081,122,20,1
+slsqp,0.500000,-0.003817,0.250000,13743.4893,0.1081,97,7,1

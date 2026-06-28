@@ -7,7 +7,7 @@ ROS 2 workspace for pick-and-place motion planning with a UR5e robot and Robotiq
 | `ur5_pick_place` | Main node, Cartesian trajectory generation, simulation assets (URDF, world, meshes) |
 | `ur5_kinematics` | QP-based inverse kinematics library (Pinocchio + OsqpEigen) |
 | `robotiq_description` | URDF and meshes for the Robotiq 2F-85 gripper (trimmed to 2F-85 only) |
-| `ur5_trajectory_optimization` | Offline multi-objective optimizer (CU3): NSGA-II + ε-constraint, Python |
+| `ur5_trajectory_optimization` | Offline multi-objective optimizer (CU3): NSGA-II + ε-constraint, Python — plus the *Trabajo Integrador* (3 numerical-methods pillars) |
 
 ---
 
@@ -22,6 +22,7 @@ ROS 2 workspace for pick-and-place motion planning with a UR5e robot and Robotiq
 7. [Parameters](#7-parameters)
 8. [Output Data](#8-output-data)
 9. [Test organisation](#9-test-organisation)
+10. [Trabajo Integrador — Numerical-methods pillars](#10-trabajo-integrador--numerical-methods-pillars)
 
 ---
 
@@ -446,9 +447,17 @@ ur5_utec/
 │
 └── ur5_trajectory_optimization/            # CU3 multi-objective optimizer (Python)
     ├── config/
-    │   └── optimization_params.yaml        # NSGA-II / ε-constraint / selection / IK / search domain
+    │   └── optimization_params.yaml        # NSGA-II / ε-constraint / selection / IK / search domain + final_project block
     ├── results/                            # All optimisation outputs (auto-generated)
     │   ├── selected_solution.yaml          # Active ROS 2 param override (always at root)
+    │   ├── final/                          # Trabajo Integrador outputs (3 pillars)
+    │   │   ├── integration_comparison.csv      # Pillar 1: quadrature convergence study
+    │   │   ├── singleobjective_comparison.csv  # Pillar 2: solver comparison
+    │   │   ├── selected_solution_final.yaml    # Pillar 2: canonical O★ (from SLSQP)
+    │   │   ├── kkt_certificate.txt             # Pillar 2: KKT / bordered-Hessian certificate
+    │   │   ├── baseline_vs_optimized.csv       # Pillar 2: CU2 baseline vs O★
+    │   │   ├── dynamics_validation.csv         # Pillar 3: Euler vs RK4 error table
+    │   │   └── plots/                          # integration_convergence, steepest_descent_path, euler_vs_rk4
     │   └── testN/                          # Per-test outputs (--test N)
     │       ├── pareto_nsga2.csv            # NSGA-II non-dominated front
     │       ├── pareto_epsilon.csv          # ε-constraint 2D sweep solutions
@@ -462,17 +471,25 @@ ur5_utec/
     │           └── baseline_comparison.png # eval_baseline_cu2 output (B3)
     ├── scripts/
     │   ├── plot_pareto.py                  # Pareto + convergence visualisation (--test N)
-    │   └── compare_optimization.m          # MATLAB: compare NSGA-II vs ε-constraint (TEST_ID)
+    │   ├── compare_optimization.m          # MATLAB: compare NSGA-II vs ε-constraint (TEST_ID)
+    │   ├── compare_integration.py          # Pillar 1: quadrature convergence study → CSV + figure
+    │   ├── kkt_certification.py            # Pillar 2: Lagrange + bordered Hessian of active bound
+    │   └── validate_dynamics.py            # Pillar 3: Euler vs RK4 forward-dynamics validation
     └── ur5_trajectory_optimization/
         ├── trajectory_model.py             # Python port of clamped cubic spline (exact C++ match)
         ├── ik_interface.py                 # Damped least-squares IK with gripper_tcp offset
-        ├── objective_evaluators.py         # f1 (RNEA), f2 (arc length), f3 (AABB clearance)
+        ├── objective_evaluators.py         # f1 (RNEA), f2 (arc length), f3 (AABB clearance); f1 method= (Pillar 1)
         ├── constraints.py                  # IK convergence + joint limit checks
         ├── metrics.py                      # HV, spacing, IGD, C-metric, filter_nondominated (B1/B2)
         ├── multiobjective_optimizer.py     # NSGA-II + _HVCallback + 2D ε-constraint + selectors
         ├── run_optimization.py             # Entry point: two-stage pipeline + CSV outputs
         ├── export_selected_trajectory.py  # Export selected solution to results/ root YAML
-        └── eval_baseline_cu2.py           # CU2 baseline vs CU3 comparison + bar chart (B3)
+        ├── eval_baseline_cu2.py           # CU2 baseline vs CU3 comparison + bar chart (B3)
+        ├── numerical_integration.py        # Pillar 1: trapezoid/Simpson/Romberg/Gauss-Legendre (by hand)
+        ├── integrands.py                   # Pillar 1: arc-length and effort integrands as callables
+        ├── singleobjective_optimizer.py    # Pillar 2: steepest descent / direct search / SLSQP
+        ├── run_singleobjective.py          # Pillar 2: entry point → comparison + canonical O★
+        └── forward_dynamics_validation.py  # Pillar 3: pin.aba + Euler / RK4 (by hand)
 ```
 
 ---
@@ -672,3 +689,96 @@ results/
 ### HV reference point
 
 The hypervolume indicator uses a fixed reference point `[20 000, 3.0, 0.0]` (f₁ [N²·m²·s], f₂ [m], f₃) across all tests, ensuring HV values are directly comparable between runs.
+
+---
+
+## 10. Trabajo Integrador — Numerical-methods pillars
+
+The *Trabajo Integrador* extends CU3 with three numerical-methods pillars (course MCI8102), using **only methods covered in class — implemented by hand** — and **reusing the existing CU3 infrastructure** (evaluator, IK, Pinocchio, trajectory model). All code is **additive**: the CU3 pipeline (`run_optimization`) is unchanged by default (`f1_joint_effort` keeps `method='trapezoid'`, which is bit-identical to `np.trapz`).
+
+All outputs are written to `results/final/` (the `results/test1`, `results/test2` directories are never touched). Configuration lives in the `final_project:` block of `optimization_params.yaml`.
+
+```bash
+source ~/ur5_ws/install/setup.bash
+
+# Pillar 2 first — it produces the canonical O★ used by the other pillars
+ros2 run ur5_trajectory_optimization run_singleobjective
+
+SCRIPTS=~/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/scripts
+python3 $SCRIPTS/compare_integration.py     # Pillar 1
+python3 $SCRIPTS/kkt_certification.py        # Pillar 2 (certificate)
+python3 $SCRIPTS/validate_dynamics.py        # Pillar 3
+```
+
+### Pillar 1 — Numerical integration comparison (Unit 5)
+
+Compares **trapezoid, Simpson, Romberg and Gauss-Legendre** (hand-implemented in `numerical_integration.py`, with an evaluation counter) on the two objective integrands built in `integrands.py`:
+- **Arc length** `‖ṗ(t)‖` — analytic from the spline derivative (clean, smooth integrand).
+- **Effort** `Σᵢ τᵢ(t)²` — costly: samples `q(t)` by IK, estimates `q̇, q̈` by finite differences, calls `pin.rnea`.
+
+```bash
+python3 scripts/compare_integration.py        # uses O★ from selected_solution_final.yaml
+```
+
+| Output | Description |
+|---|---|
+| `results/final/integration_comparison.csv` | `objetivo, metodo, n, valor, error_abs, error_rel, n_evals` |
+| `results/final/plots/integration_convergence.png` | Error vs. n (log-log), one curve per method per integrand |
+
+- `f1_joint_effort(taus, times, method='trapezoid'|'simpson')` parametrises the rule and dispatches to `numerical_integration`. The default `'trapezoid'` preserves CU3 behaviour exactly.
+- **Result:** on the smooth arc-length integrand Gauss-Legendre and Romberg converge spectrally (error ≈ 1e-13) while trapezoid stays ≈ 1e-4; on the effort integrand (IK + RNEA, less smooth) Gauss-Legendre still wins but by a smaller margin.
+- **Study domain:** the integrands are evaluated over a single smooth spline segment `[t_B, t_C]` (the B→O→C arc containing O★). Integrating across spline junctions introduces zero-velocity corners that destroy the spectral convergence of global rules — the correct way to integrate across junctions is per-segment (exactly what `f2` does). The effort integrand uses a strict IK (`tol = 1e-8`) so the finite-difference `q̈` is not dominated by IK noise.
+
+### Pillar 2 — Single-objective optimization with constraints (Unit 7, "Alternative 1b")
+
+Solves `min f1(O)` subject to `d_min(O) ≥ d_safe` and the box bounds, with three solvers in `singleobjective_optimizer.py` reusing `TrajectoryEvaluator`:
+- **`steepest_descent`** — exterior penalty + steepest descent (finite-difference gradient, bounded line search) with **projected gradient** so iterates slide along active bounds.
+- **`direct_search`** — gradient-free coordinate (pattern) search, robustness check against evaluator noise.
+- **`slsqp_reference`** — SLSQP with the explicit constraints (the professional reference).
+
+```bash
+ros2 run ur5_trajectory_optimization run_singleobjective
+python3 scripts/kkt_certification.py
+```
+
+| Output | Description |
+|---|---|
+| `results/final/singleobjective_comparison.csv` | `metodo, xopt_x/y/z, f1, d_min, n_eval, n_iter, exito` |
+| `results/final/selected_solution_final.yaml` | Canonical **O★** (from SLSQP, validated against steepest descent) |
+| `results/final/baseline_vs_optimized.csv` | CU2 baseline `[0.75, 0, 0.40]` vs O★ + % improvement |
+| `results/final/kkt_certificate.txt` | KKT multipliers, gradient, Hessian, bordered Hessian, verdict |
+| `results/final/plots/steepest_descent_path.png` | Penalised `J̃` contour (x, z slice) + descent iterates |
+
+- **Result:** all three solvers converge to the same **O★ = [0.50, ≈0, 0.25]**. The pure-effort minimum sits in a **corner with two active lower bounds** (x = 0.50 *and* z = 0.25), not just `x = 0.50`. The KKT certificate confirms it: multipliers `λ_x ≈ 4195`, `λ_z ≈ 837` (both ≥ 0, so `x = 0.50` is strictly active), `∂f1/∂y ≈ 0` (interior in y), and the reduced Hessian on the free y-direction `≈ 7676 > 0` (second-order sufficient condition) → minimum **certified**.
+- **O★ vs CU3 knee:** they differ by ≈ 0.18 m. The single-objective optimum minimises effort (`+11 %` vs CU2) and arc length (`+2 %`) but **reduces clearance by ≈ 15 %** (0.127 → 0.108 m, still ≥ `d_safe = 0.10 m`). This is the expected single-objective vs multi-objective-compromise contrast — the CU3 knee balances all three objectives and keeps z = 0.43.
+
+### Pillar 3 — ODE validation: Euler vs. RK4 (Unit 6.1–6.2)
+
+Integrates the **forward** dynamics (`pin.aba`, the inverse of CU3's RNEA) with hand-coded **Euler** and **RK4** on the optimum's torque profile, validating dynamic feasibility before Gazebo. State `y = [q (6), q̇ (6)]` (12 states).
+
+```bash
+python3 scripts/validate_dynamics.py
+```
+
+| Output | Description |
+|---|---|
+| `results/final/dynamics_validation.csv` | `integrador, h, error_max, error_rms, estable` |
+| `results/final/plots/euler_vs_rk4.png` | Joint tracking + error vs. h (log-log) |
+
+- **Result:** over a bounded window of the via motion `[t_B, t_B + 1 s]`, compared against a **self-consistent fine-RK4 reference**, Euler converges as `O(h)` and RK4 as `O(h⁴)` — RK4 is 4 000× to 5 000 000× more accurate at the same `h`.
+- **Stability finding:** integrating the full 6 s open-loop **diverges for both methods** — the nominal trajectory is an unstable solution of the manipulator ODE, so any integrator error grows exponentially. This motivates the closed-loop joint-trajectory controller used in Gazebo. The bounded window + self-consistent reference isolate the integrators' order from both the plant instability and the IK-reference noise.
+
+### Configuration (`final_project:` block)
+
+| Parameter | Default | Pillar | Description |
+|---|---|---|---|
+| `integration_n_values` | `[4,8,16,32,64,128]` | 1 | n values for the convergence study |
+| `integration_reference_n` | `2048` | 1 | n for the fine effort reference |
+| `effort_integration_method` | `trapezoid` | 1 | tabular rule used by `f1` (CU3 default) |
+| `penalty_mu` | `1.0e5` | 2 | penalty weight (clearance + box) |
+| `d_safe_extra` | `0.05` | 2 | `d_safe = obstacle_r_grip + d_safe_extra` |
+| `sd_x0` | `[0.70, 0.0, 0.40]` | 2 | solver seed (CU2 via-point) |
+| `sd_tol` / `sd_max_iter` | `1e-4` / `50` | 2 | steepest-descent tolerance / iterations |
+| `ode_h_values` | `[0.02,0.01,0.005,0.002]` | 3 | integration steps to compare |
+| `ode_horizon` | `1.0` | 3 | validation window length `[t_B, t_B+horizon]` |
+| `ode_ref_h` | `1.0e-4` | 3 | step of the self-consistent RK4 reference |

@@ -58,3 +58,23 @@ ik_alpha:     0.8      # step size
 # ── Directorio de resultados ──────────────────────────────────────────────────
 # Vacío → $HOME/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results
 results_dir: ""
+
+# ── Trabajo Integrador ───────────────────────────────────────────────────────
+# Bloque aditivo: NO altera el comportamiento del CU3 (run_optimization.py).
+final_project:
+  # Pilar 1 — integración comparada (Unidad 5)
+  integration_n_values: [4, 8, 16, 32, 64, 128]
+  integration_reference_n: 2048
+  effort_integration_method: trapezoid   # método tabular usado por f1 (default CU3)
+
+  # Pilar 2 — mono-objetivo con restricciones (Unidad 7 / 1b)
+  penalty_mu: 1.0e5            # peso de penalización de holgura y de cotas
+  d_safe_extra: 0.05          # d_safe = obstacle_r_grip + d_safe_extra
+  sd_x0: [0.70, 0.0, 0.40]    # semilla (O del CU2)
+  sd_tol: 1.0e-4
+  sd_max_iter: 50
+
+  # Pilar 3 — validación EDO (Unidad 6.1–6.2)
+  ode_h_values: [0.02, 0.01, 0.005, 0.002]
+  ode_horizon:  1.0      # ventana de validación [t_B, t_B+horizon] (movimiento del via)
+  ode_ref_h:    1.0e-4   # paso de la referencia auto-consistente (RK4 fino)

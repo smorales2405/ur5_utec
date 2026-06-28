@@ -18,6 +18,7 @@ import pinocchio as pin
 from typing import List, Dict, Tuple
 
 from .trajectory_model import CartesianWaypoint, spline_arc_length
+from .numerical_integration import trapezoid_samples, simpson_samples
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -65,15 +66,30 @@ def compute_rnea_torques(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def f1_joint_effort(
-    taus:  List[np.ndarray],
-    times: List[float],
+    taus:   List[np.ndarray],
+    times:  List[float],
+    method: str = 'trapezoid',
 ) -> float:
     """
-    ∫₀ᵀ Σᵢ τᵢ(t)² dt  via trapezoidal integration.
+    ∫₀ᵀ Σᵢ τᵢ(t)² dt  por integración numérica sobre la malla tabular.
     Units: N²·m²·s
+
+    Parameters
+    ----------
+    method : 'trapezoid' (por defecto) → regla del trapecio tabular, idéntica a
+             ``np.trapz`` y al comportamiento del CU3 (no rompe nada).
+             'simpson'   → Simpson 1/3 tabular (Pilar 1).
+
+    El despacho a las cuadraturas de ``numerical_integration`` deja un único
+    punto de inserción para comparar reglas sin tocar el resto del evaluador.
     """
-    tau_sq = np.array([np.dot(t, t) for t in taus])
-    return float(np.trapz(tau_sq, times))
+    tau_sq = np.array([np.dot(t, t) for t in taus], dtype=float)
+    x      = np.asarray(times, dtype=float)
+    if method == 'simpson':
+        return simpson_samples(tau_sq, x)
+    if method == 'trapezoid':
+        return trapezoid_samples(tau_sq, x)
+    raise ValueError(f"método de integración no soportado para f1: {method!r}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

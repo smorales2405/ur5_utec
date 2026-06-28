@@ -1,0 +1,5 @@
+# CU2 baseline vs O★ canónico del Trabajo Integrador
+# pct_improve: positivo = mejor
+solution,via_x,via_y,via_z,f1_effort_N2m2s,f2_arclen_m,clearance_m,pct_improve_f1,pct_improve_f2,pct_improve_clearance
+CU2-baseline,0.750000,0.000000,0.400000,15472.0230,2.5450,0.1269,-,-,-
+O-star-final,0.500000,-0.003817,0.250000,13743.4893,2.4934,0.1081,11.17,2.03,-14.83

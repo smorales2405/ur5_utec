@@ -1,0 +1,8 @@
+# Trabajo Integrador — O★ canónico  (source=slsqp)
+# f1_effort=13743.4893 N2*m2*s  f2_arclen=2.4934 m  clearance=0.1081 m
+pick_place_node:
+  ros__parameters:
+    point_O:
+    - 0.5
+    - -0.003817
+    - 0.25

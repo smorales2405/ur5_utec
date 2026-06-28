@@ -1,0 +1,56 @@
+Certificación KKT — óptimo mono-objetivo del Trabajo Integrador
+================================================================
+
+O★ = [0.5, -0.003817, 0.25]
+f1(O★)    = 13743.4893 N²·m²·s
+d_min(O★) = 0.1081 m   (d_safe = 0.1000 m)
+
+Gradiente del objetivo (diferencias finitas centradas):
+  ∇f1 = [4195.22, -0.04, 837.29]   (h=0.002)
+
+Conjunto activo (m=2):
+  - cota inferior x (=0.50)
+  - cota inferior z (=0.25)
+  (holgura INACTIVA: d_min−d_safe = +0.0081 m)
+
+Jacobiano de restricciones activas A (filas = ∇cᵢ):
+[[1. 0. 0.]
+ [0. 0. 1.]]
+
+Multiplicadores de Lagrange (∇f1 = Aᵀλ, KKT):
+  λ[cota inferior x (=0.50)] = 4195.215   ≥0 ✓
+  λ[cota inferior z (=0.25)] = 837.292   ≥0 ✓
+
+  >>> Cota de borde x=0.50 ACTIVA con λ_x = 4195.215 (≠ 0 ✓)
+
+  residual estacionariedad ‖∇f1 − Aᵀλ‖ = 4.301e-02
+
+Hessiano del objetivo ∇²f1 (diferencias finitas):
+[[17638.63158499  -352.90552819 -3170.34847362]
+ [ -352.90552819  7676.52389618   -48.70002331]
+ [-3170.34847362   -48.70002331   876.51422939]]
+
+Espacio tangente (dim 1), Hessiano reducido ZᵀHZ:
+[[7676.52389618]]
+  autovalores = [7676.52389618]   (>0 ⇒ mínimo en el subespacio libre)
+
+Hessiano orlado B = [[0, A], [Aᵀ, ∇²f1]]:
+[[ 0.00000000e+00  0.00000000e+00  1.00000000e+00  0.00000000e+00
+   0.00000000e+00]
+ [ 0.00000000e+00  0.00000000e+00  0.00000000e+00  0.00000000e+00
+   1.00000000e+00]
+ [ 1.00000000e+00  0.00000000e+00  1.76386316e+04 -3.52905528e+02
+  -3.17034847e+03]
+ [ 0.00000000e+00  0.00000000e+00 -3.52905528e+02  7.67652390e+03
+  -4.87000233e+01]
+ [ 0.00000000e+00  1.00000000e+00 -3.17034847e+03 -4.87000233e+01
+   8.76514229e+02]]
+  menores principales líderes = ['0.000e+00', '0.000e+00', '0.000e+00', '0.000e+00', '7.677e+03']
+  (para mínimo con m=2: los últimos 1 menores deben tener signo (−1)^m = 1)
+
+VEREDICTO
+----------------------------------------------------------------
+  Dual feasibility (λ ≥ 0)         : OK
+  Estacionariedad (∇f1 = Aᵀλ)      : OK
+  2º orden (ZᵀHZ ≻ 0)              : OK
+  ⇒ O★ es un punto KKT / mínimo local: CERTIFICADO

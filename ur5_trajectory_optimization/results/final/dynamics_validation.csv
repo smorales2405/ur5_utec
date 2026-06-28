@@ -1,0 +1,12 @@
+# Pilar 3 — validación dinámica Euler vs RK4 sobre τ(t) del óptimo
+# horizonte completo (6s) en lazo abierto DIVERGE: Euler emax=4.7e+03, RK4 emax=3.7e+02 rad  → requiere control en lazo cerrado
+# error en rad vs. referencia auto-consistente (RK4 fino) en la ventana
+integrador,h,error_max,error_rms,estable
+euler,0.0200,1.033800e-01,3.313650e-02,1
+rk4,0.0200,2.518471e-05,4.776814e-06,1
+euler,0.0100,6.136891e-02,1.836367e-02,1
+rk4,0.0100,1.584845e-06,2.953453e-07,1
+euler,0.0050,3.337337e-02,9.697126e-03,1
+rk4,0.0050,9.941098e-08,1.836120e-08,1
+euler,0.0020,1.402729e-02,4.012309e-03,1
+rk4,0.0020,2.550687e-09,4.685784e-10,1
