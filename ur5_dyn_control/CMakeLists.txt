@@ -1,0 +1,68 @@
+cmake_minimum_required(VERSION 3.8)
+project(ur5_dyn_control)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(controller_manager_msgs REQUIRED)
+find_package(ament_index_cpp REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(pinocchio REQUIRED)
+find_package(OsqpEigen REQUIRED)
+find_package(ur5_kinematics REQUIRED)
+
+# ── Libreria compartida (spline, dinamica, referencias, switcher, base) ──────
+add_library(${PROJECT_NAME}_core SHARED
+  src/cartesian_spline_trajectory.cpp
+  src/ur5_dynamics.cpp
+  src/joint_reference_generator.cpp
+  src/controller_switcher.cpp
+  src/csv_logger.cpp
+  src/torque_control_node_base.cpp
+)
+target_include_directories(${PROJECT_NAME}_core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${PINOCCHIO_INCLUDE_DIRS}
+)
+target_link_libraries(${PROJECT_NAME}_core PUBLIC
+  ur5_kinematics::ur5_kinematics
+  Eigen3::Eigen
+  ${PINOCCHIO_LIBRARIES}
+)
+ament_target_dependencies(${PROJECT_NAME}_core PUBLIC
+  rclcpp sensor_msgs std_msgs controller_manager_msgs ament_index_cpp)
+
+# ── Nodos de control ──────────────────────────────────────────────────────────
+add_executable(gz_gravity_comp_node src/gz_gravity_comp_node.cpp)
+target_link_libraries(gz_gravity_comp_node ${PROJECT_NAME}_core)
+
+add_executable(gz_fl_control_node src/gz_fl_control_node.cpp)
+target_link_libraries(gz_fl_control_node ${PROJECT_NAME}_core)
+
+# ── Install ───────────────────────────────────────────────────────────────────
+install(TARGETS ${PROJECT_NAME}_core
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+install(TARGETS gz_gravity_comp_node gz_fl_control_node
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+install(DIRECTORY include/ DESTINATION include)
+install(DIRECTORY urdf config launch worlds DESTINATION share/${PROJECT_NAME})
+
+install(PROGRAMS
+  scripts/activate_and_unpause.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+ament_package()

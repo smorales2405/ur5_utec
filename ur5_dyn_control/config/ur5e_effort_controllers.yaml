@@ -1,0 +1,37 @@
+controller_manager:
+  ros__parameters:
+    use_sim_time: true
+    update_rate: 1000  # Hz — casa con lab_torque_world.sdf (paso 1 ms).
+                       # Usar 100 si se corre con lab_base_world.sdf (10 ms).
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    # Controlador de torque. Mismo nombre y contrato (Float64MultiArray en
+    # /forward_effort_controller/commands) que el forward_effort_controller
+    # del ur_robot_driver real -> los nodos de control son portables sim<->real.
+    #
+    # NOTA: no hay controlador de posicion. En gz_ros2_control 0.7.19 declarar
+    # la interfaz effort en el URDF activa el modo effort del joint desde el
+    # arranque (initSim) y el modo posicion deja de aplicarse a la fisica ->
+    # el esquema "posicion al inicio + switch a effort" NO es viable en esta
+    # simulacion. El sosten inicial lo da el arranque PAUSADO + el torque de
+    # gravedad pre-publicado por el nodo de control (ver
+    # TorqueControlNodeBase). En el robot real el driver UR si soporta el
+    # switch JTC <-> forward_effort_controller.
+    forward_effort_controller:
+      type: effort_controllers/JointGroupEffortController
+
+
+# El orden de 'joints' define el orden del Float64MultiArray en
+# /forward_effort_controller/commands = orden canonico kJointNames.
+forward_effort_controller:
+  ros__parameters:
+    joints:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_joint
+      - wrist_1_joint
+      - wrist_2_joint
+      - wrist_3_joint
+    interface_name: effort

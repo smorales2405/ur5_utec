@@ -1,0 +1,33 @@
+gz_gravity_comp_node:
+  ros__parameters:
+    use_sim_time: true
+
+    control_rate: 500.0
+    urdf_path: ""
+    gravity: 9.8
+    q_init: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+
+    command_topic: "/forward_effort_controller/commands"
+    controller_manager: "/controller_manager"
+    activate_controllers: ["joint_state_broadcaster", "forward_effort_controller"]
+    # deactivate_controllers: en sim se omite (lista vacia no es valida en YAML
+    # de rclcpp). En el robot real: ["scaled_joint_trajectory_controller"].
+    perform_switch: true
+    perform_unpause: true
+    world_name: "default"
+
+    # Regulacion indefinida en q_init (smoke test de toda la cadena effort).
+    skip_trajectory: true
+    hold_start_duration: 1.0
+    t_sim: 0.0                     # 0 = mantener indefinidamente
+
+    # tau = g(q) + kp*(q0 - q) - kd*dq   (kp bajo: casi gravedad pura)
+    # PD SIN escalar por inercia: en las munecas (I ~ 0.002-0.01 kg m^2) las
+    # ganancias deben ser pequenas o el lazo discreto chatea (dq satura en
+    # +-pi). El nodo FL no sufre esto porque M(q)·v normaliza por inercia.
+    kp: [60.0, 60.0, 60.0, 10.0,  5.0,  2.0]
+    kd: [10.0, 10.0, 10.0,  1.0,  0.5,  0.2]
+    tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
+
+    csv_output_dir: ""
+    test_num: 1

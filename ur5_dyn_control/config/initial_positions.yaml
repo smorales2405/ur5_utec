@@ -1,0 +1,10 @@
+# Pose inicial del UR5e para TODOS los nodos de control dinamico.
+# Inyectada como initial_value en las state interfaces de position del bloque
+# ros2_control -> Gazebo spawnea el robot ya en esta pose y el JTC la sostiene.
+# Literales numericos: xacro.load_yaml no evalua expresiones tipo pi.
+shoulder_pan_joint: 0.0
+shoulder_lift_joint: -1.5708
+elbow_joint: 1.5708
+wrist_1_joint: -1.5708
+wrist_2_joint: -1.5708
+wrist_3_joint: 0.0

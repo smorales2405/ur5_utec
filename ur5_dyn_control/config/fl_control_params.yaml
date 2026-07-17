@@ -1,0 +1,60 @@
+gz_fl_control_node:
+  ros__parameters:
+    use_sim_time: true
+
+    # -- Lazo de control ---------------------------------------------------
+    # Timer de PARED a control_rate; la trayectoria se indexa por tiempo de
+    # SIMULACION (robusto a RTF < 1, p.ej. ~0.07 en lab_torque_world).
+    control_rate: 500.0
+
+    # -- Modelo dinamico -----------------------------------------------------
+    urdf_path: ""          # "" -> ur5_kinematics/share/ur5e.urdf (brazo solo)
+    gravity: 9.8           # igual que <gravity> del mundo Gazebo
+
+    # -- Pose inicial (= initial_positions.yaml del bringup) -----------------
+    q_init: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+
+    # -- Plumbing de comandos / switch (portable al robot real) --------------
+    command_topic: "/forward_effort_controller/commands"
+    controller_manager: "/controller_manager"
+    activate_controllers: ["joint_state_broadcaster", "forward_effort_controller"]
+    # deactivate_controllers: en sim se omite (lista vacia no es valida en YAML
+    # de rclcpp). En el robot real: ["scaled_joint_trajectory_controller"].
+    perform_switch: true
+    perform_unpause: true           # despausa Gazebo al estar listo (solo sim)
+    world_name: "default"
+
+    # -- Fases ----------------------------------------------------------------
+    hold_start_duration: 1.0
+    transition_duration: 3.0        # rampa quintica q0 -> inicio de la trayectoria
+    t_sim: 0.0                      # duracion de HOLD_END; 0 = indefinido
+    skip_trajectory: false
+
+    # -- Ganancias FL (criticamente amortiguado, wn = 10 rad/s) ---------------
+    kp: [100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+    kd: [ 20.0,  20.0,  20.0,  20.0,  20.0,  20.0]
+    tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
+
+    # -- Trayectoria cartesiana de referencia ---------------------------------
+    # Frame base_link (z=0 en la base del robot; z_Gazebo = z + 0.63).
+    # Orientacion del TCP constante: gripper apuntando hacia abajo.
+    # W0 ~= FK(q_init) = [0.492, 0.133, 0.347] -> rampa inicial minima.
+    # Barrido suave dentro del espacio de trabajo, lejos del obstaculo (x=0.85).
+    tcp_orientation_rpy: [3.14159265, 0.0, -1.57079633]
+    waypoints_xyz: [0.49,  0.13, 0.35,
+                    0.55,  0.35, 0.28,
+                    0.55, -0.10, 0.25,
+                    0.49, -0.35, 0.32]
+    waypoint_times: [0.0, 2.5, 5.0, 7.5]
+
+    # -- IK (QP de ur5_kinematics, target gripper_tcp) ------------------------
+    ik_seed: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+    ik_max_iterations: 450
+    ik_alpha: 0.5
+    ik_weight_pos: 1.0
+    ik_weight_orient: 1.0
+    q_jump_tol: 0.15
+
+    # -- Logging ----------------------------------------------------------------
+    csv_output_dir: ""              # "" -> ~/.ros/ur5_dyn_control/
+    test_num: 1

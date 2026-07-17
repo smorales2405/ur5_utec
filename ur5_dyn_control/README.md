@@ -1,0 +1,106 @@
+# ur5_dyn_control
+
+Control **basado en torque** (interfaz `effort`) del UR5e en Gazebo Fortress
+(ROS 2 Humble), con miras a su implementación en el robot real vía
+`ur_robot_driver`. Primer controlador: **Feedback Linearization** (computed
+torque); la arquitectura permite añadir Sliding Mode, MRAC, etc. como nodos
+delgados que solo implementan su ley de control.
+
+## Arquitectura
+
+```
+CartesianSplineTrajectory   spline cúbico clamped por waypoints, derivadas
+                            ANALÍTICAS p(t), ṗ(t), p̈(t); orientación TCP
+                            constante (rpy = [π, 0, −π/2], gripper abajo)
+        │
+JointReferenceGenerator     IK QP (ur5_kinematics, frame gripper_tcp) +
+                            dq = J⁻¹ẋ, ddq = J⁻¹(ẍ − J̇q̇)  →  tabla {q,dq,ddq}
+        │                   (offline, con guard de continuidad de rama IK)
+TorqueControlNodeBase       máquina de estados PRE_HOLD → WAIT → HOLD_START →
+        │                   RAMP (quíntica) → TRACK → HOLD_END; CSV; saturación
+   ┌────┴─────────┐         τ ∈ ±[150,150,150,28,28,28] N·m
+gz_gravity_comp   gz_fl_control_node        (futuros: gz_smc, gz_mrac, ...)
+τ=g+Kp e−Kd dq    τ = M(q)(q̈d+Kp e+Kd ė) + C q̇ + g      [Pinocchio: crba+nle]
+```
+
+- **Modelo dinámico**: `ur5_kinematics/share/ur5e.urdf` (brazo solo, sin masa
+  de gripper — coincide con la planta de Gazebo sin Robotiq), gravedad 9.8
+  (la del mundo), frame `gripper_tcp` a 0.141 m de `tool0`.
+- **Comandos**: `Float64MultiArray` en `/forward_effort_controller/commands`
+  (`effort_controllers/JointGroupEffortController`) — mismo contrato que el
+  `forward_effort_controller` del driver real de UR → los nodos son
+  portables sim ↔ real.
+- **Reloj**: lazo de PARED a `control_rate` (500 Hz); fases y trayectoria
+  indexadas por tiempo de SIMULACIÓN (robusto al RTF bajo del mundo del
+  laboratorio, ~0.07 por las colisiones trimesh de las mesas).
+
+## Arranque sin caída (evaluación realizada)
+
+Se evaluó el esquema "controlador de posición activo al inicio → switch a
+effort al ejecutar el nodo". **Resultado: NO es viable en simulación** con
+`gz_ros2_control` 0.7.19: al declarar la command interface `effort` en el
+URDF, `initSim` (gz_system.cpp:476) activa el modo effort del joint desde el
+arranque y los comandos de posición dejan de aplicarse a la física
+(verificado empíricamente; además `perform_command_mode_switch` tiene un bug
+de máscaras: usa `&` en vez de `|`). En el robot real el switch
+JTC ↔ `forward_effort_controller` SÍ está soportado por el driver.
+
+Esquema adoptado (validado, el robot **nunca cae**):
+
+1. Gazebo arranca **PAUSADO**; el robot spawnea en la pose inicial
+   (`initial_value`): `[0, −π/2, π/2, −π/2, −π/2, 0]`.
+2. Los spawners cargan+configuran (`--inactive`) `joint_state_broadcaster` y
+   `forward_effort_controller` (activar en pausa no es posible: el
+   controller_manager solo actualiza en cada paso de física).
+3. El **nodo de control** construye la tabla de referencias (IK offline, sin
+   prisa), publica `g(q_init)` a ciegas, pide el switch de activación
+   (asíncrono, queda pendiente) y **despausa**: la activación se consuma en
+   el primer paso de física con el torque de sostén ya disponible.
+
+## Uso
+
+```bash
+# Smoke test: compensación de gravedad (regulación en q_init)
+ros2 launch ur5_dyn_control gravity_comp.launch.py gazebo_gui:=false
+
+# Feedback Linearization siguiendo la trayectoria cartesiana spline
+ros2 launch ur5_dyn_control fl_control.launch.py test_num:=1
+
+# Desarrollo rápido (mundo sin mesas, RTF ~1):
+ros2 launch ur5_dyn_control fl_control.launch.py \
+    world:=$(ros2 pkg prefix ur5_dyn_control)/share/ur5_dyn_control/worlds/empty_test_world.sdf
+
+# Bringup solo (robot congelado en q_init hasta despausar; sin nodo el brazo
+# cae al despausar porque la única interfaz es effort):
+ros2 launch ur5_dyn_control ur5e_effort_gz.launch.py auto_start:=false
+```
+
+Parámetros (waypoints, tiempos, ganancias, tasas, IK, CSV):
+`config/fl_control_params.yaml` y `config/gravity_comp_params.yaml`.
+CSV de resultados: `~/.ros/ur5_dyn_control/<prefijo>_<test_num>.csv`
+(columnas: `t, q, dq, q_des, dq_des, ddq_des, tau, xyz, xyz_des, state`).
+
+## Mundos
+
+- `lab_torque_world.sdf` — contenido de `lab_base_world.sdf` (mesa base,
+  surgery table, obstáculo) con física a **1 kHz** (paso 1 ms). RTF ~0.07
+  en esta máquina por las colisiones malla-malla (igual que el pick-place);
+  todo corre en tiempo de sim, así que solo alarga el tiempo de pared.
+- `empty_test_world.sdf` — solo ground plane, física 1 kHz, RTF ~1
+  (desarrollo y tuning).
+
+## Añadir un controlador nuevo (SMC, MRAC, ...)
+
+Subclasear `TorqueControlNodeBase`, implementar `computeTau(q, dq, ref, dt)`
+y `csvPrefix()`, declarar las ganancias propias y llamar `start()` al final
+del constructor (ver `src/gz_fl_control_node.cpp`, ~60 líneas). El acceso a
+la dinámica es `dyn()` (M, nle, gravity, J, J̇q̇, FK).
+
+## Hacia el robot real (fase futura)
+
+Instalar `ros-humble-ur-robot-driver` + `ros-humble-ur-controllers`. El
+mismo nodo corre con: `use_sim_time:=false`, `perform_unpause:=false`,
+`activate_controllers:=[forward_effort_controller]`,
+`deactivate_controllers:=[scaled_joint_trajectory_controller]` (mutuamente
+excluyentes en el driver). Recomendado por UR: acompañar con
+`friction_model_controller` y `gravity_update_controller`.

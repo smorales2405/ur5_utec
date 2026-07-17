@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>ur5_dyn_control</name>
+  <version>0.1.0</version>
+  <description>
+    Torque-based (effort) control of the UR5e in Gazebo Fortress:
+    Feedback Linearization first; shared infrastructure for Sliding Mode,
+    MRAC and other dynamic controllers. Cartesian clamped cubic spline
+    reference with analytic velocity/acceleration, constant TCP orientation.
+    Portable to the real UR5e via ur_robot_driver's forward_effort_controller.
+  </description>
+  <maintainer email="smorales@utec.edu.pe">Sergio Morales</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>controller_manager_msgs</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>ur5_kinematics</depend>
+  <depend>pinocchio</depend>
+
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>ur_description</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>joint_trajectory_controller</exec_depend>
+  <exec_depend>effort_controllers</exec_depend>
+  <exec_depend>gz_ros2_control</exec_depend>
+  <!-- Solo por los meshes model://ur5_base y surgery_table del mundo -->
+  <exec_depend>ur5_pick_place</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

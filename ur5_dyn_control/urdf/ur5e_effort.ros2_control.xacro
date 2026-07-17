@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<!--
+  Bloque ros2_control del UR5e con SOLO interfaz de comando EFFORT, para
+  control por torque en Gazebo Fortress (gz_ros2_control 0.7.19).
+
+  Por que solo effort (evaluado empiricamente en esta maquina):
+   - El xacro estandar ur.ros2_control.xacro omite la command interface
+     'effort' cuando sim_ignition=true -> bloque propio obligatorio.
+   - En gz_ros2_control 0.7.19, declarar 'effort' activa el modo effort del
+     joint desde initSim (gz_system.cpp linea ~476) y el modo posicion deja
+     de aplicarse a la fisica -> NO es viable convivir position+effort ni el
+     switch posicion->esfuerzo en simulacion. El sosten de la pose inicial lo
+     da el arranque pausado + el torque de gravedad pre-publicado por el nodo
+     (TorqueControlNodeBase). En el robot real el driver UR si soporta el
+     switch JTC <-> forward_effort_controller.
+   - Limites de effort del UR5e: +-150 Nm (pan, lift, elbow), +-28 Nm
+     (wrists), de ur_description/config/ur5e/joint_limits.yaml.
+   - initial_value de position: pose en la que Gazebo spawnea el robot.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="ur5e_effort_ros2_control" params="
+    name
+    tf_prefix
+    initial_positions:=${dict(shoulder_pan_joint=0.0,shoulder_lift_joint=-1.5708,elbow_joint=1.5708,wrist_1_joint=-1.5708,wrist_2_joint=-1.5708,wrist_3_joint=0.0)}
+    ">
+
+    <ros2_control name="${name}" type="system">
+      <hardware>
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </hardware>
+
+      <xacro:macro name="ur5e_effort_joint" params="joint_name effort_limit">
+        <joint name="${tf_prefix}${joint_name}">
+          <command_interface name="effort">
+            <param name="min">-${effort_limit}</param>
+            <param name="max">${effort_limit}</param>
+          </command_interface>
+          <state_interface name="position">
+            <param name="initial_value">${initial_positions[joint_name]}</param>
+          </state_interface>
+          <state_interface name="velocity"/>
+          <state_interface name="effort"/>
+        </joint>
+      </xacro:macro>
+
+      <xacro:ur5e_effort_joint joint_name="shoulder_pan_joint"  effort_limit="150.0"/>
+      <xacro:ur5e_effort_joint joint_name="shoulder_lift_joint" effort_limit="150.0"/>
+      <xacro:ur5e_effort_joint joint_name="elbow_joint"         effort_limit="150.0"/>
+      <xacro:ur5e_effort_joint joint_name="wrist_1_joint"       effort_limit="28.0"/>
+      <xacro:ur5e_effort_joint joint_name="wrist_2_joint"       effort_limit="28.0"/>
+      <xacro:ur5e_effort_joint joint_name="wrist_3_joint"       effort_limit="28.0"/>
+
+    </ros2_control>
+
+  </xacro:macro>
+
+</robot>
