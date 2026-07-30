@@ -37,11 +37,11 @@ Cierre de la FASE 1 del plan `PLAN_INCISION_UR5e.md`.
 
 | Fase | t [s] | Longitud | v [mm/s] | Meseta de feed constante |
 |---|---|---|---|---|
-| `approach` | 0.00 – 6.90 | 345.0 mm | 100 | — |
-| `contact` | 7.20 – 11.20 | 30.0 mm | 15 | — |
-| `penetration` | 11.50 – 13.50 | 5.0 mm | 5 | — |
-| `cut` | 13.80 – 23.40 | **80.0 mm** | **10** | **15.40 – 21.80 s → 64 mm** |
-| `withdraw` | 23.70 – 25.10 | 35.0 mm | 50 | — |
+| `approach` | 0.00 – 7.00 | 350.0 mm | 100 | — |
+| `contact` | 7.30 – 11.30 | 30.0 mm | 15 | — |
+| `penetration` | 11.60 – 13.60 | 5.0 mm | 5 | — |
+| `cut` | 13.90 – 25.90 | **100.0 mm** (trazo) | **10** | **15.90 – 23.90 s → 80.0 mm = la incisión medida** |
+| `withdraw` | 26.20 – 27.60 | 35.0 mm | 50 | — |
 
 Duración total **27.60 s** (incluye 0.3 s de reposo entre fases). Config en
 [`ur5_dyn_control/config/incision_params.yaml`](../ur5_dyn_control/config/incision_params.yaml).
@@ -67,7 +67,7 @@ Duración total **27.60 s** (incluye 0.3 s de reposo entre fases). Config en
 | Derivadas analíticas vs diferencias finitas: error < 1e-6 | quíntico y trayectoria compuesta: **< 1e-6** | ✅ `test_quintic_spline`, `test_incision_trajectory` |
 | Continuidad de jerk en los nudos (el cúbico falla, el quíntico pasa) | quíntico: salto **< 1e-6**; cúbico: salto **> 1e-3** | ✅ ambos verificados |
 | Feed constante dentro de ±2 % en el tramo `cut` | referencia analítica **< 1e-9**; ejecutado en Gazebo **0.58 %** máx sobre los 80 mm medidos íntegros | ✅ |
-| `q̇`, `q̈` dentro de límites del UR5e | `\|q̇\|` máx 0.238 rad/s (**margen 92.4 %**), `\|q̈\|` máx 0.383 rad/s² (**margen 92.3 %**) | ✅ |
+| `q̇`, `q̈` dentro de límites del UR5e | `\|q̇\|` máx 0.234 rad/s (**margen 92.5 %**), `\|q̈\|` máx 0.382 rad/s² (**margen 92.4 %**) | ✅ |
 | σ_min(J) por encima del umbral | **0.2168** (umbral 0.05); `w_min` = 0.0677 | ✅ |
 | Regresión: `gz_fl_control_node` sigue funcionando | corrida completa en `lab_torque_world` | ✅ |
 
