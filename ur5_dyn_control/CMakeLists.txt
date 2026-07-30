@@ -65,4 +65,19 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(DIRECTORY docs DESTINATION share/${PROJECT_NAME} OPTIONAL)
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  # Compuerta G3: la gravedad NO va en el comando de torque del robot real.
+  ament_add_gtest(test_gravity_policy test/test_gravity_policy.cpp)
+  target_link_libraries(test_gravity_policy ${PROJECT_NAME}_core)
+
+  # Supuestos A1 (hook de herramienta) y A2 (offset del TCP configurable).
+  ament_add_gtest(test_tool_inertia_hook test/test_tool_inertia_hook.cpp)
+  target_link_libraries(test_tool_inertia_hook ${PROJECT_NAME}_core)
+endif()
+
 ament_package()

@@ -13,6 +13,7 @@
 #include "ur5_dyn_control/controller_switcher.hpp"
 #include "ur5_dyn_control/csv_logger.hpp"
 #include "ur5_dyn_control/joint_reference_generator.hpp"
+#include "ur5_dyn_control/torque_command.hpp"
 #include "ur5_dyn_control/ur5_dynamics.hpp"
 
 namespace ur5_dyn_control
@@ -42,6 +43,11 @@ namespace ur5_dyn_control
  * En el robot real: use_sim_time=false y perform_unpause=false; el mismo
  * codigo corre con tiempo de pared y el switch activa/desactiva los
  * controladores del driver UR (forward_effort_controller vs JTC).
+ *
+ * Gravedad (compuerta G3): computeTau() devuelve SIEMPRE el torque fisico
+ * completo (con gravedad). El parametro `gravity_in_command` decide que se
+ * comanda: true en Gazebo (tal cual), false en el UR5e real (se resta g(q),
+ * que el robot compensa internamente). Ver torque_command.hpp.
  */
 class TorqueControlNodeBase : public rclcpp::Node
 {
@@ -63,13 +69,23 @@ protected:
   Ur5Dynamics & dyn() { return *dyn_; }
   const Vector6d & qInit() const { return q_init_; }
 
+  /**
+   * Torque que se COMANDA al hardware a partir del torque de la ley (G3):
+   * politica de gravedad + saturacion. Es la unica ruta hacia publishTau(),
+   * y es la que ejercita el test unitario de la compuerta G3.
+   */
+  Vector6d commandFromLaw(const Vector6d & tau_law, const Vector6d & q);
+
+  bool gravityInCommand() const { return gravity_in_command_; }
+
 private:
   enum class State { PRE_HOLD, WAIT_STATE, HOLD_START, RAMP, TRACK, HOLD_END, DONE };
 
   void tick();
   bool readJointStates(Vector6d & q, Vector6d & dq);
   JointRef rampReference(double t_ramp) const;
-  void publishTau(const Vector6d & tau);
+  /// Aplica commandFromLaw() y publica. Devuelve el torque comandado (para el CSV).
+  Vector6d publishTau(const Vector6d & tau_law, const Vector6d & q);
   void enterState(State s);
   const char * stateName(State s) const;
 
@@ -77,6 +93,9 @@ private:
   double control_rate_ = 500.0;
   Vector6d q_init_ = Vector6d::Zero();
   Vector6d tau_max_ = kTauMax;
+  // G3: true en Gazebo (el torque comandado incluye g), false en el UR5e real
+  // (el robot compensa la gravedad internamente -> hay que restarla).
+  bool gravity_in_command_ = true;
   std::string command_topic_;
   std::string controller_manager_ns_;
   std::vector<std::string> activate_controllers_;

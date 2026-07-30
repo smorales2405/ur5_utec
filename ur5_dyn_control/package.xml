@@ -36,6 +36,8 @@
   <!-- Solo por los meshes model://ur5_base y surgery_table del mundo -->
   <exec_depend>ur5_pick_place</exec_depend>
 
+  <test_depend>ament_cmake_gtest</test_depend>
+
   <export>
     <build_type>ament_cmake</build_type>
   </export>

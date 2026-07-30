@@ -15,6 +15,11 @@ namespace ur5_dyn_control
  *
  * Columnas: t, q1..q6, dq1..dq6, q1_des..q6_des, dq1_des..dq6_des,
  *           ddq1_des..ddq6_des, tau1..tau6, x, y, z, x_des, y_des, z_des, state
+ *
+ * tau1..tau6 es el torque COMANDADO (despues de la politica de gravedad G3 y
+ * de la saturacion), no la salida cruda de la ley: es la magnitud que
+ * realmente llega al hardware y la unica referencia de torque disponible en el
+ * robot real (el campo `effort` de /joint_states son corrientes de motor).
  */
 class CsvLogger
 {

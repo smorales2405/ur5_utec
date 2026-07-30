@@ -7,6 +7,17 @@ gz_gravity_comp_node:
     gravity: 9.8
     q_init: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
 
+    # G3 — true (Gazebo): tau_cmd = tau_ley. false (UR5e real): tau_cmd =
+    # tau_ley - g(q). Con esta ley y kp=kd=0, gravity_in_command=false comanda
+    # exactamente 0 (es el caso que verifica test/test_gravity_policy.cpp).
+    gravity_in_command: true
+
+    # A2 / A1 — ver docs/00_assumptions.md y fl_control_params.yaml.
+    tcp_offset_z: 0.141
+    tool_mass: 0.0                        # [kg]        PENDIENTE de medir
+    tool_com: [0.0, 0.0, 0.0]
+    tool_inertia: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
     command_topic: "/forward_effort_controller/commands"
     controller_manager: "/controller_manager"
     activate_controllers: ["joint_state_broadcaster", "forward_effort_controller"]

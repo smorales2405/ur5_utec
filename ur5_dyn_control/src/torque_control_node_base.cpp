@@ -33,6 +33,10 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
       "q_init", {0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0}), "q_init");
   tau_max_ = paramToVec6(declare_parameter<std::vector<double>>(
       "tau_max", {150.0, 150.0, 150.0, 28.0, 28.0, 28.0}), "tau_max");
+  // G3 — politica de gravedad. Default true = Gazebo (comportamiento historico).
+  // En el UR5e real DEBE ser false: direct_torque() compensa la gravedad dentro
+  // del robot y comandarla otra vez la duplica. Ver torque_command.hpp.
+  gravity_in_command_ = declare_parameter<bool>("gravity_in_command", true);
   command_topic_ = declare_parameter<std::string>(
     "command_topic", "/forward_effort_controller/commands");
   controller_manager_ns_ = declare_parameter<std::string>(
@@ -70,8 +74,41 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
       "/ur5e.urdf";
   }
   const double gravity = declare_parameter<double>("gravity", 9.8);
-  dyn_ = std::make_shared<Ur5Dynamics>(urdf_path, gravity);
-  RCLCPP_INFO(get_logger(), "Modelo Pinocchio: %s (g=%.2f)", urdf_path.c_str(), gravity);
+  // A2 — el offset del TCP es configurable; 0.141 m no se escribe en ningun
+  // otro sitio (JointReferenceGenerator lo toma de Ur5Dynamics).
+  const double tcp_offset_z = declare_parameter<double>("tcp_offset_z", 0.141);
+  // A1 — hook de la herramienta (acople del bisturi). mass = 0 -> brazo solo,
+  // que es el supuesto vigente. Ver docs/00_assumptions.md.
+  ToolInertia tool;
+  tool.mass = declare_parameter<double>("tool_mass", 0.0);
+  {
+    const auto com = declare_parameter<std::vector<double>>(
+      "tool_com", std::vector<double>{0.0, 0.0, 0.0});
+    // [Ixx, Iyy, Izz, Ixy, Ixz, Iyz] respecto al CoM, en el frame TCP.
+    const auto inertia = declare_parameter<std::vector<double>>(
+      "tool_inertia", std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+    if (com.size() != 3 || inertia.size() != 6) {
+      throw std::runtime_error(
+        "tool_com debe tener 3 elementos y tool_inertia 6 [Ixx,Iyy,Izz,Ixy,Ixz,Iyz]");
+    }
+    tool.com = Eigen::Vector3d(com[0], com[1], com[2]);
+    tool.inertia << inertia[0], inertia[3], inertia[4],
+                    inertia[3], inertia[1], inertia[5],
+                    inertia[4], inertia[5], inertia[2];
+  }
+  dyn_ = std::make_shared<Ur5Dynamics>(urdf_path, gravity, tcp_offset_z, tool);
+  RCLCPP_INFO(get_logger(), "Modelo Pinocchio: %s (g=%.2f, tcp_offset_z=%.4f m)",
+              urdf_path.c_str(), gravity, tcp_offset_z);
+  if (!tool.isNegligible()) {
+    RCLCPP_WARN(get_logger(),
+                "A1 LEVANTADO: herramienta de %.4f kg anadida al TCP "
+                "(el supuesto de brazo solo ya no aplica; documentarlo)",
+                tool.mass);
+  }
+  RCLCPP_INFO(get_logger(),
+              "G3 gravity_in_command=%s -> tau_cmd = tau_ley%s",
+              gravity_in_command_ ? "true (Gazebo)" : "false (UR5e real)",
+              gravity_in_command_ ? "" : " - g(q)");
 
   // Torque de sosten "a ciegas" para PRE_HOLD (antes de /joint_states).
   tau_hold_blind_ = dyn_->gravity(q_init_);
@@ -196,12 +233,21 @@ JointRef TorqueControlNodeBase::rampReference(double t_ramp) const
   return ref;
 }
 
-void TorqueControlNodeBase::publishTau(const Vector6d & tau)
+Vector6d TorqueControlNodeBase::commandFromLaw(const Vector6d & tau_law, const Vector6d & q)
 {
-  const Vector6d tau_sat = tau.cwiseMin(tau_max_).cwiseMax(-tau_max_);
+  // g(q) solo se evalua cuando hace falta restarla (ahorra una RNEA por tick
+  // en el caso de Gazebo, que es el default).
+  const Vector6d g_q = gravity_in_command_ ? Vector6d::Zero().eval() : dyn_->gravity(q);
+  return torqueCommand(tau_law, g_q, gravity_in_command_, tau_max_);
+}
+
+Vector6d TorqueControlNodeBase::publishTau(const Vector6d & tau_law, const Vector6d & q)
+{
+  const Vector6d tau_cmd = commandFromLaw(tau_law, q);
   std_msgs::msg::Float64MultiArray cmd;
-  cmd.data.assign(tau_sat.data(), tau_sat.data() + 6);
+  cmd.data.assign(tau_cmd.data(), tau_cmd.data() + 6);
   tau_pub_->publish(cmd);
+  return tau_cmd;
 }
 
 void TorqueControlNodeBase::enterState(State s)
@@ -239,7 +285,10 @@ void TorqueControlNodeBase::tick()
     case State::PRE_HOLD: {
         // Publicar sosten a ciegas desde el primer tick: cuando el controlador
         // de esfuerzo se active (primer paso de fisica) ya tendra comando.
-        publishTau(tau_hold_blind_);
+        // Aun no hay /joint_states: se evalua g en q_init (con
+        // gravity_in_command=false esto da exactamente 0, que es el comando
+        // correcto para el robot real en reposo).
+        publishTau(tau_hold_blind_, q_init_);
         ++pre_hold_ticks_;
 
         // 1) Esperar a que los controladores esten CARGADOS (los spawners
@@ -298,7 +347,7 @@ void TorqueControlNodeBase::tick()
       }
 
     case State::WAIT_STATE: {
-        publishTau(tau_hold_blind_);
+        publishTau(tau_hold_blind_, have_state ? q : q_init_);
         if (!have_state) {break;}
         q0_ = q;
         const double err0 = (q0_ - q_init_).cwiseAbs().maxCoeff();
@@ -318,8 +367,7 @@ void TorqueControlNodeBase::tick()
         if (!have_state) {break;}
         JointRef ref;
         ref.q = q0_;
-        const Vector6d tau = computeTau(q, dq, ref, dt);
-        publishTau(tau);
+        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q);
         if (++hold_log_counter_ % csv_hold_decimation_ == 0) {
           csv_.log(t_sim, q, dq, ref, tau, dyn_->fk(q).translation(),
                    dyn_->fk(ref.q).translation(), "HOLD_START");
@@ -341,8 +389,7 @@ void TorqueControlNodeBase::tick()
     case State::RAMP: {
         if (!have_state) {break;}
         const JointRef ref = rampReference(t_sim - t_state_start_);
-        const Vector6d tau = computeTau(q, dq, ref, dt);
-        publishTau(tau);
+        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q);
         csv_.log(t_sim, q, dq, ref, tau, dyn_->fk(q).translation(),
                  dyn_->fk(ref.q).translation(), "RAMP");
         if (t_sim - t_state_start_ >= transition_duration_) {
@@ -357,8 +404,7 @@ void TorqueControlNodeBase::tick()
         track_index_ = static_cast<std::size_t>(
           std::max(0.0, (t_sim - t_state_start_) / ref_gen_->dt()));
         const JointRef & ref = ref_gen_->at(track_index_);
-        const Vector6d tau = computeTau(q, dq, ref, dt);
-        publishTau(tau);
+        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q);
         csv_.log(t_sim, q, dq, ref, tau, dyn_->fk(q).translation(),
                  dyn_->fk(ref.q).translation(), "TRACK");
 
@@ -377,8 +423,7 @@ void TorqueControlNodeBase::tick()
         if (!have_state) {break;}
         JointRef ref;
         ref.q = ref_gen_->at(ref_gen_->size() - 1).q;
-        const Vector6d tau = computeTau(q, dq, ref, dt);
-        publishTau(tau);
+        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q);
         if (++hold_log_counter_ % csv_hold_decimation_ == 0) {
           csv_.log(t_sim, q, dq, ref, tau, dyn_->fk(q).translation(),
                    dyn_->fk(ref.q).translation(), "HOLD_END");

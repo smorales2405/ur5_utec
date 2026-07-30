@@ -14,7 +14,9 @@ namespace ur5_dyn_control
 
 Ur5Dynamics::Ur5Dynamics(const std::string & urdf_path,
                          double gravity_z,
-                         double tcp_offset_z)
+                         double tcp_offset_z,
+                         const ToolInertia & tool)
+: tcp_offset_z_(tcp_offset_z)
 {
   pinocchio::urdf::buildModel(urdf_path, model_);
 
@@ -26,18 +28,29 @@ Ur5Dynamics::Ur5Dynamics(const std::string & urdf_path,
 
   model_.gravity.linear(Eigen::Vector3d(0.0, 0.0, -gravity_z));
 
+  // Colocacion del TCP respecto de la junta padre de tool0 (wrist_3_joint):
+  // se usa tanto para el frame operacional como para anclar la herramienta.
+  const pinocchio::FrameIndex tool0_id = model_.getFrameId("tool0");
+  const pinocchio::Frame & tool0 = model_.frames[tool0_id];
+  const pinocchio::SE3 tcp_placement =
+    tool0.placement * pinocchio::SE3(Eigen::Matrix3d::Identity(),
+                                     Eigen::Vector3d(0.0, 0.0, tcp_offset_z));
+
   if (model_.existFrame(tcp_frame_name_)) {
     tcp_frame_id_ = model_.getFrameId(tcp_frame_name_);
   } else {
     // Igual que UR5Kinematics::registerFixedFrame: frame operacional fijo a
     // tcp_offset_z de tool0 en Z local.
-    const pinocchio::FrameIndex tool0_id = model_.getFrameId("tool0");
-    const pinocchio::Frame & tool0 = model_.frames[tool0_id];
-    const pinocchio::SE3 offset(Eigen::Matrix3d::Identity(),
-                                Eigen::Vector3d(0.0, 0.0, tcp_offset_z));
     tcp_frame_id_ = model_.addFrame(
       pinocchio::Frame(tcp_frame_name_, tool0.parentJoint, tool0_id,
-                       tool0.placement * offset, pinocchio::OP_FRAME));
+                       tcp_placement, pinocchio::OP_FRAME));
+  }
+
+  // A1 — herramienta en el TCP. Con mass = 0 (default) esto no se ejecuta y el
+  // modelo es el de brazo solo, que es el supuesto vigente del paper.
+  if (!tool.isNegligible()) {
+    const pinocchio::Inertia Y(tool.mass, tool.com, tool.inertia);
+    model_.appendBodyToJoint(tool0.parentJoint, Y, tcp_placement);
   }
 
   data_ = std::make_unique<pinocchio::Data>(model_);

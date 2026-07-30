@@ -32,11 +32,13 @@ JointReferenceGenerator::JointReferenceGenerator(
 : traj_(std::move(traj)), dyn_(std::move(dyn)), ik_(ik)
 {
   kin_ = std::make_unique<UR5Kinematics>(urdf_path);
-  // Mismo frame TCP que la dinamica: gripper_tcp a 0.141 m de tool0.
+  // Mismo frame TCP que la dinamica, tomado de ella (supuesto A2): el offset
+  // no se repite aqui para que la IK y la dinamica no puedan divergir.
   kin_->registerFixedFrame(
-    "gripper_tcp",
-    pinocchio::SE3(Eigen::Matrix3d::Identity(), Eigen::Vector3d(0.0, 0.0, 0.141)));
-  kin_->setTargetFrame("gripper_tcp");
+    dyn_->tcpFrameName(),
+    pinocchio::SE3(Eigen::Matrix3d::Identity(),
+                   Eigen::Vector3d(0.0, 0.0, dyn_->tcpOffsetZ())));
+  kin_->setTargetFrame(dyn_->tcpFrameName());
 }
 
 JointReferenceGenerator::~JointReferenceGenerator() = default;

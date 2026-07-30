@@ -11,6 +11,27 @@ gz_fl_control_node:
     urdf_path: ""          # "" -> ur5_kinematics/share/ur5e.urdf (brazo solo)
     gravity: 9.8           # igual que <gravity> del mundo Gazebo
 
+    # -- G3: gravedad en el comando de torque ---------------------------------
+    # true  (Gazebo)    -> tau_cmd = tau_ley           (el plugin aplica g)
+    # false (UR5e real) -> tau_cmd = tau_ley - g(q)    (direct_torque compensa
+    #                      la gravedad DENTRO del robot; comandarla la duplica)
+    # Ver docs/00_prereqs.md (G3) y test/test_gravity_policy.cpp.
+    gravity_in_command: true
+
+    # -- A2: frame operacional (punta de la hoja == gripper_tcp) --------------
+    # Distancia desde tool0 a lo largo de su Z. Unica definicion del offset:
+    # la IK de JointReferenceGenerator la toma de aqui via Ur5Dynamics.
+    tcp_offset_z: 0.141
+
+    # -- A1: herramienta montada en el TCP (acople del bisturi) ---------------
+    # mass = 0 -> modelo de brazo solo (supuesto A1 VIGENTE, ver
+    # docs/00_assumptions.md). Rellenar SOLO con valores medidos o de CAD; el
+    # nodo avisa por log cuando mass > 0 porque eso levanta el supuesto.
+    tool_mass: 0.0                        # [kg]        PENDIENTE de medir
+    tool_com: [0.0, 0.0, 0.0]             # [m] en el frame TCP
+    tool_inertia: [0.0, 0.0, 0.0,         # [kg m^2] respecto al CoM:
+                   0.0, 0.0, 0.0]         #   [Ixx, Iyy, Izz, Ixy, Ixz, Iyz]
+
     # -- Pose inicial (= initial_positions.yaml del bringup) -----------------
     q_init: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
 

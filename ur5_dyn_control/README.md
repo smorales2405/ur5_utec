@@ -96,11 +96,52 @@ y `csvPrefix()`, declarar las ganancias propias y llamar `start()` al final
 del constructor (ver `src/gz_fl_control_node.cpp`, ~60 líneas). El acceso a
 la dinámica es `dyn()` (M, nle, gravity, J, J̇q̇, FK).
 
-## Hacia el robot real (fase futura)
+## Hacia el robot real (compuertas en `docs/00_prereqs.md`)
 
-Instalar `ros-humble-ur-robot-driver` + `ros-humble-ur-controllers`. El
-mismo nodo corre con: `use_sim_time:=false`, `perform_unpause:=false`,
-`activate_controllers:=[forward_effort_controller]`,
+Instalar `ros-humble-ur` (metapaquete; en Humble la versión **2.13.2** ya trae
+`forward_effort_controller`, `friction_model_controller` y
+`force_torque_sensor_broadcaster` — verificado, ver G2). El mismo nodo corre
+con: `use_sim_time:=false`, `perform_unpause:=false`,
+**`gravity_in_command:=false`**, `activate_controllers:=[forward_effort_controller]`,
 `deactivate_controllers:=[scaled_joint_trajectory_controller]` (mutuamente
-excluyentes en el driver). Recomendado por UR: acompañar con
-`friction_model_controller` y `gravity_update_controller`.
+excluyentes en el driver). Acompañar con `friction_model_controller`,
+**fijando sus escalas explícitamente por servicio** (si no se llaman, el robot
+usa defaults no documentados y la campaña no es reproducible — ver G4).
+
+> `gravity_update_controller` **no existe en Humble 2.13.2** (solo desde Jazzy).
+> Solo hace falta con montaje en orientación no estándar; el UR5e de este
+> laboratorio está sobre mesa en orientación estándar, así que no bloquea nada.
+
+### ⛔ Gravedad en el comando (compuerta G3)
+
+`computeTau()` devuelve siempre el torque **físico completo** (con gravedad).
+Lo que se comanda depende del parámetro `gravity_in_command`:
+
+| | `gravity_in_command` | Comando |
+|---|---|---|
+| Gazebo | `true` (default) | `tau_cmd = tau_ley` |
+| UR5e real | **`false`** | `tau_cmd = tau_ley − g(q)` |
+
+En el robot real, `direct_torque(...)` compensa la gravedad **dentro** del
+robot: comandarla otra vez la duplica y el brazo se acelera hacia arriba. La
+regla vive en `torque_command.hpp` (funciones puras) y está cubierta por
+`test/test_gravity_policy.cpp`. **Sin ese test en verde, prohibido tocar el
+robot.**
+
+## Tests
+
+```bash
+colcon build --packages-select ur5_dyn_control
+colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
+```
+
+- `test_gravity_policy` (8) — compuerta G3 y saturación.
+- `test_tool_inertia_hook` (4) — supuestos A1 (herramienta en el TCP) y A2
+  (offset del TCP configurable).
+
+## Documentación del proyecto
+
+- [`docs/00_prereqs.md`](../docs/00_prereqs.md) — compuertas G1–G6 con evidencia
+  y acciones pendientes del operador.
+- [`docs/00_assumptions.md`](../docs/00_assumptions.md) — supuestos A1–A4 y su
+  trazabilidad al código.
