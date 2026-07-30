@@ -86,6 +86,51 @@ TorqueControlNodeBase::buildIncisionTrajectory(const std::vector<double> & rpy,
   return traj;
 }
 
+std::unique_ptr<JointReferenceTable>
+TorqueControlNodeBase::buildJointSweep(std::string & description)
+{
+  JointSweepParams sp;
+  sp.q_fixed = paramToVec6(declare_parameter<std::vector<double>>(
+      "sweep.q_fixed", {0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0}),
+      "sweep.q_fixed");
+  sp.joint = static_cast<int>(declare_parameter<int>("sweep.joint", 0));
+  sp.amplitude = declare_parameter<double>("sweep.amplitude", M_PI / 4);
+  sp.velocities = declare_parameter<std::vector<double>>(
+    "sweep.velocities", std::vector<double>{0.05, 0.10, 0.20, 0.35, 0.50, 0.75, 1.00});
+  sp.ramp_fraction = declare_parameter<double>("sweep.ramp_fraction", 0.15);
+  sp.max_sweep_duration = declare_parameter<double>("sweep.max_sweep_duration", 40.0);
+  sp.dwell = declare_parameter<double>("sweep.dwell", 1.0);
+  sp.approach_duration = declare_parameter<double>("sweep.approach_duration", 3.0);
+  sp.ddq_max = declare_parameter<double>("sweep.ddq_max", 5.0);
+
+  auto gen = std::make_unique<JointSweepGenerator>(sp);
+  std::string err;
+  if (!gen->build(1.0 / control_rate_, err)) {
+    throw std::runtime_error("JointSweepGenerator: " + err);
+  }
+
+  RCLCPP_INFO(get_logger(),
+              "Barrido de excitacion: junta %d (%s), %zu niveles de velocidad "
+              "x 2 sentidos, %.1f s",
+              sp.joint, kJointNames[sp.joint].c_str(), sp.velocities.size(),
+              gen->duration());
+  for (const auto & sg : gen->segments()) {
+    if (!sg.useful) {continue;}
+    RCLCPP_INFO(get_logger(),
+                "  v=%+6.3f rad/s  amplitud +-%.3f rad (%.1f deg)  "
+                "t=[%6.2f, %6.2f] s  meseta=[%6.2f, %6.2f] s (%.2f s utiles)",
+                sg.velocity, sg.amplitude, sg.amplitude * 180.0 / M_PI,
+                sg.t_start, sg.t_end, sg.plateau_t0, sg.plateau_t1,
+                sg.plateau_t1 - sg.plateau_t0);
+  }
+
+  std::ostringstream oss;
+  oss << "junta " << sp.joint << ", " << sp.velocities.size()
+      << " niveles x 2 sentidos";
+  description = oss.str();
+  return gen;
+}
+
 TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
 : rclcpp::Node(node_name)
 {
@@ -180,8 +225,23 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
     // cubic_spline  : CartesianSplineTrajectory (historico; jerk discontinuo)
     // quintic_spline: QuinticSplineTrajectory   (FASE 1; jerk continuo)
     // incision      : IncisionTrajectory        (FASE 1; 5 fases, feed constante)
+    // joint_sweep    : barrido articular de excitacion (FASE 2), sin IK
     const std::string traj_type =
       declare_parameter<std::string>("trajectory_type", "cubic_spline");
+    const bool is_sweep = (traj_type == "joint_sweep");
+    if (is_sweep) {
+      // El barrido es articular puro: no pasa por IK ni por una trayectoria
+      // cartesiana, asi que se salta todo el bloque de abajo.
+      std::string desc;
+      ref_gen_ = buildJointSweep(desc);
+      const auto & d = ref_gen_->diagnostics();
+      RCLCPP_INFO(get_logger(),
+                  "Tabla lista: %zu muestras a %.0f Hz (%s). "
+                  "|dq|max=%.3f rad/s  |ddq|max=%.3f rad/s^2",
+                  ref_gen_->size(), control_rate_, desc.c_str(),
+                  d.dq_peak.maxCoeff(), d.ddq_peak.maxCoeff());
+    }
+    if (!is_sweep) {
     const auto rpy = declare_parameter<std::vector<double>>(
       "tcp_orientation_rpy", {3.14159265, 0.0, -1.57079633});
     if (rpy.size() != 3) {
@@ -246,15 +306,16 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
     lim.manipulability_threshold =
       declare_parameter<double>("manipulability_threshold", 0.0);
 
-    ref_gen_ = std::make_unique<JointReferenceGenerator>(traj, dyn_, urdf_path, ik, lim);
+    auto gen = std::make_unique<JointReferenceGenerator>(traj, dyn_, urdf_path, ik, lim);
     RCLCPP_INFO(get_logger(),
                 "Trayectoria '%s' (%s, %.2f s). Construyendo tabla (IK offline)...",
                 traj_type.c_str(), traj_desc.c_str(), traj->duration());
     std::string err;
-    if (!ref_gen_->build(1.0 / control_rate_, err)) {
+    if (!gen->build(1.0 / control_rate_, err)) {
       throw std::runtime_error("JointReferenceGenerator: " + err);
     }
-    const auto & d = ref_gen_->diagnostics();
+    const auto d = gen->diagnostics();
+    ref_gen_ = std::move(gen);
     RCLCPP_INFO(get_logger(), "Tabla lista: %zu muestras a %.0f Hz.",
                 ref_gen_->size(), control_rate_);
     RCLCPP_INFO(get_logger(),
@@ -269,6 +330,7 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
                 "  |ddq|max = [%.3f %.3f %.3f %.3f %.3f %.3f] rad/s^2 (margen %.1f %%)",
                 d.ddq_peak[0], d.ddq_peak[1], d.ddq_peak[2],
                 d.ddq_peak[3], d.ddq_peak[4], d.ddq_peak[5], 100.0 * d.ddq_margin);
+    }  // !is_sweep
   }
 
   // ── Logging (el CSV se abre en start(): csvPrefix() es virtual) ───────────
@@ -516,8 +578,13 @@ void TorqueControlNodeBase::tick()
           std::max(0.0, (t_sim - t_state_start_) / ref_gen_->dt()));
         const JointRef & ref = ref_gen_->at(track_index_);
         const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q);
+        // La etiqueta la puede refinar el generador: el barrido de excitacion
+        // marca la MESETA de velocidad constante, que es la ventana util para
+        // identificar friccion (alli ddq = 0 y el residuo es friccion pura).
+        std::string label = ref_gen_->phaseLabel(track_index_);
+        if (label.empty()) {label = "TRACK";}
         csv_.log(t_sim, q, dq, ref, tau, dyn_->fk(q).translation(),
-                 dyn_->fk(ref.q).translation(), "TRACK");
+                 dyn_->fk(ref.q).translation(), label);
 
         RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
                              "TRACK t=%.2f  |e|max=%.4f rad",

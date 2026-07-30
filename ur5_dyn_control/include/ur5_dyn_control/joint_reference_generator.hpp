@@ -7,6 +7,7 @@
 
 #include "ur5_dyn_control/cartesian_trajectory.hpp"
 #include "ur5_dyn_control/common.hpp"
+#include "ur5_dyn_control/joint_reference_table.hpp"
 #include "ur5_dyn_control/ur5_dynamics.hpp"
 
 class UR5Kinematics;  // fwd (ur5_kinematics/kinematics.hpp)
@@ -58,19 +59,6 @@ struct TrajectoryLimits
   double manipulability_threshold = 0.0;  ///< w = sqrt(det(J·Jᵀ)); 0 = desactivado
 };
 
-/// Diagnostico de la tabla construida (va a la cabecera de trazabilidad y a las
-/// tablas del paper).
-struct TrajectoryDiagnostics
-{
-  double sigma_min = 0.0;        ///< minimo de sigma_min(J) en todo el trazo
-  double manipulability_min = 0.0;
-  double sigma_min_t = 0.0;      ///< instante donde ocurre
-  Vector6d dq_peak = Vector6d::Zero();
-  Vector6d ddq_peak = Vector6d::Zero();
-  double dq_margin = 1.0;        ///< min(1 - |dq|/dq_max) sobre toda la tabla
-  double ddq_margin = 1.0;
-};
-
 /**
  * Convierte la trayectoria cartesiana (spline con derivadas analiticas y
  * orientacion constante) en una tabla de referencias articulares
@@ -86,7 +74,7 @@ struct TrajectoryDiagnostics
  *   - sigma_min(J) o la manipulabilidad cruzan su umbral (FASE 1);
  *   - dq o ddq exceden los limites del UR5e (FASE 1).
  */
-class JointReferenceGenerator
+class JointReferenceGenerator : public JointReferenceTable
 {
 public:
   JointReferenceGenerator(std::shared_ptr<CartesianTrajectory> traj,
@@ -100,12 +88,7 @@ public:
   /// chequeo falla; en ese caso la tabla queda vacia.
   bool build(double dt, std::string & error_msg);
 
-  const JointRef & at(std::size_t k) const;
-  std::size_t size() const { return table_.size(); }
-  double dt() const { return dt_; }
-
   const CartesianTrajectory & cartesian() const { return *traj_; }
-  const TrajectoryDiagnostics & diagnostics() const { return diag_; }
 
 private:
   /// Newton amortiguado sobre el error de pose 6D, partiendo de la solucion del
@@ -120,9 +103,6 @@ private:
   std::unique_ptr<UR5Kinematics> kin_;
   IkParams ik_;
   TrajectoryLimits limits_;
-  TrajectoryDiagnostics diag_;
-  std::vector<JointRef> table_;
-  double dt_ = 0.0;
   double refine_tol_ = 1e-11;
   int refine_iters_ = 20;
 };

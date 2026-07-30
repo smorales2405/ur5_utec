@@ -16,6 +16,8 @@
 #include "ur5_dyn_control/csv_logger.hpp"
 #include "ur5_dyn_control/incision_trajectory.hpp"
 #include "ur5_dyn_control/joint_reference_generator.hpp"
+#include "ur5_dyn_control/joint_reference_table.hpp"
+#include "ur5_dyn_control/joint_sweep_generator.hpp"
 #include "ur5_dyn_control/quintic_spline_trajectory.hpp"
 #include "ur5_dyn_control/torque_command.hpp"
 #include "ur5_dyn_control/ur5_dynamics.hpp"
@@ -89,6 +91,8 @@ private:
   /// Declara los parametros `incision.*` y construye la trayectoria de 5 fases.
   std::shared_ptr<CartesianTrajectory> buildIncisionTrajectory(
     const std::vector<double> & rpy, std::string & description);
+  /// Declara los parametros `sweep.*` y construye la campana de excitacion.
+  std::unique_ptr<JointReferenceTable> buildJointSweep(std::string & description);
   bool readJointStates(Vector6d & q, Vector6d & dq);
   JointRef rampReference(double t_ramp) const;
   /// Aplica commandFromLaw() y publica. Devuelve el torque comandado (para el CSV).
@@ -122,7 +126,7 @@ private:
 
   // -- infraestructura --
   std::shared_ptr<Ur5Dynamics> dyn_;
-  std::unique_ptr<JointReferenceGenerator> ref_gen_;
+  std::unique_ptr<JointReferenceTable> ref_gen_;
   std::unique_ptr<ControllerSwitcher> switcher_;
   CsvLogger csv_;
 

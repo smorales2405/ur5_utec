@@ -29,6 +29,8 @@ Usage:
 """
 
 import os
+import shlex
+import subprocess
 from launch import LaunchDescription
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import (
@@ -87,9 +89,76 @@ def launch_setup(context, *args, **kwargs):
             " ", "simulation_controllers:=", controllers_file,
         ]
     )
-    robot_description = {
-        "robot_description": ParameterValue(robot_description_content, value_type=str)
-    }
+    # ── Inyeccion de friccion articular conocida en la PLANTA (FASE 2) ────────
+    # ur_macro.xacro emite <dynamics damping="0" friction="0"/> en las 6 juntas
+    # y no expone parametros para cambiarlo. Para poder VALIDAR el identificador
+    # de friccion contra la verdad, aqui se reescriben esos atributos tras
+    # ejecutar xacro. damping -> viscoso [N·m·s/rad], friction -> Coulomb [N·m].
+    # Con los valores por defecto ("0") no se toca nada y el URDF es el de
+    # siempre, asi que las FASES 0-1 no cambian.
+    damping_arg = LaunchConfiguration("joint_damping").perform(context).strip()
+    friction_arg = LaunchConfiguration("joint_friction").perform(context).strip()
+
+    def _six(arg, name):
+        parts = [p for p in arg.replace(",", " ").split() if p]
+        if len(parts) == 1:
+            parts = parts * 6
+        if len(parts) != 6:
+            raise RuntimeError(f"{name} debe ser un escalar o 6 valores, se dio: {arg!r}")
+        return [float(p) for p in parts]
+
+    damping = _six(damping_arg, "joint_damping")
+    friction = _six(friction_arg, "joint_friction")
+
+    if any(d != 0.0 for d in damping) or any(f != 0.0 for f in friction):
+        # Se ejecuta xacro aqui (en vez de dejarlo como Command perezoso) para
+        # poder parchear el URDF antes de publicarlo.
+        # OJO: hay que pasar por shlex.split, que es lo que hace internamente la
+        # substitucion Command. Sin el, `tf_prefix:=""` llega a xacro con las
+        # COMILLAS LITERALES y todos los joints salen nombrados `""shoulder_pan_joint`:
+        # el robot spawnea, pero el controller_manager no encuentra
+        # `shoulder_pan_joint/effort` y el switch se rechaza con "Not acceptable
+        # command interfaces combination". Verificado empiricamente.
+        cmd = " ".join([
+            "xacro",
+            os.path.join(get_package_share_directory("ur5_dyn_control"),
+                         "urdf", "ur5e_effort.urdf.xacro"),
+            "name:=ur",
+            "ur_type:=" + ur_type.perform(context),
+            "tf_prefix:=" + tf_prefix.perform(context),
+            "safety_limits:=" + safety_limits.perform(context),
+            "safety_pos_margin:=" + safety_pos_margin.perform(context),
+            "safety_k_position:=" + safety_k_position.perform(context),
+            "initial_positions_file:=" + initial_positions_file.perform(context),
+            "simulation_controllers:=" + controllers_file.perform(context),
+        ])
+        urdf = subprocess.check_output(shlex.split(cmd), text=True)
+
+        # Las 6 juntas del brazo aparecen en el URDF en el orden canonico, que
+        # es el mismo de kJointNames; se sustituye una a una para poder dar
+        # valores distintos por junta.
+        for d, f in zip(damping, friction):
+            urdf = urdf.replace('<dynamics damping="0" friction="0"/>',
+                                f'<dynamics damping="{d}" friction="{f}"/>', 1)
+        if '<dynamics damping="0" friction="0"/>' in urdf:
+            raise RuntimeError(
+                "quedaron juntas sin parchear: el URDF tiene mas de 6 "
+                "<dynamics damping=\"0\" friction=\"0\"/>")
+        print(f"[ur5e_effort_gz] friccion inyectada en la planta: "
+              f"damping={damping} friction={friction}")
+        # OJO: hay que envolverlo en ParameterValue(value_type=str) igual que en
+        # la ruta perezosa. Pasando el URDF como str "pelado", launch_ros infiere
+        # el tipo del contenido y el XML llega mutilado al plugin de Gazebo: los
+        # joints se registran sin la interfaz effort y el switch se rechaza con
+        # "Not acceptable command interfaces combination". Verificado: con
+        # damping=1e-6 (fisica nula) fallaba igual, asi que era el tipado.
+        robot_description = {
+            "robot_description": ParameterValue(urdf, value_type=str)
+        }
+    else:
+        robot_description = {
+            "robot_description": ParameterValue(robot_description_content, value_type=str)
+        }
 
     robot_state_publisher_node = Node(
         package="robot_state_publisher",
@@ -285,6 +354,23 @@ def generate_launch_description():
             "activate_controllers",
             default_value="joint_state_broadcaster,forward_effort_controller",
             description="Controladores (coma-separados) que activa el orquestador.",
+        ),
+        DeclareLaunchArgument(
+            "joint_damping",
+            default_value="0",
+            description=(
+                "FASE 2: friccion VISCOSA [N.m.s/rad] inyectada en la planta de "
+                "Gazebo. Escalar o 6 valores coma-separados en el orden canonico. "
+                "0 = URDF sin tocar (comportamiento de las FASES 0-1)."
+            ),
+        ),
+        DeclareLaunchArgument(
+            "joint_friction",
+            default_value="0",
+            description=(
+                "FASE 2: friccion de COULOMB [N.m] inyectada en la planta de "
+                "Gazebo. Escalar o 6 valores coma-separados."
+            ),
         ),
     ]
 

@@ -27,6 +27,7 @@ add_library(${PROJECT_NAME}_core SHARED
   src/arc_length.cpp
   src/time_profile.cpp
   src/incision_trajectory.cpp
+  src/joint_sweep_generator.cpp
   src/ur5_dynamics.cpp
   src/joint_reference_generator.cpp
   src/controller_switcher.cpp

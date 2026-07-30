@@ -205,12 +205,4 @@ bool JointReferenceGenerator::build(double dt, std::string & error_msg)
   return true;
 }
 
-const JointRef & JointReferenceGenerator::at(std::size_t k) const
-{
-  if (k >= table_.size()) {
-    return table_.back();
-  }
-  return table_[k];
-}
-
 }  // namespace ur5_dyn_control

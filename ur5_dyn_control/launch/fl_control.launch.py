@@ -38,6 +38,10 @@ def generate_launch_description():
             default_value=os.path.join(dyn_pkg, "worlds", "lab_torque_world.sdf"),
         ),
         DeclareLaunchArgument("gazebo_gui", default_value="true"),
+        # FASE 2: friccion articular inyectada en la planta de Gazebo, para
+        # poder validar el identificador contra la verdad. "0" = URDF sin tocar.
+        DeclareLaunchArgument("joint_damping", default_value="0"),
+        DeclareLaunchArgument("joint_friction", default_value="0"),
     ]
 
     sim = IncludeLaunchDescription(
@@ -49,6 +53,8 @@ def generate_launch_description():
             "auto_start": "false",          # el nodo activa y despausa
             "world": LaunchConfiguration("world"),
             "gazebo_gui": LaunchConfiguration("gazebo_gui"),
+            "joint_damping": LaunchConfiguration("joint_damping"),
+            "joint_friction": LaunchConfiguration("joint_friction"),
         }.items(),
     )
 

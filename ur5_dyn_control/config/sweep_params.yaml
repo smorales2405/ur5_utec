@@ -1,0 +1,97 @@
+# ============================================================================
+#  Barrido de EXCITACION para identificar friccion articular — FASE 2
+#
+#  Barre UNA junta a velocidad constante en ambos sentidos, con las demas
+#  sostenidas en q_fixed. Solo la MESETA de cada barrido (velocidad constante,
+#  aceleracion nula) es ventana util: alli el residuo
+#
+#      tau_residual = tau_cmd - RNEA(q, q_dot, q_ddot)
+#
+#  es friccion pura. El CSV marca esas ventanas en la columna `state` con
+#  etiquetas SWEEP_<v>_POS / SWEEP_<v>_NEG; las rampas quedan como SWEEP_RAMP y
+#  las transiciones como SWEEP_MOVE, para que el identificador las descarte sin
+#  recalcular la temporizacion.
+#
+#  Uso (una junta por corrida; `sweep.joint` de 0 a 5):
+#    ros2 launch ur5_dyn_control fl_control.launch.py gazebo_gui:=false \
+#        params_file:=<...>/sweep_params.yaml test_num:=200 \
+#        --ros-args -p sweep.joint:=0
+#
+#  Para VALIDAR el identificador contra la verdad, inyectar friccion conocida en
+#  la planta de Gazebo (el URDF de UR viene con damping=0, friction=0):
+#    ros2 launch ... joint_damping:=1.5 joint_friction:=2.5
+# ============================================================================
+
+gz_fl_control_node:
+  ros__parameters:
+    use_sim_time: true
+
+    control_rate: 500.0
+
+    urdf_path: ""
+    gravity: 9.8
+    q_init: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+
+    gravity_in_command: true         # G3 — false en el UR5e real
+
+    tcp_offset_z: 0.141
+    tool_mass: 0.0
+    tool_com: [0.0, 0.0, 0.0]
+    tool_inertia: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    command_topic: "/forward_effort_controller/commands"
+    controller_manager: "/controller_manager"
+    activate_controllers: ["joint_state_broadcaster", "forward_effort_controller"]
+    perform_switch: true
+    perform_unpause: true
+    world_name: "default"
+
+    hold_start_duration: 2.0
+    transition_duration: 3.0
+    t_sim: 2.0
+    skip_trajectory: false
+
+    # Ganancias de seguimiento. Altas para que el error de posicion sea pequeno
+    # y el torque comandado refleje la dinamica + friccion, no el error.
+    kp: [100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+    kd: [ 20.0,  20.0,  20.0,  20.0,  20.0,  20.0]
+    tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
+
+    trajectory_type: "joint_sweep"
+
+    sweep:
+      # Configuracion en la que se mantienen las juntas NO barridas.
+      # (= q_init del paquete: pan 0, lift -pi/2, elbow pi/2,
+      #    wrist_1 -pi/2, wrist_2 -pi/2, wrist_3 0)
+      q_fixed: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+
+      joint: 0                  # junta que se barre (0..5), una por corrida
+
+      # +-45 grados desde q_fixed[joint].
+      amplitude: 0.7853981634
+
+      # Niveles de |q_dot| [rad/s], cada uno recorrido en AMBOS sentidos.
+      # Espaciado casi logaritmico, mas denso abajo, que es donde vive el
+      # efecto Stribeck.
+      velocities: [0.02, 0.05, 0.10, 0.20, 0.35, 0.50, 0.75, 1.00]
+
+      # Fraccion de cada barrido en rampa: la meseta util es (1 - 2*phi).
+      ramp_fraction: 0.15
+
+      # Cota de duracion por barrido [s]. Un nivel lento que no quepa REDUCE su
+      # amplitud (nunca su velocidad, que es la variable independiente de la
+      # identificacion). Con 40 s, los niveles <= 0.05 rad/s barren menos de
+      # +-45 grados; el log reporta la amplitud efectiva de cada uno.
+      max_sweep_duration: 40.0
+
+      dwell: 1.0                # reposo entre barridos [s]
+      approach_duration: 3.0    # transicion q_fixed -> primer extremo
+
+      # Un nivel cuya rampa exigiria mas de esta aceleracion se RECHAZA en
+      # construccion (no se recorta en silencio). Mismo valor declarado que en
+      # la FASE 1 (ur_moveit_config; UR no publica limite de aceleracion).
+      ddq_max: 5.0
+
+    csv_output_dir: ""
+    test_num: 200
+    csv_hold_decimation: 10
