@@ -15,24 +15,44 @@ Ninguna fase posterior puede empezar sin cerrar estas compuertas.
 | ⚠️ | Cerrada con condiciones / decisión tomada que hay que respetar |
 | 🔲 **PENDIENTE** | Requiere una acción del operador (hardware o sesión con el robot) |
 
-**Resumen**
+**Resumen — TODAS LAS COMPUERTAS CERRADAS (2026-07-30)**
 
 | Compuerta | Estado | Bloquea |
 |---|---|---|
-| G1 — PolyScope | ⚠️ Cerrada por el usuario; falta registrar la versión exacta | FASE 9 |
-| G2 — Distro y driver | ✅ Ruta (a): el paquete Humble ya lo trae todo | FASE 9 |
-| G3 — Gravedad fuera del comando | ✅ Implementada y testeada | FASE 9 (y §7) |
-| G4 — Fricción interna | ⚠️ Caracterizada; falta fijar el ajuste de campaña | FASE 2, 9 |
-| G5 — Qué se puede medir | ✅ Verificado en el código del driver | FASES 2, 9, 10 |
-| G6 — Seguridad (§7) | 🔲 **PENDIENTE** (firma por sesión) | FASE 9 |
+| G1 — PolyScope | ✅ **5.25.2** — cumple todos los umbrales | FASE 9 |
+| G2 — Distro y driver | ✅ Ruta (a): `ros-humble-ur` **2.13.2** instalado y verificado | FASE 9 |
+| G3 — Gravedad fuera del comando | ✅ Implementada y testeada (8/8) | FASE 9 (y §7) |
+| G4 — Fricción interna | ✅ Ajuste de operación decidido: `1.0 / 1.0` (ver aviso) | FASES 2, 9 |
+| G5 — Qué se puede medir | ✅ Verificado en el sistema instalado | FASES 2, 9, 10 |
+| G6 — Seguridad (§7) | ⚠️ Firmado salvo el watchdog (entregable de la FASE 3) | FASE 9 |
+
+**Habilitado:** FASES 1–8. La FASE 9 queda bloqueada solo por el watchdog, que
+se entrega en la FASE 3.
+
+### Identificación del robot
+
+| Campo | Valor |
+|---|---|
+| Modelo | UR5e |
+| PolyScope | **5.25.2** |
+| Número de serie | **20245500119** |
+| IP | **192.168.0.102** |
 
 ---
 
 ## G1 — Versión de PolyScope del UR5e físico
 
-**Estado:** ⚠️ El usuario confirma que la versión instalada cumple los requisitos.
-Falta **registrar la cadena de versión exacta**, que el paper necesita en la
-sección de setup experimental y que condiciona G4.
+**Estado:** ✅ **CERRADA. PolyScope 5.25.2**, por encima de todos los umbrales.
+
+| Capacidad | Umbral PS5 | 5.25.2 |
+|---|---|---|
+| `direct_torque(...)` / interfaz `effort` | ≥ 5.23.0 | ✅ |
+| Escalas de fricción (`viscous_scale`, `coulomb_scale`) | ≥ 5.25.1 | ✅ |
+| `forward_effort_controller` según la doc oficial | ≥ 5.25.1 | ✅ |
+
+Como 5.25.2 ≥ 5.25.1, **no aplica** el popup bloqueante del teach pendant al
+llamar a `set_friction_model_parameters` (ver la advertencia más abajo, que se
+conserva por trazabilidad pero no afecta a este robot).
 
 ### Umbrales reales (verificados en el código fuente, no en el plan)
 
@@ -55,27 +75,24 @@ activo por defecto en el launch del driver (ver G4), con esas versiones hay que
 **no llamar al servicio** o desactivar el controlador. Con ≥ 5.25.1 no hay
 restricción.
 
-### 🔲 PENDIENTE — ejecutar con el robot encendido y en red
+### Datos registrados (para la sección de setup experimental del paper)
+
+```
+PolyScope (versión exacta): 5.25.2
+Número de serie del UR5e:   20245500119
+IP del robot:               192.168.0.102
+```
+
+Comando de re-verificación (dashboard server, puerto 29999), por si se
+actualiza el software del robot durante la campaña:
 
 ```bash
-# Opción A (sin ROS): dashboard server, puerto 29999.  Sustituye la IP.
-export UR_IP=192.168.1.102        # <-- ajustar a la IP real del UR5e
-printf 'PolyscopeVersion\nversion\nget serial number\nquit\n' | nc -q 2 $UR_IP 29999
+export UR_IP=192.168.0.102
+printf 'PolyscopeVersion\nget serial number\nquit\n' | nc -q 2 $UR_IP 29999
 ```
 
-```bash
-# Opción B (con el driver instalado y corriendo, ver G2)
-ros2 service call /dashboard_client/get_robot_mode ur_dashboard_msgs/srv/GetRobotMode
-ros2 topic echo /io_and_status_controller/robot_program_running --once
-```
-
-Anotar aquí el resultado literal:
-
-```
-PolyScope (versión exacta): ______________________     🔲 PENDIENTE
-Número de serie del UR5e:   ______________________     🔲 PENDIENTE
-IP del robot:               ______________________     🔲 PENDIENTE
-```
+> Si la versión cambia a mitad de campaña, **hay que reportarlo**: el ajuste de
+> compensación de fricción interna del robot depende de ella.
 
 > **Aviso importante para la planificación de la FASE 9:**
 > *"On URSim torque commands don't have any effect."*
@@ -96,18 +113,40 @@ Humble. **Es falso:** la documentación no se retro-publicó, pero el código s�
 está backporteado. Verificado contra el **tag exacto que empaqueta el debian de
 Humble**, no contra la rama.
 
-### Evidencia
+### Evidencia — versiones INSTALADAS en este sistema
 
-Versión candidata en este sistema (`apt-cache policy`):
+`sudo apt install -y ros-humble-ur` ejecutado el 2026-07-30:
 
 ```
-ros-humble-ur-robot-driver    2.13.2-1jammy.20260625.112711   (no instalado)
-ros-humble-ur-controllers     2.13.2-1jammy.20260625.111916   (no instalado)
-ros-humble-ur-client-library  2.13.0-1jammy.20260619.115341   (no instalado)
-ros-humble-ur                 2.13.2-1jammy.20260625.114324   (no instalado)
+ros-humble-ur-robot-driver     2.13.2-1jammy.20260625.112711
+ros-humble-ur-controllers      2.13.2-1jammy.20260625.111916
+ros-humble-ur-client-library   2.13.0-1jammy.20260619.115341
+ros-humble-ur-dashboard-msgs   2.13.2-1jammy.20260625.111113
+ros-humble-ur-calibration      2.13.2-1jammy.20260625.113543
+ros-humble-ur-msgs             2.5.0-1jammy.20260605.131141
+ros-humble-ur-description      2.10.0-1jammy.20260422.111151
 ```
 
-Contenido del tag `2.13.2` del repositorio `UniversalRobots/Universal_Robots_ROS2_Driver`:
+Verificación funcional sobre los ficheros instalados (no sobre el repositorio):
+
+| Requisito | Verificado en | Resultado |
+|---|---|---|
+| `forward_effort_controller` con `interface_name: effort` | `/opt/ros/humble/share/ur_robot_driver/config/ur_controllers.yaml` | ✅ tipo `effort_controllers/JointGroupEffortController` |
+| `friction_model_controller` cargable | `/opt/ros/humble/share/ur_controllers/controller_plugins.xml` | ✅ `ur_controllers/FrictionModelController` |
+| Servicio de escalas de fricción | `/opt/ros/humble/share/ur_msgs/srv/SetFrictionModelParameters.srv` | ✅ `FrictionModelParameters parameters → bool success` |
+| `force_torque_sensor_broadcaster` → `ft_data` | `ur_controllers.yaml` | ✅ `topic_name: ft_data`, `frame_id: tool0_controller` |
+| Interfaz de comando `effort` por junta (robot real) | `/opt/ros/humble/share/ur_description/urdf/ur.ros2_control.xacro:69-74` | ✅ dentro de `<xacro:unless value="${sim_ignition}">` |
+| Sensor F/T declarado | ídem `:149` | ✅ `<sensor name="${tf_prefix}tcp_fts_sensor">` |
+| GPIO de escalas de fricción | ídem `:294` | ✅ `<gpio name="${tf_prefix}friction_model">` (`viscous_0..5`) |
+| GPIO de `zero_ftsensor` | ídem `:320-322` | ✅ `zero_ftsensor_cmd`, `zero_ftsensor_async_success` |
+
+> El `<xacro:unless value="${sim_ignition}">` de la línea 72 es exactamente la
+> razón por la que `ur5_dyn_control` necesita su propio bloque `ros2_control`
+> para Gazebo: el xacro estándar **suprime** la interfaz `effort` en simulación.
+> En el robot real no hace falta: el bloque del driver ya la trae.
+
+Coincidencia con el tag `2.13.2` del repositorio
+`UniversalRobots/Universal_Robots_ROS2_Driver` (verificado antes de instalar):
 
 | Requisito del plan | Presente en 2.13.2 | Evidencia |
 |---|---|---|
@@ -148,23 +187,13 @@ explícitamente, que es exactamente lo que hace `ControllerSwitcher` del paquete
 compatible con `tool_contact`. Confirma el `deactivate_controllers:=[scaled_joint_trajectory_controller]`
 que el nodo ya soporta.
 
-### 🔲 PENDIENTE — instalar el driver (aún no está en este sistema)
+### Re-verificación (si se actualiza el sistema)
 
 ```bash
-sudo apt update
-sudo apt install -y ros-humble-ur          # metapaquete: driver + controllers + moveit config
-# Verificación posterior:
 source /opt/ros/humble/setup.bash
-ros2 pkg xml ur_robot_driver | grep -E "<name>|<version>"
-ros2 pkg xml ur_controllers  | grep -E "<name>|<version>"
-grep -c "forward_effort_controller" /opt/ros/humble/share/ur_robot_driver/config/ur_controllers.yaml
-```
-
-Anotar el resultado:
-
-```
-ur_robot_driver instalado, versión: ______________     🔲 PENDIENTE
-ur_controllers  instalado, versión: ______________     🔲 PENDIENTE
+dpkg -l | grep -E "ros-humble-ur-(robot-driver|controllers|client-library|msgs)"
+grep -A2 "^    forward_effort_controller:" /opt/ros/humble/share/ur_robot_driver/config/ur_controllers.yaml
+grep -c FrictionModelController /opt/ros/humble/share/ur_controllers/controller_plugins.xml
 ```
 
 ---
@@ -278,10 +307,38 @@ lo registra en el log al arrancar:
 
 ## G4 — Fricción interna del robot
 
-**Estado:** ⚠️ Caracterizada en el código; falta **fijar y registrar el ajuste de
-operación**, que es lo que exige el plan para la reproducibilidad del paper.
+**Estado:** ✅ **CERRADA. Ajuste de operación decidido: `viscous_scale =
+coulomb_scale = 1.0` en las 6 juntas** (compensación interna completa),
+fijado explícitamente por servicio en cada sesión.
 
-### Hechos verificados (tag 2.13.2)
+> ### ⚠️ Dato nuevo tras instalar el driver: el robot NO usa 1.0 por defecto
+>
+> Al inspeccionar el paquete instalado apareció la documentación de los valores
+> por defecto, que **no estaba disponible antes de la instalación** y corrige el
+> hallazgo original de esta compuerta (*"defaults no documentados"*):
+>
+> ```
+> # /opt/ros/humble/share/ur_msgs/msg/FrictionModelParameters.msg
+> # Default: [0.9, 0.9, 0.8, 0.9, 0.9, 0.9]   <- viscous_scale
+> # Default: [0.8, 0.8, 0.7, 0.8, 0.8, 0.8]   <- coulomb_scale
+> ```
+>
+> Es decir: UR **no** aplica compensación completa por defecto, y baja aún más
+> la del **codo** (`elbow`, índice 2: 0.8 viscoso / 0.7 Coulomb). Eso sugiere
+> que 1.0 puede sobre-compensar en esa junta.
+>
+> **Riesgo de la decisión adoptada:** un compensador de fricción que
+> sobre-estima puede producir *stick-slip* / ciclos límite a baja velocidad,
+> justo el régimen del tramo `cut`. Con 1.0/1.0 se opera por encima del ajuste
+> que UR entrega de fábrica.
+>
+> **Mitigación acordada (sin cambiar la decisión):** el barrido de
+> caracterización de la FASE 2 pasa de `{0.0, 1.0}` a **`{0.0, default, 1.0}`**
+> (tres niveles). Si el nivel `1.0` muestra oscilación a baja velocidad que el
+> `default` no muestra, se reconsidera el ajuste de operación **con datos**, y
+> el cambio se reporta. Hasta entonces, 1.0/1.0 queda como valor de campaña.
+
+### Hechos verificados (tag 2.13.2, confirmados sobre el sistema instalado)
 
 1. `friction_model_controller` **arranca activo por defecto**
    (`ur_control.launch.py:382-389`).
@@ -305,39 +362,44 @@ operación**, que es lo que exige el plan para la reproducibilidad del paper.
 usado es *desconocido* y la campaña **no es reproducible**. Hay que llamarlo
 siempre y de forma explícita, aunque sea para fijar `1.0`.
 
-### Decisión propuesta (⚠️ requiere confirmación del usuario)
+### Decisión adoptada (confirmada por el usuario, 2026-07-30)
 
-- **Caracterización (FASE 2):** barrer `scale ∈ {0.0, 1.0}` en ambos coeficientes
-  para acotar la fricción residual en los dos extremos.
-- **Operación (FASES 2 y 9):** fijar `viscous_scale = coulomb_scale = 1.0` en las
-  6 juntas (compensación interna completa) y dejar que la identificación de la
-  FASE 2 capture solo la **residual**. Es el ajuste más estable y el que menos
-  carga deja al término discontinuo del SMC.
-- Los valores usados se escriben en el YAML de campaña y se reportan en el paper.
+- **Operación (FASES 2 y 9):** `viscous_scale = coulomb_scale = 1.0` en las 6
+  juntas. La identificación de la FASE 2 captura entonces solo la fricción
+  **residual**, y es lo que menos carga deja al término discontinuo del SMC.
+- **Caracterización (FASE 2):** barrido a **tres** niveles — `0.0` (sin
+  compensación interna), `default` (`[0.9,0.9,0.8,0.9,0.9,0.9]` /
+  `[0.8,0.8,0.7,0.8,0.8,0.8]`) y `1.0` — por el motivo del aviso de arriba.
+- El ajuste se **fija siempre de forma explícita** al inicio de cada sesión,
+  aunque coincida con el default: sin la llamada al servicio el controlador no
+  impone nada y el valor efectivo no queda registrado.
+- Los valores se escriben en el YAML de campaña y se reportan en el paper.
 
-```
-Ajuste de operación acordado: viscous_scale = ______  coulomb_scale = ______
-                                                                🔲 PENDIENTE (confirmar)
-```
-
-### 🔲 PENDIENTE — comandos con el robot en marcha
+### Comandos de sesión (robot en marcha)
 
 ```bash
-# Fijar escalas (ejemplo: compensación completa en las 6 juntas)
+# Ajuste de OPERACIÓN acordado: compensación completa en las 6 juntas
 ros2 service call /friction_model_controller/set_friction_model_parameters \
   ur_msgs/srv/SetFrictionModelParameters \
   "{parameters: {viscous_scale: [1.0,1.0,1.0,1.0,1.0,1.0],
                  coulomb_scale: [1.0,1.0,1.0,1.0,1.0,1.0]}}"
 
-# Extremo opuesto para la caracterización
+# Nivel 'default' del barrido de caracterización (FASE 2)
+ros2 service call /friction_model_controller/set_friction_model_parameters \
+  ur_msgs/srv/SetFrictionModelParameters \
+  "{parameters: {viscous_scale: [0.9,0.9,0.8,0.9,0.9,0.9],
+                 coulomb_scale: [0.8,0.8,0.7,0.8,0.8,0.8]}}"
+
+# Nivel 0.0 del barrido: sin compensación interna
 ros2 service call /friction_model_controller/set_friction_model_parameters \
   ur_msgs/srv/SetFrictionModelParameters \
   "{parameters: {viscous_scale: [0.0,0.0,0.0,0.0,0.0,0.0],
                  coulomb_scale: [0.0,0.0,0.0,0.0,0.0,0.0]}}"
 ```
 
-> Con PolyScope 5 < 5.25.1 este servicio provoca un **popup bloqueante** en el
-> teach pendant (ver G1). Confirmar la versión antes de llamarlo.
+Verificar que la llamada tuvo efecto (`success: true`) y anotarlo en la hoja de
+sesión. Con PolyScope 5.25.2 **no** aparece el popup bloqueante del teach
+pendant (requiere ≥ 5.25.1, ver G1).
 
 ---
 
@@ -359,46 +421,62 @@ incorrecta: se dice **torque comandado**.
 
 ---
 
-## G6 — Seguridad (§7)  🔲 **PENDIENTE**
+## G6 — Seguridad (§7)  ⚠️ **Firmado salvo el watchdog**
 
 El checklist del §7 del plan se firma **por sesión**, no una sola vez. Sin él,
 prohibido activar `forward_effort_controller` en el robot real.
 
-Como G1–G5 ya están cerradas o acotadas, lo que falta es material y de
-procedimiento. Antes de la primera sesión de FASE 9 hay que tener resueltos:
+**Estado 2026-07-30 (firma del usuario):** el checklist queda firmado **hasta el
+punto del watchdog, no incluido**. Los puntos posteriores son de sesión y se
+firman el día del ensayo.
 
-- [ ] Modo de velocidad reducida activo en el teach pendant
-- [ ] Paro de emergencia al alcance del operador
-- [ ] Planos de seguridad / límites de espacio alrededor de la mesa de corte
-- [ ] `tau_max` conservador para el primer ensayo (30 % del nominal:
+- [x] Modo de velocidad reducida activo en el teach pendant
+- [x] Paro de emergencia al alcance del operador
+- [x] Planos de seguridad / límites de espacio alrededor de la mesa de corte
+- [x] `tau_max` conservador para el primer ensayo (30 % del nominal:
       `[45, 45, 45, 8.4, 8.4, 8.4]` N·m) y subida gradual
-- [ ] Watchdog probado (⚠️ **no existe todavía** — es entregable de la **FASE 3**;
-      la FASE 9 no puede empezar antes que la FASE 3)
-- [ ] `RobotReceiveTimeout` en decenas de ms
-- [ ] Primer ensayo sin bisturí montado y sin material
-- [ ] Segundo ensayo con bisturí al aire, verificando `ft_data ≈ 0`
-- [ ] `zero_ftsensor` ejecutado y verificado antes de aproximar
-- [ ] Protocolo de corte-punzante para la hoja; contenedor rígido a mano
-- [ ] Nadie dentro del espacio de trabajo durante los ensayos con torque
+- [ ] **Watchdog probado** — ⛔ **BLOQUEANTE. No existe todavía: es entregable
+      de la FASE 3.** Mientras no esté, no se activa torque en el robot real.
+- [ ] `RobotReceiveTimeout` en decenas de ms *(se configura con el bring-up del
+      driver, FASE 9)*
+- [ ] Primer ensayo sin bisturí montado y sin material *(por sesión)*
+- [ ] Segundo ensayo con bisturí al aire, verificando `ft_data ≈ 0` *(por sesión)*
+- [ ] `zero_ftsensor` ejecutado y verificado antes de aproximar *(por corte)*
+- [ ] Protocolo de corte-punzante para la hoja; contenedor rígido a mano *(por sesión)*
+- [ ] Nadie dentro del espacio de trabajo durante los ensayos con torque *(por sesión)*
 
 ```
-Fecha de firma de la primera sesión: ____________       🔲 PENDIENTE
-Operador responsable:                ____________       🔲 PENDIENTE
+Firma de los puntos previos al watchdog: 2026-07-30
+Operador responsable:                    Sergio Morales
 ```
+
+**Consecuencia sobre el orden de fases:** el watchdog convierte la dependencia
+**FASE 3 → FASE 9** en dura. El grafo del plan (§10) ya la tenía, pero por otra
+razón; aquí queda además como requisito de seguridad firmado.
 
 ---
 
-## Resumen de acciones para el usuario
+## Resumen de acciones — todas resueltas (2026-07-30)
 
-| # | Acción | Compuerta | Bloquea |
+| # | Acción | Compuerta | Estado |
 |---|---|---|---|
-| 1 | Registrar la versión exacta de PolyScope, número de serie e IP | G1 | FASE 9 |
-| 2 | `sudo apt install ros-humble-ur` y anotar versiones | G2 | FASE 9 |
-| 3 | Confirmar el ajuste de fricción de operación propuesto (`1.0/1.0`) | G4 | FASES 2, 9 |
-| 4 | Firmar el §7 antes de la primera sesión con torque | G6 | FASE 9 |
+| 1 | Registrar versión de PolyScope, número de serie e IP | G1 | ✅ 5.25.2 / 20245500119 / 192.168.0.102 |
+| 2 | `sudo apt install ros-humble-ur` y verificar | G2 | ✅ 2.13.2, verificado sobre los ficheros instalados |
+| 3 | Fijar el ajuste de fricción de operación | G4 | ✅ `1.0 / 1.0` (con barrido a 3 niveles en la FASE 2) |
+| 4 | Firmar el §7 | G6 | ⚠️ Firmado salvo el watchdog (FASE 3) |
 
-**Ninguna de las cuatro bloquea las FASES 1–8** (todas en Gazebo). El trabajo
-puede continuar por la FASE 1 en cuanto se confirme este documento.
+**FASE 0 CERRADA. Habilitadas las FASES 1–8.** La FASE 9 queda bloqueada
+únicamente por el watchdog, entregable de la FASE 3.
+
+### Pendientes que se resuelven solos al avanzar
+
+| Qué | Dónde se resuelve |
+|---|---|
+| Watchdog probado (§7) | FASE 3 |
+| `RobotReceiveTimeout` en decenas de ms | FASE 9 (bring-up del driver) |
+| Puntos de sesión del §7 (bisturí, `zero_ftsensor`, espacio libre) | FASE 9, por sesión/corte |
+| Masa/CoM/inercia del acople del bisturí (A1) | Antes de la FASE 9; hook ya listo |
+| Distancia real `tool0` → punta de la hoja (A2) | Al montar el bisturí |
 
 ---
 
