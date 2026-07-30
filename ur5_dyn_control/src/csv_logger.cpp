@@ -49,7 +49,13 @@ void CsvLogger::log(double t,
                     const std::string & state)
 {
   if (!csv_.is_open()) {return;}
-  csv_ << std::fixed << std::setprecision(6) << t;
+  // 9 decimales = 1 nm en las columnas cartesianas. Con los 6 anteriores el
+  // paso de cuantizacion (1 um) era el 2.5 % del RMSE que hay que reportar y
+  // el 5 % del avance por muestra a 10 mm/s: al derivar el CSV para medir el
+  // feed, el ruido de cuantizacion tapaba la senal. Medido: con 6 decimales la
+  // desviacion aparente del feed de REFERENCIA (que es exacto por
+  // construccion) era del 10 % en ventanas de 0.1 s.
+  csv_ << std::fixed << std::setprecision(9) << t;
   for (int i = 0; i < 6; ++i) {csv_ << ',' << q[i];}
   for (int i = 0; i < 6; ++i) {csv_ << ',' << dq[i];}
   for (int i = 0; i < 6; ++i) {csv_ << ',' << ref.q[i];}

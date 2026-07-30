@@ -9,19 +9,51 @@ delgados que solo implementan su ley de control.
 ## Arquitectura
 
 ```
-CartesianSplineTrajectory   spline cúbico clamped por waypoints, derivadas
-                            ANALÍTICAS p(t), ṗ(t), p̈(t); orientación TCP
-                            constante (rpy = [π, 0, −π/2], gripper abajo)
+CartesianTrajectory (interfaz)   p(t), ṗ(t), p̈(t), p⃛(t) analíticas;
+        │                        orientación TCP constante (A4)
+        ├── CartesianSplineTrajectory   cúbico clamped — jerk DISCONTINUO
+        ├── QuinticSplineTrajectory     quíntico C⁴ — jerk CONTINUO
+        └── IncisionTrajectory          5 fases, geometría ∘ arco ∘ S-curve
         │
-JointReferenceGenerator     IK QP (ur5_kinematics, frame gripper_tcp) +
+JointReferenceGenerator     IK QP (ur5_kinematics) + refinamiento de Newton +
                             dq = J⁻¹ẋ, ddq = J⁻¹(ẍ − J̇q̇)  →  tabla {q,dq,ddq}
-        │                   (offline, con guard de continuidad de rama IK)
+        │                   Aborta si: salto de rama IK · σ_min(J) bajo umbral ·
+        │                   dq/ddq fuera de límites del UR5e
 TorqueControlNodeBase       máquina de estados PRE_HOLD → WAIT → HOLD_START →
-        │                   RAMP (quíntica) → TRACK → HOLD_END; CSV; saturación
+        │                   RAMP (quíntica) → TRACK → HOLD_END; CSV; G3; saturación
    ┌────┴─────────┐         τ ∈ ±[150,150,150,28,28,28] N·m
-gz_gravity_comp   gz_fl_control_node        (futuros: gz_smc, gz_mrac, ...)
+gz_gravity_comp   gz_fl_control_node        (futuros: gz_lqr_sdre, gz_smc, gz_astsmc)
 τ=g+Kp e−Kd dq    τ = M(q)(q̈d+Kp e+Kd ė) + C q̇ + g      [Pinocchio: crba+nle]
 ```
+
+### Trayectorias
+
+`trajectory_type` selecciona cuál se usa:
+
+| Valor | Clase | Uso |
+|---|---|---|
+| `cubic_spline` | `CartesianSplineTrajectory` | Histórico. Jerk constante a trozos y discontinuo en los nudos; aceleración no nula en los extremos. Se conserva para la comparación cúbico↔quíntico del paper. |
+| `quintic_spline` | `QuinticSplineTrajectory` | Spline quíntico C⁴ sobre `waypoints_xyz`/`waypoint_times`. `v=a=0` en los extremos, jerk continuo. Sustituto directo del cúbico. |
+| `incision` | `IncisionTrajectory` | Las 5 fases de la incisión (`config/incision_params.yaml`). |
+
+**Separación geometría / temporización** (`IncisionTrajectory`):
+
+```
+geometría   QuinticSpline3d p(u), u ∈ [0,1]      (CHORD_TANGENT: |p'| > 0)
+   ∘        ArcLength: s(u) por Gauss-Legendre → u(s)   [port de numerical_integration.py del CU3]
+   ∘        ScurveProfile: s(t) con jerk acotado y MESETA de velocidad constante
+   =        p(t) = p(u(s(t)))   ⟹   |ṗ| = ṡ  (feed exacto en la meseta)
+```
+
+Una fase de dos waypoints es **exactamente** un segmento recto (el Hermite
+quíntico con tangente de cuerda degenera en la interpolación lineal), así que
+`contact`, `penetration`, `cut` y `withdraw` son rectas por construcción y la
+profundidad se mantiene constante durante el corte.
+
+> ⚠️ `QuinticBoundary::CLAMPED_REST` (`v=a=0`) es correcto para una trayectoria
+> parametrizada en **tiempo**, pero hace `|p'| = 0` en los extremos y por tanto
+> **no sirve como geometría** para el arco (`du/ds = 1/|p'|` divergería).
+> `ArcLength` lo detecta y lanza excepción en vez de propagar `1/0`.
 
 - **Modelo dinámico**: `ur5_kinematics/share/ur5e.urdf` (brazo solo, sin masa
   de gripper — coincide con la planta de Gazebo sin Robotiq), gravedad 9.8
@@ -65,6 +97,10 @@ ros2 launch ur5_dyn_control gravity_comp.launch.py gazebo_gui:=false
 
 # Feedback Linearization siguiendo la trayectoria cartesiana spline
 ros2 launch ur5_dyn_control fl_control.launch.py test_num:=1
+
+# Incisión de 5 fases (corte de 80 mm a 10 mm/s, profundidad 5 mm)
+ros2 launch ur5_dyn_control fl_control.launch.py test_num:=1 \
+    params_file:=$(ros2 pkg prefix ur5_dyn_control)/share/ur5_dyn_control/config/incision_params.yaml
 
 # Desarrollo rápido (mundo sin mesas, RTF ~1):
 ros2 launch ur5_dyn_control fl_control.launch.py \
@@ -138,6 +174,13 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
 - `test_gravity_policy` (8) — compuerta G3 y saturación.
 - `test_tool_inertia_hook` (4) — supuestos A1 (herramienta en el TCP) y A2
   (offset del TCP configurable).
+- `test_quintic_spline` (9) — derivadas analíticas vs diferencias finitas
+  (< 1e-6), continuidad de jerk en los nudos, y los mismos tests sobre el
+  cúbico demostrando que **falla** (evidencia de la figura cúbico↔quíntico).
+- `test_incision_trajectory` (22) — Gauss-Legendre, longitud de arco, perfil
+  S-curve, feed constante en el corte y geometría de las 5 fases.
+
+Total: **47 tests**.
 
 ## Documentación del proyecto
 

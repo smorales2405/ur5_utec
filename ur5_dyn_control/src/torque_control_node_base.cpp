@@ -24,6 +24,67 @@ Vector6d paramToVec6(const std::vector<double> & v, const char * name)
 
 }  // namespace
 
+std::shared_ptr<CartesianTrajectory>
+TorqueControlNodeBase::buildIncisionTrajectory(const std::vector<double> & rpy,
+                                               std::string & description)
+{
+  IncisionParams ip;
+  ip.tcp_rpy = Eigen::Vector3d(rpy[0], rpy[1], rpy[2]);
+
+  const auto start = declare_parameter<std::vector<double>>(
+    "incision.start_pose", std::vector<double>{0.49, 0.13, 0.35});
+  if (start.size() != 3) {
+    throw std::runtime_error("incision.start_pose debe tener 3 elementos");
+  }
+  ip.start_pose = Eigen::Vector3d(start[0], start[1], start[2]);
+
+  ip.surface_z       = declare_parameter<double>("incision.surface_z", 0.02);
+  ip.cut_x           = declare_parameter<double>("incision.cut_x", 0.50);
+  ip.cut_center_y    = declare_parameter<double>("incision.cut_center_y", 0.0);
+  ip.cut_length      = declare_parameter<double>("incision.cut_length", 0.08);
+  ip.cut_depth       = declare_parameter<double>("incision.cut_depth", 0.005);
+  ip.approach_height = declare_parameter<double>("incision.approach_height", 0.03);
+
+  const std::string axis = declare_parameter<std::string>("incision.cut_axis", "y");
+  if (axis != "x" && axis != "y") {
+    throw std::runtime_error("incision.cut_axis debe ser 'x' o 'y'");
+  }
+  ip.cut_axis = axis[0];
+
+  ip.v_approach    = declare_parameter<double>("incision.v_approach", 0.10);
+  ip.v_contact     = declare_parameter<double>("incision.v_contact", 0.015);
+  ip.v_penetration = declare_parameter<double>("incision.v_penetration", 0.005);
+  ip.v_cut         = declare_parameter<double>("incision.v_cut", 0.010);
+  ip.v_withdraw    = declare_parameter<double>("incision.v_withdraw", 0.05);
+
+  ip.ramp_fraction_cut  = declare_parameter<double>("incision.ramp_fraction_cut", 0.10);
+  ip.ramp_fraction_move = declare_parameter<double>("incision.ramp_fraction_move", 0.5);
+  ip.dwell              = declare_parameter<double>("incision.dwell", 0.3);
+
+  auto traj = std::make_shared<IncisionTrajectory>(ip);
+
+  RCLCPP_INFO(get_logger(),
+              "Incision: corte de %.1f mm a %.1f mm/s, profundidad %.1f mm, "
+              "eje '%c', superficie z=%.3f m",
+              ip.cut_length * 1e3, ip.v_cut * 1e3, ip.cut_depth * 1e3,
+              ip.cut_axis, ip.surface_z);
+  for (const auto & ph : traj->phases()) {
+    RCLCPP_INFO(get_logger(),
+                "  %-11s t=[%6.2f, %6.2f] s  L=%6.1f mm  v=%5.1f mm/s"
+                "  meseta=[%6.2f, %6.2f] s",
+                toString(ph.id), ph.t_start, ph.t_end, ph.length * 1e3,
+                ph.v_max * 1e3, ph.plateau_t0, ph.plateau_t1);
+  }
+
+  const auto & cut = traj->phase(IncisionPhaseId::CUT);
+  const double plateau_len = (cut.plateau_t1 - cut.plateau_t0) * cut.v_max;
+  std::ostringstream oss;
+  oss << "5 fases, corte " << ip.cut_length * 1e3 << " mm, meseta de feed constante "
+      << plateau_len * 1e3 << " mm";
+  description = oss.str();
+  return traj;
+}
+
 TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
 : rclcpp::Node(node_name)
 {
@@ -115,29 +176,54 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
 
   // ── Trayectoria cartesiana -> tabla articular ─────────────────────────────
   if (!skip_trajectory_) {
-    const auto wp_flat = declare_parameter<std::vector<double>>(
-      "waypoints_xyz", std::vector<double>{});
-    const auto wp_times = declare_parameter<std::vector<double>>(
-      "waypoint_times", std::vector<double>{});
+    // cubic_spline  : CartesianSplineTrajectory (historico; jerk discontinuo)
+    // quintic_spline: QuinticSplineTrajectory   (FASE 1; jerk continuo)
+    // incision      : IncisionTrajectory        (FASE 1; 5 fases, feed constante)
+    const std::string traj_type =
+      declare_parameter<std::string>("trajectory_type", "cubic_spline");
     const auto rpy = declare_parameter<std::vector<double>>(
       "tcp_orientation_rpy", {3.14159265, 0.0, -1.57079633});
-    if (wp_flat.size() < 6 || wp_flat.size() % 3 != 0 ||
-        wp_times.size() != wp_flat.size() / 3)
-    {
-      throw std::runtime_error(
-        "waypoints_xyz (3N valores) y waypoint_times (N valores, N>=2) invalidos");
-    }
-    std::vector<Eigen::Vector3d> waypoints;
-    for (std::size_t i = 0; i < wp_flat.size(); i += 3) {
-      waypoints.emplace_back(wp_flat[i], wp_flat[i + 1], wp_flat[i + 2]);
+    if (rpy.size() != 3) {
+      throw std::runtime_error("tcp_orientation_rpy debe tener 3 elementos");
     }
     const Eigen::Matrix3d R_const =
       (Eigen::AngleAxisd(rpy[2], Eigen::Vector3d::UnitZ()) *
        Eigen::AngleAxisd(rpy[1], Eigen::Vector3d::UnitY()) *
        Eigen::AngleAxisd(rpy[0], Eigen::Vector3d::UnitX())).toRotationMatrix();
 
-    auto traj = std::make_shared<CartesianSplineTrajectory>(
-      waypoints, wp_times, R_const);
+    std::shared_ptr<CartesianTrajectory> traj;
+    std::string traj_desc;
+
+    if (traj_type == "incision") {
+      traj = buildIncisionTrajectory(rpy, traj_desc);
+    } else {
+      const auto wp_flat = declare_parameter<std::vector<double>>(
+        "waypoints_xyz", std::vector<double>{});
+      const auto wp_times = declare_parameter<std::vector<double>>(
+        "waypoint_times", std::vector<double>{});
+      if (wp_flat.size() < 6 || wp_flat.size() % 3 != 0 ||
+          wp_times.size() != wp_flat.size() / 3)
+      {
+        throw std::runtime_error(
+          "waypoints_xyz (3N valores) y waypoint_times (N valores, N>=2) invalidos");
+      }
+      std::vector<Eigen::Vector3d> waypoints;
+      for (std::size_t i = 0; i < wp_flat.size(); i += 3) {
+        waypoints.emplace_back(wp_flat[i], wp_flat[i + 1], wp_flat[i + 2]);
+      }
+      if (traj_type == "quintic_spline") {
+        traj = std::make_shared<QuinticSplineTrajectory>(waypoints, wp_times, R_const);
+      } else if (traj_type == "cubic_spline") {
+        traj = std::make_shared<CartesianSplineTrajectory>(waypoints, wp_times, R_const);
+      } else {
+        throw std::runtime_error(
+          "trajectory_type desconocido: '" + traj_type +
+          "' (validos: cubic_spline, quintic_spline, incision)");
+      }
+      std::ostringstream oss;
+      oss << waypoints.size() << " waypoints";
+      traj_desc = oss.str();
+    }
 
     IkParams ik;
     ik.seed = paramToVec6(declare_parameter<std::vector<double>>(
@@ -147,17 +233,41 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
     ik.weight_pos = declare_parameter<double>("ik_weight_pos", 1.0);
     ik.weight_orient = declare_parameter<double>("ik_weight_orient", 1.0);
     ik.q_jump_tol = declare_parameter<double>("q_jump_tol", 0.15);
+    ik.fk_tol = declare_parameter<double>("ik_fk_tol", 5e-3);
 
-    ref_gen_ = std::make_unique<JointReferenceGenerator>(traj, dyn_, urdf_path, ik);
+    // Limites y umbrales de validacion de la tabla (FASE 1).
+    TrajectoryLimits lim;
+    lim.dq_max = paramToVec6(declare_parameter<std::vector<double>>(
+        "dq_max", {M_PI, M_PI, M_PI, M_PI, M_PI, M_PI}), "dq_max");
+    lim.ddq_max = paramToVec6(declare_parameter<std::vector<double>>(
+        "ddq_max", {5.0, 5.0, 5.0, 5.0, 5.0, 5.0}), "ddq_max");
+    lim.sigma_min_threshold = declare_parameter<double>("sigma_min_threshold", 0.05);
+    lim.manipulability_threshold =
+      declare_parameter<double>("manipulability_threshold", 0.0);
+
+    ref_gen_ = std::make_unique<JointReferenceGenerator>(traj, dyn_, urdf_path, ik, lim);
     RCLCPP_INFO(get_logger(),
-                "Construyendo tabla de referencias (%zu waypoints, %.1f s, IK offline)...",
-                waypoints.size(), traj->duration());
+                "Trayectoria '%s' (%s, %.2f s). Construyendo tabla (IK offline)...",
+                traj_type.c_str(), traj_desc.c_str(), traj->duration());
     std::string err;
     if (!ref_gen_->build(1.0 / control_rate_, err)) {
       throw std::runtime_error("JointReferenceGenerator: " + err);
     }
+    const auto & d = ref_gen_->diagnostics();
     RCLCPP_INFO(get_logger(), "Tabla lista: %zu muestras a %.0f Hz.",
                 ref_gen_->size(), control_rate_);
+    RCLCPP_INFO(get_logger(),
+                "  sigma_min(J) = %.4f (min en t=%.2f s, umbral %.4f) | w_min = %.4f",
+                d.sigma_min, d.sigma_min_t, lim.sigma_min_threshold,
+                d.manipulability_min);
+    RCLCPP_INFO(get_logger(),
+                "  |dq|max  = [%.3f %.3f %.3f %.3f %.3f %.3f] rad/s   (margen %.1f %%)",
+                d.dq_peak[0], d.dq_peak[1], d.dq_peak[2],
+                d.dq_peak[3], d.dq_peak[4], d.dq_peak[5], 100.0 * d.dq_margin);
+    RCLCPP_INFO(get_logger(),
+                "  |ddq|max = [%.3f %.3f %.3f %.3f %.3f %.3f] rad/s^2 (margen %.1f %%)",
+                d.ddq_peak[0], d.ddq_peak[1], d.ddq_peak[2],
+                d.ddq_peak[3], d.ddq_peak[4], d.ddq_peak[5], 100.0 * d.ddq_margin);
   }
 
   // ── Logging (el CSV se abre en start(): csvPrefix() es virtual) ───────────

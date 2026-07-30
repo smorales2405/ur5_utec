@@ -134,6 +134,23 @@ Eigen::Vector3d CartesianSplineTrajectory::velocity(double t) const
   return v;
 }
 
+Eigen::Vector3d CartesianSplineTrajectory::jerk(double t) const
+{
+  if (t < t_.front() || t > t_.back()) {
+    return Eigen::Vector3d::Zero();
+  }
+  const int i = segmentIndex(std::clamp(t, t_.front(), t_.back()));
+  const double h = t_[i + 1] - t_[i];
+
+  // La aceleracion es lineal en cada tramo: a(t) = Mi*(t_{i+1}-t)/h + Mj*(t-t_i)/h
+  // => jerk = (Mj - Mi)/h, CONSTANTE en el tramo y con salto en los nudos.
+  Eigen::Vector3d j;
+  for (int axis = 0; axis < 3; ++axis) {
+    j[axis] = (moments_[axis][i + 1] - moments_[axis][i]) / h;
+  }
+  return j;
+}
+
 Eigen::Vector3d CartesianSplineTrajectory::acceleration(double t) const
 {
   if (t < t_.front() || t > t_.back()) {

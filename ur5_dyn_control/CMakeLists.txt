@@ -22,6 +22,11 @@ find_package(ur5_kinematics REQUIRED)
 # ── Libreria compartida (spline, dinamica, referencias, switcher, base) ──────
 add_library(${PROJECT_NAME}_core SHARED
   src/cartesian_spline_trajectory.cpp
+  src/quintic_spline.cpp
+  src/quintic_spline_trajectory.cpp
+  src/arc_length.cpp
+  src/time_profile.cpp
+  src/incision_trajectory.cpp
   src/ur5_dynamics.cpp
   src/joint_reference_generator.cpp
   src/controller_switcher.cpp
@@ -78,6 +83,14 @@ if(BUILD_TESTING)
   # Supuestos A1 (hook de herramienta) y A2 (offset del TCP configurable).
   ament_add_gtest(test_tool_inertia_hook test/test_tool_inertia_hook.cpp)
   target_link_libraries(test_tool_inertia_hook ${PROJECT_NAME}_core)
+
+  # FASE 1: spline quintico (derivadas analiticas, continuidad de jerk).
+  ament_add_gtest(test_quintic_spline test/test_quintic_spline.cpp)
+  target_link_libraries(test_quintic_spline ${PROJECT_NAME}_core)
+
+  # FASE 1: Gauss-Legendre, longitud de arco, S-curve y trayectoria de incision.
+  ament_add_gtest(test_incision_trajectory test/test_incision_trajectory.cpp)
+  target_link_libraries(test_incision_trajectory ${PROJECT_NAME}_core)
 endif()
 
 ament_package()

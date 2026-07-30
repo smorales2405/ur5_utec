@@ -9,10 +9,14 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 
+#include "ur5_dyn_control/cartesian_spline_trajectory.hpp"
+#include "ur5_dyn_control/cartesian_trajectory.hpp"
 #include "ur5_dyn_control/common.hpp"
 #include "ur5_dyn_control/controller_switcher.hpp"
 #include "ur5_dyn_control/csv_logger.hpp"
+#include "ur5_dyn_control/incision_trajectory.hpp"
 #include "ur5_dyn_control/joint_reference_generator.hpp"
+#include "ur5_dyn_control/quintic_spline_trajectory.hpp"
 #include "ur5_dyn_control/torque_command.hpp"
 #include "ur5_dyn_control/ur5_dynamics.hpp"
 
@@ -82,6 +86,9 @@ private:
   enum class State { PRE_HOLD, WAIT_STATE, HOLD_START, RAMP, TRACK, HOLD_END, DONE };
 
   void tick();
+  /// Declara los parametros `incision.*` y construye la trayectoria de 5 fases.
+  std::shared_ptr<CartesianTrajectory> buildIncisionTrajectory(
+    const std::vector<double> & rpy, std::string & description);
   bool readJointStates(Vector6d & q, Vector6d & dq);
   JointRef rampReference(double t_ramp) const;
   /// Aplica commandFromLaw() y publica. Devuelve el torque comandado (para el CSV).
