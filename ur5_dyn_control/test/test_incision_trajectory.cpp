@@ -40,6 +40,7 @@ IncisionParams defaultParams()
   p.cut_x = 0.50;
   p.cut_center_y = 0.0;
   p.cut_length = 0.08;
+  p.cut_lead = 0.010;
   p.cut_depth = 0.005;
   p.approach_height = 0.03;
   p.cut_axis = 'y';
@@ -306,9 +307,13 @@ TEST(IncisionTrajectory, PhasesHaveExpectedGeometry)
   EXPECT_NEAR(pen.length, p.cut_depth, 1e-12);
 
   const auto & cut = traj.phase(IncisionPhaseId::CUT);
-  EXPECT_NEAR(cut.length, p.cut_length, 1e-12);
-  EXPECT_NEAR(cut.p_start.y(), p.cut_center_y - 0.5 * p.cut_length, 1e-12);
-  EXPECT_NEAR(cut.p_end.y(), p.cut_center_y + 0.5 * p.cut_length, 1e-12);
+  // El trazo total incluye entrada y salida...
+  EXPECT_NEAR(cut.length, p.cutStroke(), 1e-12);
+  EXPECT_NEAR(cut.p_start.y(), p.cut_center_y - 0.5 * p.cutStroke(), 1e-12);
+  EXPECT_NEAR(cut.p_end.y(), p.cut_center_y + 0.5 * p.cutStroke(), 1e-12);
+  // ...pero el tramo MEDIDO son los cut_length centrales.
+  EXPECT_NEAR(cut.p_measured_start.y(), p.cut_center_y - 0.5 * p.cut_length, 1e-12);
+  EXPECT_NEAR(cut.p_measured_end.y(), p.cut_center_y + 0.5 * p.cut_length, 1e-12);
   EXPECT_NEAR(cut.p_start.x(), p.cut_x, 1e-12);
   EXPECT_NEAR(cut.p_end.x(), p.cut_x, 1e-12);
 
@@ -335,6 +340,29 @@ TEST(IncisionTrajectory, FeedIsConstantWithinTwoPercentInCutPlateau)
   EXPECT_LT(worst, 0.02) << "desviacion relativa maxima del feed: " << worst * 100 << " %";
   // De hecho la meseta es exacta salvo redondeo, no solo dentro del 2 %.
   EXPECT_LT(worst, 1e-9);
+}
+
+// La MESETA de feed constante debe cubrir EXACTAMENTE la incision medida: los
+// 80 mm que se reportan en el paper se recorren integramente a 10 mm/s, y las
+// rampas quedan fuera, en la entrada y la salida.
+TEST(IncisionTrajectory, PlateauCoversTheWholeMeasuredIncision)
+{
+  const IncisionParams p = defaultParams();
+  IncisionTrajectory traj(p);
+  const auto & cut = traj.phase(IncisionPhaseId::CUT);
+
+  // Duracion de la meseta x feed = longitud medida.
+  EXPECT_NEAR((cut.plateau_t1 - cut.plateau_t0) * p.v_cut, p.cut_length, 1e-12);
+
+  // Y los extremos de la meseta caen sobre los extremos del tramo medido.
+  EXPECT_LT((traj.position(cut.plateau_t0) - cut.p_measured_start).cwiseAbs().maxCoeff(),
+            1e-9);
+  EXPECT_LT((traj.position(cut.plateau_t1) - cut.p_measured_end).cwiseAbs().maxCoeff(),
+            1e-9);
+
+  // Fuera de la meseta (en la entrada) el feed aun no ha llegado al nominal.
+  const double t_lead = 0.5 * (cut.t_start + cut.plateau_t0);
+  EXPECT_LT(traj.velocity(t_lead).norm(), p.v_cut);
 }
 
 TEST(IncisionTrajectory, CutIsStraightAndAtConstantDepth)
@@ -418,10 +446,11 @@ TEST(IncisionTrajectory, CutAxisXIsSupported)
   p.cut_axis = 'x';
   IncisionTrajectory traj(p);
   const auto & cut = traj.phase(IncisionPhaseId::CUT);
-  EXPECT_NEAR(cut.p_start.x(), p.cut_x - 0.5 * p.cut_length, 1e-12);
-  EXPECT_NEAR(cut.p_end.x(), p.cut_x + 0.5 * p.cut_length, 1e-12);
+  EXPECT_NEAR(cut.p_start.x(), p.cut_x - 0.5 * p.cutStroke(), 1e-12);
+  EXPECT_NEAR(cut.p_end.x(), p.cut_x + 0.5 * p.cutStroke(), 1e-12);
+  EXPECT_NEAR(cut.p_measured_start.x(), p.cut_x - 0.5 * p.cut_length, 1e-12);
   EXPECT_NEAR(cut.p_start.y(), p.cut_center_y, 1e-12);
-  EXPECT_NEAR(cut.length, p.cut_length, 1e-12);
+  EXPECT_NEAR(cut.length, p.cutStroke(), 1e-12);
 }
 
 TEST(IncisionTrajectory, RejectsInvalidParameters)

@@ -42,6 +42,7 @@ TorqueControlNodeBase::buildIncisionTrajectory(const std::vector<double> & rpy,
   ip.cut_x           = declare_parameter<double>("incision.cut_x", 0.50);
   ip.cut_center_y    = declare_parameter<double>("incision.cut_center_y", 0.0);
   ip.cut_length      = declare_parameter<double>("incision.cut_length", 0.08);
+  ip.cut_lead        = declare_parameter<double>("incision.cut_lead", 0.010);
   ip.cut_depth       = declare_parameter<double>("incision.cut_depth", 0.005);
   ip.approach_height = declare_parameter<double>("incision.approach_height", 0.03);
 
@@ -57,17 +58,17 @@ TorqueControlNodeBase::buildIncisionTrajectory(const std::vector<double> & rpy,
   ip.v_cut         = declare_parameter<double>("incision.v_cut", 0.010);
   ip.v_withdraw    = declare_parameter<double>("incision.v_withdraw", 0.05);
 
-  ip.ramp_fraction_cut  = declare_parameter<double>("incision.ramp_fraction_cut", 0.10);
   ip.ramp_fraction_move = declare_parameter<double>("incision.ramp_fraction_move", 0.5);
   ip.dwell              = declare_parameter<double>("incision.dwell", 0.3);
 
   auto traj = std::make_shared<IncisionTrajectory>(ip);
 
   RCLCPP_INFO(get_logger(),
-              "Incision: corte de %.1f mm a %.1f mm/s, profundidad %.1f mm, "
-              "eje '%c', superficie z=%.3f m",
-              ip.cut_length * 1e3, ip.v_cut * 1e3, ip.cut_depth * 1e3,
-              ip.cut_axis, ip.surface_z);
+              "Incision: %.1f mm MEDIDOS a feed constante de %.1f mm/s "
+              "(+ %.1f mm de entrada y salida -> %.1f mm de trazo), "
+              "profundidad %.1f mm, eje '%c', superficie z=%.3f m",
+              ip.cut_length * 1e3, ip.v_cut * 1e3, ip.cut_lead * 1e3,
+              ip.cutStroke() * 1e3, ip.cut_depth * 1e3, ip.cut_axis, ip.surface_z);
   for (const auto & ph : traj->phases()) {
     RCLCPP_INFO(get_logger(),
                 "  %-11s t=[%6.2f, %6.2f] s  L=%6.1f mm  v=%5.1f mm/s"
@@ -79,8 +80,8 @@ TorqueControlNodeBase::buildIncisionTrajectory(const std::vector<double> & rpy,
   const auto & cut = traj->phase(IncisionPhaseId::CUT);
   const double plateau_len = (cut.plateau_t1 - cut.plateau_t0) * cut.v_max;
   std::ostringstream oss;
-  oss << "5 fases, corte " << ip.cut_length * 1e3 << " mm, meseta de feed constante "
-      << plateau_len * 1e3 << " mm";
+  oss << "5 fases, trazo " << ip.cutStroke() * 1e3 << " mm con "
+      << plateau_len * 1e3 << " mm medidos a feed constante";
   description = oss.str();
   return traj;
 }

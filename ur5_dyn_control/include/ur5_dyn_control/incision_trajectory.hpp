@@ -32,12 +32,22 @@ struct IncisionParams
   Eigen::Vector3d start_pose{0.49, 0.13, 0.35};  ///< TCP al inicio (= FK(q_init))
   double surface_z = 0.02;                       ///< cara superior del tejido
   double cut_x = 0.50;                           ///< coordenada fija del trazo
-  double cut_length = 0.08;                      ///< longitud de la incision
+  /// Longitud de la incision MEDIDA: el tramo que se recorre a feed
+  /// EXACTAMENTE constante y sobre el que se calculan las metricas del paper.
+  double cut_length = 0.08;
+  /// Entrada y salida adicionales a cada lado del tramo medido, donde ocurren
+  /// las rampas de aceleracion y frenado. El bisturi corta
+  /// cut_length + 2*cut_lead de material, pero solo los cut_length centrales
+  /// estan a feed constante. Con cut_lead = 0 no habria meseta posible.
+  double cut_lead = 0.010;
   double cut_center_y = 0.0;                     ///< centro del trazo
   double cut_depth = 0.005;                      ///< profundidad de penetracion
   double approach_height = 0.05;                 ///< altura sobre la superficie
   /// Eje del corte en el plano: 'y' (recomendado) o 'x'.
   char cut_axis = 'y';
+
+  /// Longitud total del trazo (lo que se corta de material).
+  double cutStroke() const { return cut_length + 2.0 * cut_lead; }
 
   // -- Velocidades por fase (m/s) -------------------------------------------
   double v_approach = 0.10;
@@ -47,10 +57,8 @@ struct IncisionParams
   double v_withdraw = 0.05;
 
   // -- Forma del perfil temporal --------------------------------------------
-  /// Fraccion de cada fase dedicada a rampa, en (0, 0.5]. En el corte controla
-  /// que porcion del trazo se recorre a feed exactamente constante:
-  /// meseta = (1 - 2*ramp_fraction) * cut_length.
-  double ramp_fraction_cut = 0.10;
+  /// En el corte la fraccion de rampa NO es un parametro libre: se deriva de
+  /// cut_lead, de modo que la meseta coincide EXACTAMENTE con cut_length.
   double ramp_fraction_move = 0.5;               ///< fases punto a punto: sin meseta
 
   /// Pausa en reposo entre fases (s). Deja que el transitorio se extinga y
@@ -107,6 +115,9 @@ public:
     double plateau_t1;
     Eigen::Vector3d p_start;
     Eigen::Vector3d p_end;
+    /// Extremos del tramo MEDIDO (solo la fase CUT): coinciden con la meseta.
+    Eigen::Vector3d p_measured_start;
+    Eigen::Vector3d p_measured_end;
   };
 
   const std::vector<PhaseInfo> & phases() const { return info_; }

@@ -13,7 +13,8 @@ Cierre de la FASE 1 del plan `PLAN_INCISION_UR5e.md`.
 | Parámetro | Valor | Justificación |
 |---|---|---|
 | Superficie del tejido | `z = 0.02 m` (base_link) | La mesa de cirugía queda exactamente en `z = 0.00`: pedestal del robot y mesa miden ambos 0.63 m. Es el espesor de una muestra fina apoyada sobre ella. |
-| Longitud del corte | **80 mm** | Largo frente a la repetibilidad del UR5e (±0.03 mm) y a los ~0.03 mm de RMSE del lazo. |
+| Longitud del corte **medida** | **80 mm** | Largo frente a la repetibilidad del UR5e (±0.03 mm) y a los ~0.03 mm de RMSE del lazo. Se recorre **íntegra** a feed constante. |
+| Entrada / salida (`cut_lead`) | **10 mm** a cada lado | Las rampas de aceleración y frenado ocurren aquí, fuera del tramo medido. Trazo total de material: **100 mm**. |
 | Profundidad | **5 mm** | Medible con calibrador; alcanzable en los 4 materiales. |
 | Velocidad de avance (feed) | **10 mm/s** | Régimen cuasi-estático de la literatura de corte de tejido blando. |
 | Dirección | a lo largo de **Y**, `x = 0.50 m` | σ_min(J) varía 1e-4 a lo largo del trazo (frente a 1e-2 si el corte fuera radial): el brazo ve la **misma planta** durante todo el corte, así que las diferencias entre controladores no se confunden con cambios de condicionamiento. |
@@ -27,9 +28,11 @@ Cierre de la FASE 1 del plan `PLAN_INCISION_UR5e.md`.
        │   │ contact (15 mm/s)     ↑ withdraw (50 mm/s)
   0.02 ┤   ●━━━━━━━━━━━━━━━━━━━━━━━┿━━━  superficie del tejido
        │   │ penetration (5 mm/s)  │
- 0.015 ┤   ●═══════════════════════●   z_cut = 0.015  ← cut, 80 mm @ 10 mm/s
-       └───┴───────────────────────┴────────→ y [m]
-         −0.04                   +0.04
+ 0.015 ┤   ●──═══════════════════──●   z_cut = 0.015
+       └───┴──┴───────────────┴──┴──────→ y [m]
+        −0.05 −0.04         +0.04 +0.05
+             │←── 80 mm MEDIDOS ──→│      a feed EXACTAMENTE constante
+        │←────── 100 mm de trazo ──────→│  material cortado (rampas incluidas)
 ```
 
 | Fase | t [s] | Longitud | v [mm/s] | Meseta de feed constante |
@@ -40,12 +43,17 @@ Cierre de la FASE 1 del plan `PLAN_INCISION_UR5e.md`.
 | `cut` | 13.80 – 23.40 | **80.0 mm** | **10** | **15.40 – 21.80 s → 64 mm** |
 | `withdraw` | 23.70 – 25.10 | 35.0 mm | 50 | — |
 
-Duración total **25.10 s** (incluye 0.3 s de reposo entre fases). Config en
+Duración total **27.60 s** (incluye 0.3 s de reposo entre fases). Config en
 [`ur5_dyn_control/config/incision_params.yaml`](../ur5_dyn_control/config/incision_params.yaml).
 
-> **La meseta es el tramo sobre el que se miden las métricas del corte.** Las
-> rampas de entrada y salida (8 mm cada una, `ramp_fraction_cut = 0.10`) son
-> físicamente inevitables: el bisturí arranca en reposo tras la penetración.
+> **Los 80 mm que se reportan se recorren íntegros a feed constante.** Las
+> rampas de aceleración y frenado son físicamente inevitables —el bisturí
+> arranca en reposo tras la penetración— así que se sacan del tramo medido:
+> el trazo se alarga 10 mm por cada lado (`cut_lead`) y se corta 100 mm de
+> material para medir 80. La fracción de rampa del perfil **no es un parámetro
+> libre**: se deriva de `cut_lead` para que la meseta coincida exactamente con
+> `cut_length`.
+>
 > Un perfil quíntico puro —la otra opción que contempla el plan— **no tendría
 > ninguna región de feed constante**, así que la S-curve con meseta es la única
 > forma de cumplir el criterio.
@@ -58,26 +66,33 @@ Duración total **25.10 s** (incluye 0.3 s de reposo entre fases). Config en
 |---|---|---|
 | Derivadas analíticas vs diferencias finitas: error < 1e-6 | quíntico y trayectoria compuesta: **< 1e-6** | ✅ `test_quintic_spline`, `test_incision_trajectory` |
 | Continuidad de jerk en los nudos (el cúbico falla, el quíntico pasa) | quíntico: salto **< 1e-6**; cúbico: salto **> 1e-3** | ✅ ambos verificados |
-| Feed constante dentro de ±2 % en el tramo `cut` | referencia analítica **< 1e-9**; ejecutado en Gazebo **0.31 %** máx | ✅ |
+| Feed constante dentro de ±2 % en el tramo `cut` | referencia analítica **< 1e-9**; ejecutado en Gazebo **0.58 %** máx sobre los 80 mm medidos íntegros | ✅ |
 | `q̇`, `q̈` dentro de límites del UR5e | `\|q̇\|` máx 0.238 rad/s (**margen 92.4 %**), `\|q̈\|` máx 0.383 rad/s² (**margen 92.3 %**) | ✅ |
 | σ_min(J) por encima del umbral | **0.2168** (umbral 0.05); `w_min` = 0.0677 | ✅ |
 | Regresión: `gz_fl_control_node` sigue funcionando | corrida completa en `lab_torque_world` | ✅ |
 
-### Corrida de regresión (`lab_torque_world.sdf`, 12 550 muestras de TRACK)
+### Corridas de regresión
+
+Trazo definitivo (100 mm de material, 80 mm medidos), 13 803 muestras de TRACK:
 
 ```
-RMS error articular   0.000059 rad      máx 0.000454 rad
-RMS error TCP         0.0286 mm         máx 0.1481 mm
-|tau| máx             [0.08, 27.35, 20.24, 1.85, 0, 0] N·m   (límites 150/150/150/28/28/28)
+RMS error articular   0.000054 rad
+RMS error TCP         0.0273 mm         máx 0.1632 mm
 
-En la meseta del corte:
-  feed ejecutado      desviación media 0.02 %, p99 0.21 %, MÁX 0.31 %   (criterio < 2 %)
-  profundidad         desviación máx 0.00006 mm
-  rectitud (en x)     desviación máx 0.00079 mm
-  longitud recorrida  64.000 mm
+En la incisión MEDIDA (80 mm, toda ella en la meseta):
+  feed referencia     desviación media 0.005 %, p99 0.11 %, MÁX 0.23 %
+  feed ejecutado      desviación media 0.042 %, p99 0.22 %, MÁX 0.58 %   (criterio < 2 %)
+  profundidad         desviación máx 0.00008 mm
+  rectitud (en x)     desviación máx 0.00088 mm
+  longitud medida     79.979 mm   (el déficit de 21 µm es un paso de muestreo)
+  trazo total         100.000 mm
 ```
 
-`~/.ros/ur5_dyn_control/fl_104.csv`.
+Corrida previa en `lab_torque_world.sdf` con el trazo de 80 mm (64 medidos):
+RMS articular 0.000059 rad, TCP RMS 0.0286 mm, `|tau|` máx
+`[0.08, 27.35, 20.24, 1.85, 0, 0]` N·m frente a límites `150/150/150/28/28/28`.
+
+`~/.ros/ur5_dyn_control/fl_104.csv` (lab world) y `fl_105.csv` (trazo definitivo).
 
 ---
 

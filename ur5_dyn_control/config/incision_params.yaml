@@ -15,8 +15,9 @@
 #    0.02 ┤   ●━━━━━━━━━━━━━━━┿━━━━━━━    superficie del tejido (surface_z)
 #    0.015┤   ●───────────────●           z_cut = surface_z - cut_depth
 #         └───┴───────────────┴──────→ y
-#           -0.04           +0.04
-#          approach → contact → penetration → cut (80 mm) → withdraw
+#         -0.05  -0.04    +0.04  +0.05
+#          approach → contact → penetration → cut → withdraw
+#          trazo total 100 mm; los 80 mm centrales a feed constante (medidos)
 #
 #  La mesa de cirugia queda exactamente en z = 0.00 de base_link (pedestal del
 #  robot y mesa miden ambos 0.63 m), asi que surface_z es el espesor de la
@@ -80,7 +81,9 @@ gz_fl_control_node:
       cut_x: 0.50                 # [m] centro del trazo en x
       cut_center_y: 0.0           # [m] centro del trazo en y
       cut_axis: "y"               # el trazo recorre Y (manipulabilidad ~constante)
-      cut_length: 0.08            # [m] 80 mm
+      cut_length: 0.08            # [m] 80 mm MEDIDOS, integros a feed constante
+      cut_lead: 0.010             # [m] entrada/salida a cada lado (rampas)
+                                  #     -> trazo total de material: 100 mm
       cut_depth: 0.005            # [m] 5 mm
       approach_height: 0.03       # [m] cota de aproximacion sobre la superficie
 
@@ -91,11 +94,12 @@ gz_fl_control_node:
       v_cut: 0.010                # FEED del corte: 10 mm/s
       v_withdraw: 0.05
 
-      # Forma del perfil temporal.
-      #  ramp_fraction_cut = 0.10 -> el 80 % del trazo (64 mm) se recorre a feed
-      #  EXACTAMENTE constante; es el tramo sobre el que se miden las metricas.
-      #  ramp_fraction_move = 0.5 -> fases punto a punto sin meseta.
-      ramp_fraction_cut: 0.10
+      # Forma del perfil temporal. La fraccion de rampa del CORTE no es un
+      # parametro libre: se deriva de cut_lead, de modo que la meseta de feed
+      # constante coincide EXACTAMENTE con los cut_length medidos.
+      #   trazo   = cut_length + 2*cut_lead = 100 mm  (material cortado)
+      #   meseta  = cut_length              =  80 mm  (medido y reportado)
+      # ramp_fraction_move = 0.5 -> fases punto a punto sin meseta.
       ramp_fraction_move: 0.5
       dwell: 0.3                  # [s] reposo entre fases
 

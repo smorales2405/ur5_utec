@@ -28,6 +28,11 @@ IncisionTrajectory::IncisionTrajectory(const IncisionParams & p)
   if (!(p.cut_length > 0.0)) {
     throw std::invalid_argument("IncisionTrajectory: cut_length debe ser > 0");
   }
+  if (!(p.cut_lead > 0.0)) {
+    throw std::invalid_argument(
+      "IncisionTrajectory: cut_lead debe ser > 0 (sin entrada/salida no hay "
+      "meseta y el feed no puede ser constante en toda la incision medida)");
+  }
   if (!(p.cut_depth > 0.0)) {
     throw std::invalid_argument("IncisionTrajectory: cut_depth debe ser > 0");
   }
@@ -43,22 +48,32 @@ IncisionTrajectory::IncisionTrajectory(const IncisionParams & p)
   const double z_surface = p.surface_z;
   const double z_cut = p.surface_z - p.cut_depth;      // punta de la hoja
   const double z_above = p.surface_z + p.approach_height;
-  const double half = 0.5 * p.cut_length;
+  // El trazo total incluye la entrada y la salida; el tramo MEDIDO son los
+  // cut_length centrales, que quedan integramente a feed constante.
+  const double half_stroke = 0.5 * p.cutStroke();
+  const double half_measured = 0.5 * p.cut_length;
 
-  Eigen::Vector2d xy_a, xy_b;   // extremos del trazo en el plano
-  if (p.cut_axis == 'y') {
-    xy_a = {p.cut_x, p.cut_center_y - half};
-    xy_b = {p.cut_x, p.cut_center_y + half};
-  } else {
-    xy_a = {p.cut_x - half, p.cut_center_y};
-    xy_b = {p.cut_x + half, p.cut_center_y};
-  }
+  auto planePoint = [&p](double offset) {
+      return (p.cut_axis == 'y')
+             ? Eigen::Vector2d(p.cut_x, p.cut_center_y + offset)
+             : Eigen::Vector2d(p.cut_x + offset, p.cut_center_y);
+    };
+  const Eigen::Vector2d xy_a = planePoint(-half_stroke);
+  const Eigen::Vector2d xy_b = planePoint(+half_stroke);
+  const Eigen::Vector2d xy_m0 = planePoint(-half_measured);
+  const Eigen::Vector2d xy_m1 = planePoint(+half_measured);
 
   const Eigen::Vector3d p_above_a(xy_a.x(), xy_a.y(), z_above);
   const Eigen::Vector3d p_surf_a(xy_a.x(), xy_a.y(), z_surface);
   const Eigen::Vector3d p_cut_a(xy_a.x(), xy_a.y(), z_cut);
   const Eigen::Vector3d p_cut_b(xy_b.x(), xy_b.y(), z_cut);
   const Eigen::Vector3d p_above_b(xy_b.x(), xy_b.y(), z_above);
+  const Eigen::Vector3d p_meas_0(xy_m0.x(), xy_m0.y(), z_cut);
+  const Eigen::Vector3d p_meas_1(xy_m1.x(), xy_m1.y(), z_cut);
+
+  // Fraccion de rampa del corte: derivada, no libre. Con ella la meseta del
+  // perfil dura exactamente lo que tarda en recorrerse cut_length.
+  const double ramp_fraction_cut = p.cut_lead / p.cutStroke();
 
   struct Spec
   {
@@ -77,7 +92,7 @@ IncisionTrajectory::IncisionTrajectory(const IncisionParams & p)
     {IncisionPhaseId::APPROACH,    approach_wp,               p.v_approach,     p.ramp_fraction_move},
     {IncisionPhaseId::CONTACT,     {p_above_a, p_surf_a},     p.v_contact,      p.ramp_fraction_move},
     {IncisionPhaseId::PENETRATION, {p_surf_a,  p_cut_a},      p.v_penetration,  p.ramp_fraction_move},
-    {IncisionPhaseId::CUT,         {p_cut_a,   p_cut_b},      p.v_cut,          p.ramp_fraction_cut},
+    {IncisionPhaseId::CUT,         {p_cut_a,   p_cut_b},      p.v_cut,          ramp_fraction_cut},
     {IncisionPhaseId::WITHDRAW,    {p_cut_b,   p_above_b},    p.v_withdraw,     p.ramp_fraction_move},
   };
 
@@ -105,6 +120,9 @@ IncisionTrajectory::IncisionTrajectory(const IncisionParams & p)
     pi.plateau_t1 = ph.t_start + q1;
     pi.p_start = sp.wp.front();
     pi.p_end = sp.wp.back();
+    // Solo el corte tiene tramo medido distinto del recorrido.
+    pi.p_measured_start = (sp.id == IncisionPhaseId::CUT) ? p_meas_0 : sp.wp.front();
+    pi.p_measured_end = (sp.id == IncisionPhaseId::CUT) ? p_meas_1 : sp.wp.back();
 
     t = ph.t_end + p.dwell;
     phases_.push_back(std::move(ph));
