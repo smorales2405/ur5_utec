@@ -32,12 +32,37 @@ gz_gravity_comp_node:
     hold_start_duration: 1.0
     t_sim: 0.0                     # 0 = mantener indefinidamente
 
-    # tau = g(q) + kp*(q0 - q) - kd*dq   (kp bajo: casi gravedad pura)
-    # PD SIN escalar por inercia: en las munecas (I ~ 0.002-0.01 kg m^2) las
-    # ganancias deben ser pequenas o el lazo discreto chatea (dq satura en
-    # +-pi). El nodo FL no sufre esto porque M(q)·v normaliza por inercia.
-    kp: [60.0, 60.0, 60.0, 10.0,  5.0,  2.0]
-    kd: [10.0, 10.0, 10.0,  1.0,  0.5,  0.2]
+    # tau = g(q) + kp*(q0 - q) - kd*dq
+    #
+    # Ganancias ESCALADAS POR INERCIA, para que las 6 juntas tengan el mismo
+    # lazo cerrado:
+    #     kp_j = I_jj * wn^2        kd_j = 2 * zeta * I_jj * wn
+    # con wn = 20 rad/s, zeta = 1 (criticamente amortiguado), e I_jj la diagonal
+    # de M(q_init) (Pinocchio, brazo solo).
+    #
+    #   junta   I_jj [kg m^2]
+    #   pan       1.05823
+    #   lift      2.59146
+    #   elbow     0.88146
+    #   wrist_1   0.02324
+    #   wrist_2   0.00535
+    #   wrist_3   0.00026      <- 10 000 veces menor que el hombro
+    #
+    # POR QUE. El PD anterior usaba ganancias uniformes por bloques
+    # (kp=[60,60,60,10,5,2]) y el ancho de banda resultante iba de 5 a 88 rad/s:
+    # dos ordenes de dispersion. En wrist_3 el numero de estabilidad discreta
+    # del termino de velocidad valia
+    #     kd*dt/I = 0.2 * 0.002 / 0.00026 = 1.55
+    # que con el retardo de UNA muestra del lazo (medido en el control negativo
+    # de la FASE 2) queda por encima del limite practico ~1: la junta entraba en
+    # ciclo limite y su velocidad golpeaba la saturacion de +-pi rad/s con una
+    # excursion de 0.045 rad. Con el escalado por inercia ese numero vale 0.080
+    # en las SEIS juntas, con ~12x de margen.
+    #
+    # El nodo FL no sufria esto porque M(q)*v ya normaliza por inercia; este es
+    # justo el termino que un PD puro no tiene.
+    kp: [423.2927, 1036.5820, 352.5821, 9.2962, 2.1406, 0.1030]
+    kd: [ 42.3293,  103.6582,  35.2582, 0.9296, 0.2141, 0.0103]
     tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
 
     csv_output_dir: ""

@@ -177,10 +177,36 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
 - `test_quintic_spline` (9) — derivadas analíticas vs diferencias finitas
   (< 1e-6), continuidad de jerk en los nudos, y los mismos tests sobre el
   cúbico demostrando que **falla** (evidencia de la figura cúbico↔quíntico).
-- `test_incision_trajectory` (22) — Gauss-Legendre, longitud de arco, perfil
+- `test_incision_trajectory` (23) — Gauss-Legendre, longitud de arco, perfil
   S-curve, feed constante en el corte y geometría de las 5 fases.
+- `test_limits_and_traceability` (13) — límite de tasa del comando, marcas de
+  saturación, hash de trazabilidad y compatibilidad de nombres de columna del CSV.
 
-Total: **47 tests**.
+Total: **68 tests** en `ur5_dyn_control` + 19 pytest en `ur5_identification`.
+
+## Seguridad del lazo (FASE 3)
+
+`watchdog.*` vigila el ritmo del lazo (`dt` de simulación > k× el nominal) y la
+llegada de `/joint_states`. Al dispararse entra en **`SAFE_HOLD`**, un estado
+terminal que sostiene la última pose conocida con un PD sobre la gravedad —
+deliberadamente **sin** llamar a `computeTau()`: si el lazo dejó de ser fiable,
+la ley del controlador es justo lo que no hay que seguir ejecutando. El timeout
+de `/joint_states` se mide con reloj de **pared**, porque si la fuente de estado
+muere el reloj de simulación puede congelarse y un timeout en tiempo de sim no
+se dispararía nunca.
+
+`tau_rate_max` acota `|Δτ/Δt|` por junta, y `onSaturation()` avisa a las
+subclases de qué juntas quedaron recortadas para que congelen sus integradores
+(anti-windup; lo necesita el super-twisting del ASTSMC).
+
+### Ganancias escaladas por inercia
+
+Las ganancias PD de `gravity_comp` son `kp_j = I_jj·ω_n²`, `kd_j = 2ζ·I_jj·ω_n`
+con `ω_n = 20 rad/s`, `ζ = 1`. Con ganancias uniformes por bloques el ancho de
+banda iba de 5 a 88 rad/s y en `wrist_3` (I = 2.6e-4 kg·m², 10 000× menor que el
+hombro) el número de estabilidad discreta `kd·dt/I` valía **1.55**: con el
+retardo de una muestra del lazo, ciclo límite con la velocidad saturando en
+±π rad/s. Escalado por inercia vale **0.080 en las seis juntas**.
 
 ## Documentación del proyecto
 
