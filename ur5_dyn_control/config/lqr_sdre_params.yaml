@@ -1,0 +1,181 @@
+# ============================================================================
+#  LQR-SDRE sobre la trayectoria de INCISION — FASE 4 del plan (Journal Q2)
+#
+#  Controlador: gz_lqr_sdre_control_node. MISMA trayectoria de incision que el
+#  FL y el SMC, para que la comparacion del paper sea a igualdad de referencia.
+#  Solo cambian la ley y sus pesos.
+#
+#  Geometria (frame base_link; en Gazebo z_mundo = z + 0.63):
+#
+#      z
+#    0.35 ┤ ●  start_pose = FK(q_init)
+#         │  \
+#    0.05 ┤   ●───────────────●          z_above    = surface_z + approach_height
+#         │   │               ↑
+#    0.02 ┤   ●━━━━━━━━━━━━━━━┿━━━━━━━    superficie del tejido (surface_z)
+#    0.015┤   ●───────────────●           z_cut = surface_z - cut_depth
+#         └───┴───────────────┴──────→ y
+#         -0.05  -0.04    +0.04  +0.05
+#          approach → contact → penetration → cut → withdraw
+#          trazo total 100 mm; los 80 mm centrales a feed constante (medidos)
+#
+#  Supuestos vigentes: A1 (sin masa de herramienta), A2 (punta de hoja =
+#  gripper_tcp), A3 (metricas en base_link), A4 (orientacion TCP constante).
+#  Ver docs/00_assumptions.md y docs/04_lqr_sdre.md.
+# ============================================================================
+
+gz_lqr_sdre_control_node:
+  ros__parameters:
+    use_sim_time: true
+
+    control_rate: 500.0
+
+    urdf_path: ""
+    gravity: 9.8
+    q_init: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+
+    # G3 — true en Gazebo; false en el UR5e real (docs/00_prereqs.md).
+    gravity_in_command: true
+
+    # A2 / A1 (docs/00_assumptions.md)
+    tcp_offset_z: 0.141
+    tool_mass: 0.0                       # PENDIENTE de medir el acople del bisturi
+    tool_com: [0.0, 0.0, 0.0]
+    tool_inertia: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    command_topic: "/forward_effort_controller/commands"
+    controller_manager: "/controller_manager"
+    activate_controllers: ["joint_state_broadcaster", "forward_effort_controller"]
+    perform_switch: true
+    perform_unpause: true
+    world_name: "default"
+
+    hold_start_duration: 1.0
+    transition_duration: 3.0
+    t_sim: 2.0
+    skip_trajectory: false
+
+    # -- Pesos del LQR-SDRE (FASE 4) -----------------------------------------
+    #
+    # No se dan Q y R en bruto: se dan wn, zeta y r, y el nodo SINTETIZA
+    #
+    #     Qp = r wn^4 M(q_init)^2
+    #     Qv = r wn^2 (4 zeta^2 - 2) M(q_init)^2
+    #     R  = r I
+    #
+    # POR QUE M^2 Y NO NUMEROS SUELTOS. Con A = [0 I; 0 0] y B = [0; M^-1], la
+    # CARE se parte en  P12 G22 P12^T = Qp  y  P12 + P12^T - P22 G22 P22 + Qv = 0
+    # con G22 = M^-2 / r, y la realimentacion sale Kp = M^-1 P12^T / r,
+    # Kd = M^-1 P22 / r. Pedir el lazo cerrado M q̈_e + Kd q̇_e + Kp q_e = 0 con
+    # TODOS los modos en (wn, zeta) equivale a Kp = wn^2 M y Kd = 2 zeta wn M,
+    # es decir P12 = r wn^2 M^2 y P22 = 2 r zeta wn M^2, y de ahi las Q de
+    # arriba. MEDIDO: los 12 autovalores caen en -wn con residuo 1.6e-14.
+    #
+    # POR QUE LA M COMPLETA Y NO SU DIAGONAL. M(q_init) no es diagonal ni de
+    # lejos: M(1,5) = 2.8e-2 con M(5,5) = 5.4e-3, un acoplo CINCO veces la
+    # propia diagonal. Con Qp_ii = I_ii^2 wn^4 los polos MEDIDOS se dispersan de
+    # 8.4 a 290 rad/s (34x) y max|lambda|*dt sube a 0.58, muy por encima del
+    # limite de estabilidad discreta. Es el mismo escalado por inercia que ya
+    # hizo falta en gravity_comp y en el eta del SMC — cuarta vez. Fijado por
+    # test_care_solver::QConLaDiagonalDeMDispersaLosPolos.
+    #
+    # wn = 20 rad/s: mismo polo nominal que el lambda del SMC, para comparar a
+    # igualdad de ancho de banda. Da max|lambda|*dt = 0.040 a 500 Hz, el mismo
+    # numero de estabilidad discreta que el SMC.
+    lqr.wn: 20.0
+    # zeta >= 1/sqrt(2) es OBLIGATORIO: con zeta menor la Qv de arriba sale
+    # definida negativa. No es una limitacion del codigo, es el resultado
+    # clasico de que un LQR sobre un doble integrador no amortigua por debajo de
+    # Butterworth; zeta = 1/sqrt(2) es exactamente el caso Qv = 0.
+    lqr.zeta: 1.0
+    # r: peso del esfuerzo. Solo importa el COCIENTE Q/R, asi que con la Q de
+    # arriba proporcional a r el lazo cerrado no cambia con r; se deja como
+    # gancho para la FASE 7.
+    lqr.r: 1.0
+    # fixed     : Q constante, sintetizada con M(q_init). Es la formulacion del
+    #             plan (Q y R son pesos de COSTE) y deja que max Re(lambda)
+    #             varie a lo largo de la trayectoria, que es el artefacto de
+    #             paper que se pide.
+    # scheduled : Q(q) recalculada en cada actualizacion de la CARE. El marco
+    #             SDRE admite pesos dependientes del estado y asi los polos
+    #             caen en -wn en TODA la trayectoria.
+    lqr.Q_mode: "fixed"
+
+    # -- Solver de la CARE ----------------------------------------------------
+    # 0 = resolver en CADA ciclo. Medido: 57 us por resolucion (12 estados, 6
+    # entradas) frente a los 2000 us de presupuesto a 500 Hz, asi que NO hace
+    # falta decimar. Si en el robot real no cupiese, poner aqui 50-100 Hz: la K
+    # se mantiene con ZOH entre actualizaciones y el CSV de diagnostico registra
+    # la decimacion efectiva por paso (columna care_updated).
+    lqr.care_update_rate: 0.0
+    lqr.care_max_iterations: 60
+    lqr.care_tol: 1.0e-11
+    # Residuo relativo maximo de la CARE (medido en coordenadas balanceadas)
+    # para aceptar la K nueva. Las corridas sanas dan 1e-14.
+    lqr.residual_tol: 1.0e-6
+    # Se exige max Re(eig(A - B K)) < -stable_margin en cada actualizacion.
+    lqr.stable_margin: 1.0e-9
+    # Certificacion de estabilizabilidad del par (A,B) por controlabilidad. Para
+    # este par solo se pierde si M(q) se vuelve numericamente singular.
+    lqr.controllability_tol: 1.0e-9
+    # Fallos SEGUIDOS de la CARE antes de pedir SAFE_HOLD. Uno aislado se cubre
+    # con ZOH sobre la ultima K valida; una racha significa que el problema ya
+    # no es el paso sino el diseno.
+    lqr.max_consecutive_failures: 5
+
+    # CSV de diagnostico `lqr_diag_<test_num>.csv` (fichero APARTE del CSV
+    # unificado, cuyo esquema es comun a los cuatro controladores): max Re(eig),
+    # cond(M), margen de controlabilidad, residuo, iteraciones, tiempos de
+    # computo. De aqui salen la figura de max Re(lambda) vs t y la tabla de
+    # tiempos que pide el plan.
+    lqr.diag_csv: true
+    lqr.diag_decimation: 1
+
+    tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
+
+    # -- Trayectoria ---------------------------------------------------------
+    trajectory_type: "incision"
+
+    # A4 — orientacion del TCP constante, gripper hacia abajo.
+    tcp_orientation_rpy: [3.14159265, 0.0, -1.57079633]
+
+    incision:
+      # Pose de partida: FK(q_init), para que la rampa inicial sea minima.
+      start_pose: [0.49, 0.13, 0.35]
+
+      surface_z: 0.02             # [m] cara superior del tejido
+      cut_x: 0.50                 # [m] centro del trazo en x
+      cut_center_y: 0.0           # [m] centro del trazo en y
+      cut_axis: "y"               # el trazo recorre Y (manipulabilidad ~constante)
+      cut_length: 0.08            # [m] 80 mm MEDIDOS, integros a feed constante
+      cut_lead: 0.010             # [m] entrada/salida a cada lado (rampas)
+      cut_depth: 0.005            # [m] 5 mm
+      approach_height: 0.03       # [m] cota de aproximacion sobre la superficie
+
+      v_approach: 0.10
+      v_contact: 0.015
+      v_penetration: 0.005
+      v_cut: 0.010                # FEED del corte: 10 mm/s
+      v_withdraw: 0.05
+
+      ramp_fraction_move: 0.5
+      dwell: 0.3                  # [s] reposo entre fases
+
+    # -- IK (QP de ur5_kinematics, target gripper_tcp) ------------------------
+    ik_seed: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+    ik_max_iterations: 450
+    ik_alpha: 0.5
+    ik_weight_pos: 1.0
+    ik_weight_orient: 1.0
+    ik_fk_tol: 0.005
+    q_jump_tol: 0.15
+
+    # -- Validacion de la tabla de referencias (FASE 1) ----------------------
+    dq_max:  [3.14159, 3.14159, 3.14159, 3.14159, 3.14159, 3.14159]
+    ddq_max: [5.0, 5.0, 5.0, 5.0, 5.0, 5.0]
+    sigma_min_threshold: 0.05
+    manipulability_threshold: 0.0     # 0 = desactivado (se registra igualmente)
+
+    csv_output_dir: ""
+    test_num: 1
+    csv_hold_decimation: 10

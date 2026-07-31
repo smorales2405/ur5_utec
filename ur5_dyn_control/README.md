@@ -3,9 +3,9 @@
 Control **basado en torque** (interfaz `effort`) del UR5e en Gazebo Fortress
 (ROS 2 Humble), con miras a su implementación en el robot real vía
 `ur_robot_driver`. Controladores implementados: **Feedback Linearization**
-(computed torque) y **Sliding Mode** (`sgn` / `sat`); la arquitectura permite
-añadir LQR-SDRE, ASTSMC, etc. como nodos delgados que solo implementan su ley
-de control.
+(computed torque), **Sliding Mode** (`sgn` / `sat`) y **LQR-SDRE**; la
+arquitectura permite añadir ASTSMC, etc. como nodos delgados que solo
+implementan su ley de control.
 
 ## Arquitectura
 
@@ -27,11 +27,12 @@ Aborta si: salto de rama IK · σ_min(J) bajo umbral · dq/ddq fuera de límites
 TorqueControlNodeBase       máquina de estados PRE_HOLD → WAIT → HOLD_START →
         │                   RAMP (quíntica) → TRACK → HOLD_END → (SAFE_HOLD)
         │                   CSV · G3 · saturación · límite de tasa · watchdog
-   ┌────┼─────────────┬──────────────────┐   τ ∈ ±[150,150,150,28,28,28] N·m
-gz_gravity_comp  gz_fl_control_node  gz_smc_control_node   (futuros: lqr_sdre, astsmc)
-τ=g+Kp e−Kd dq   τ = M(q̈d+Kp e+Kd ė)   τ = b̂ + M̂ q̈_r − K⊙ρ(s)
-                     + C q̇ + g          s = ė + Λe,  ρ = sgn | sat(s/φ)
-                                         K = η + |α M̂ q̈_r + α b̂ + (1−α) Ṁ̂ q̇_r|
+   ┌────┼─────────────┬────────────────┬───────────────┐  τ ∈ ±[150,…,28] N·m
+gz_gravity_comp  gz_fl_control  gz_smc_control  gz_lqr_sdre_control  (futuro: astsmc)
+τ=g+Kp e−Kd dq   τ = M(q̈d+Kp e   τ = b̂ + M̂ q̈_r    τ = M q̈_d + C q̇_d + g
+                 +Kd ė)+C q̇+g       − K⊙ρ(s)          − K x_e,  x_e = [q_e; q̇_e]
+                                  s = ė + Λe          K = R⁻¹BᵀP,  CARE por
+                                  ρ = sgn | sat(s/φ)  función signo (SDRE)
 ```
 
 ### Trayectorias
@@ -130,7 +131,23 @@ ros2 launch ur5_dyn_control smc_control.launch.py test_num:=704 \
 # Ensayo de tiempo de alcance: error inicial deliberado (FASE 5 §6)
 ros2 launch ur5_dyn_control smc_control.launch.py test_num:=540 \
     switching_function:=sign initial_offset:="0.05 0.05 0.05 0.05 0.05 0.05"
+
+# LQR-SDRE sobre la incisión (FASE 4). Escribe además lqr_diag_<n>.csv
+ros2 launch ur5_dyn_control lqr_sdre_control.launch.py test_num:=10
+
+# Barrido de diseño sin duplicar YAMLs; Q_mode=scheduled resintetiza Q(q)
+ros2 launch ur5_dyn_control lqr_sdre_control.launch.py test_num:=11 \
+    wn:=35 zeta:=1.0 Q_mode:=scheduled
+
+# Estudio de decimación: la CARE se resuelve a 50 Hz y K se mantiene con ZOH
+ros2 launch ur5_dyn_control lqr_sdre_control.launch.py test_num:=12 \
+    care_update_rate:=50
 ```
+
+Análisis: `ur5_identification/scripts/analyze_lqr.py --test 10 --plot fig.png`
+evalúa los tres criterios de aceptación de la FASE 4 (estabilidad del esquema
+congelado en el 100 % de los pasos, tiempo de cómputo bajo presupuesto,
+seguimiento sin saturación sostenida).
 
 Parámetros (waypoints, tiempos, ganancias, tasas, IK, CSV):
 `config/fl_control_params.yaml`, `config/gravity_comp_params.yaml`,
@@ -154,6 +171,8 @@ tau_sat, s, xyz, xyz_des, wrench, state`.
 | `tau_rate_max`, `watchdog.*` | 3 | Límite de tasa del comando y vigilancia del lazo → `SAFE_HOLD`. |
 | `initial_offset[6]` | 5 | Error inicial **deliberado** para cronometrar el alcance. Desplaza el destino de la rampa, así que TRACK arranca en reposo con `s(0) = Λ·offset` conocido. Default cero. |
 | `reference_table_out` | 7 | Vuelca la tabla `{q,dq,ddq}` a CSV para el evaluador offline de sintonía. La referencia **no se reimplementa** en Python: optimizador y robot comparten la misma tabla. |
+| `lqr.wn`, `lqr.zeta`, `lqr.r`, `lqr.Q_mode` | 4 | Diseño del LQR-SDRE. `Q` **no** se da en bruto: se sintetiza `Qp = r·wn⁴·M²`, `Qv = r·wn²(4ζ²−2)·M²`. `ζ ≥ 1/√2` es obligatorio (con menos, `Qv ≺ 0`). |
+| `lqr.care_update_rate`, `lqr.*_tol`, `lqr.max_consecutive_failures` | 4 | Decimación (ZOH sobre `K`), aceptación de la solución de la CARE y política de `SAFE_HOLD`. |
 
 ## Mundos
 
@@ -179,25 +198,45 @@ El default vive en **un solo sitio**, `launch/world_defaults.py`, del que
 importan los cuatro launches. Que dos controladores acabasen corriendo en
 escenas distintas invalidaría la comparación del paper sin dar ningún síntoma.
 
-## Añadir un controlador nuevo (LQR-SDRE, ASTSMC, ...)
+## Añadir un controlador nuevo (ASTSMC, ...)
 
 Subclasear `TorqueControlNodeBase`, implementar `computeTau(q, dq, ref, dt)`
 y `csvPrefix()`, declarar las ganancias propias y llamar `start()` al final
 del constructor (ver `src/gz_fl_control_node.cpp`, ~60 líneas; el SMC completo
 son ~160 con toda la formulación documentada). El acceso a la dinámica es
-`dyn()` (M, nle, gravity, `dM = C + Cᵀ`, J, J̇q̇, FK).
+`dyn()` (M, nle, gravity, `coriolis`, `dM = C + Cᵀ`, J, J̇q̇, FK).
 
-Ganchos opcionales: `slidingVariable()` para volcar `s` a la columna del CSV, y
-`onSaturation()` para congelar integradores cuando una junta queda recortada
-(anti-windup; lo necesita el super-twisting del ASTSMC).
+Ganchos opcionales:
+
+- `slidingVariable()` — vuelca `s` a la columna del CSV unificado.
+- `onSaturation()` — congela integradores cuando una junta queda recortada
+  (anti-windup; lo necesita el super-twisting del ASTSMC).
+- `requestSafeHold(reason)` — parada segura pedida por la **ley**, no por el
+  watchdog. El par de ese ciclo **no** se publica. La usa el LQR-SDRE cuando el
+  par `(A,B)` pierde la certificación de estabilizabilidad o la CARE falla
+  repetidamente.
+- `DiagLogger` + `traceMetadata()`, `csvDir()`, `testNum()` — CSV de diagnóstico
+  **aparte** con columnas propias de la ley, con la misma cabecera de
+  trazabilidad. El esquema del CSV unificado es común a los cuatro
+  controladores y no debe bifurcarse: lo que solo existe en una ley va aquí.
+- `solveCare(A, B, Q, R)` (`care_solver.hpp`) — CARE de tiempo continuo por
+  función signo del hamiltoniano, con balanceado simpléctico. **Medido: 57 µs**
+  para 12 estados y 6 entradas.
 
 > **Escala por inercia siempre.** Este robot tiene cuatro órdenes de magnitud de
 > dispersión en inercia articular (2.59 kg·m² en `shoulder_lift` frente a
 > 2.6e-4 en `wrist_3`). Cualquier ganancia uniforme rompe en las muñecas: ya
-> pasó en `gravity_comp`, en el `η` del SMC y en el `a_reach` del alcance. La
-> regla práctica es referir la ganancia a `M_ii` y vigilar el número de
-> estabilidad discreta correspondiente (`kd·dt/I` para un PD, `(K/φ)·dt/M` para
-> la capa límite del SMC): por encima de ~1 hay ciclo límite.
+> pasó en `gravity_comp`, en el `η` del SMC, en el `a_reach` del alcance y en la
+> `Q` del LQR-SDRE. La regla práctica es referir la ganancia a `M_ii` y vigilar
+> el número de estabilidad discreta correspondiente (`kd·dt/I` para un PD,
+> `(K/φ)·dt/M` para la capa límite del SMC, `max|λ|·dt` para el LQR): por encima
+> de ~1 hay ciclo límite.
+>
+> **Y ojo: `M_ii` no siempre basta.** `M(q_init)` está lejos de ser diagonal —
+> `M(1,5) = 2.8e-2` frente a `M(5,5) = 5.4e-3`, un acoplo **cinco veces** la
+> propia diagonal. En el LQR-SDRE, sintetizar `Q` con `diag(M)²` deja los polos
+> entre 8.4 y 290 rad/s (34× de dispersión, `max|λ|·dt = 0.58`); con `M²`
+> completa, los doce caen exactamente en `−wn`. Ver `docs/04_lqr_sdre.md` §2.2.
 
 ## Hacia el robot real (compuertas en `docs/00_prereqs.md`)
 
@@ -248,9 +287,13 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   S-curve, feed constante en el corte y geometría de las 5 fases.
 - `test_limits_and_traceability` (13) — límite de tasa del comando, marcas de
   saturación, hash de trazabilidad y compatibilidad de nombres de columna del CSV.
+- `test_care_solver` (9) — solver CARE contra la solución analítica del doble
+  integrador, el caso **defectivo** (`ζ = 1`, polo doble) que rompe el método de
+  autovectores, MIMO aleatorio, estabilizabilidad del par SDC del UR5e y la
+  regresión del escalado por inercia de `Q`.
 
-Total: **63 tests** en 5 ejecutables de `ur5_dyn_control`, + 19 pytest en
-`ur5_identification` y 18 en `ur5_trajectory_optimization` (**105** en el
+Total: **72 tests** en 6 ejecutables de `ur5_dyn_control`, + 19 pytest en
+`ur5_identification` y 18 en `ur5_trajectory_optimization` (**109** en el
 workspace).
 
 ## Seguridad del lazo (FASE 3)
@@ -288,6 +331,10 @@ retardo de una muestra del lazo, ciclo límite con la velocidad saturando en
 - [`docs/02_friction.md`](../docs/02_friction.md) — identificación de fricción y
   el control negativo: en una planta sin fricción, las juntas cargadas por
   gravedad muestran fricción viscosa **aparente** por el desfase de ~1 ms.
+- [`docs/04_lqr_sdre.md`](../docs/04_lqr_sdre.md) — LQR-SDRE: la discrepancia
+  del plan entre `τ` y `A` (resuelta a favor de `A`), la síntesis de `Q ∝ M²` y
+  por qué la CARE se resuelve por función signo y no por autovectores (con
+  `ζ = 1` el lazo cerrado es **defectivo**).
 - [`docs/05_smc.md`](../docs/05_smc.md) — `sgn` vs `sat`, barridos de φ y α (el
   compromiso clásico está **invertido** bajo el umbral discreto) y el ensayo de
   tiempo de alcance.

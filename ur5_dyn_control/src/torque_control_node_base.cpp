@@ -629,6 +629,18 @@ bool TorqueControlNodeBase::watchdogOk(double dt_sim)
   return false;
 }
 
+void TorqueControlNodeBase::requestSafeHold(const std::string & reason)
+{
+  if (state_ == State::SAFE_HOLD || state_ == State::DONE) {return;}
+  RCLCPP_FATAL(get_logger(),
+               "PARADA SEGURA pedida por la ley de control: %s. Entrando en "
+               "SAFE_HOLD (se mantiene el par de sosten en la ultima pose "
+               "conocida).",
+               reason.c_str());
+  q_safe_ = q_last_;
+  enterState(State::SAFE_HOLD);
+}
+
 JointRef TorqueControlNodeBase::rampReference(double t_ramp) const
 {
   // Transicion quintica q0 -> tabla[0] con v = a = 0 en ambos extremos
@@ -821,7 +833,12 @@ void TorqueControlNodeBase::tick()
         if (!have_state) {break;}
         JointRef ref;
         ref.q = q0_;
-        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q, dq);
+        // La ley puede pedir SAFE_HOLD desde dentro de computeTau() (FASE 4);
+        // en ese caso su par NO se publica y el siguiente tick ya cae en el
+        // estado terminal.
+        const Vector6d tau_law = computeTau(q, dq, ref, dt);
+        if (state_ == State::SAFE_HOLD) {break;}
+        const Vector6d tau = publishTau(tau_law, q, dq);
         if (++hold_log_counter_ % csv_hold_decimation_ == 0) {
           logRow(t_sim, q, dq, ref, tau, "HOLD_START");
         }
@@ -842,7 +859,9 @@ void TorqueControlNodeBase::tick()
     case State::RAMP: {
         if (!have_state) {break;}
         const JointRef ref = rampReference(t_sim - t_state_start_);
-        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q, dq);
+        const Vector6d tau_law = computeTau(q, dq, ref, dt);
+        if (state_ == State::SAFE_HOLD) {break;}
+        const Vector6d tau = publishTau(tau_law, q, dq);
         logRow(t_sim, q, dq, ref, tau, "RAMP");
         if (t_sim - t_state_start_ >= transition_duration_) {
           track_index_ = 0;
@@ -856,7 +875,9 @@ void TorqueControlNodeBase::tick()
         track_index_ = static_cast<std::size_t>(
           std::max(0.0, (t_sim - t_state_start_) / ref_gen_->dt()));
         const JointRef & ref = ref_gen_->at(track_index_);
-        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q, dq);
+        const Vector6d tau_law = computeTau(q, dq, ref, dt);
+        if (state_ == State::SAFE_HOLD) {break;}
+        const Vector6d tau = publishTau(tau_law, q, dq);
         // La etiqueta la puede refinar el generador: el barrido de excitacion
         // marca la MESETA de velocidad constante, que es la ventana util para
         // identificar friccion (alli ddq = 0 y el residuo es friccion pura).
@@ -879,7 +900,9 @@ void TorqueControlNodeBase::tick()
         if (!have_state) {break;}
         JointRef ref;
         ref.q = ref_gen_->at(ref_gen_->size() - 1).q;
-        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q, dq);
+        const Vector6d tau_law = computeTau(q, dq, ref, dt);
+        if (state_ == State::SAFE_HOLD) {break;}
+        const Vector6d tau = publishTau(tau_law, q, dq);
         if (++hold_log_counter_ % csv_hold_decimation_ == 0) {
           logRow(t_sim, q, dq, ref, tau, "HOLD_END");
         }

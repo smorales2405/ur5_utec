@@ -109,6 +109,33 @@ protected:
   /// tasa). Lo necesitan las leyes que razonan sobre el par realmente aplicado.
   const Vector6d & lastCommand() const { return tau_prev_cmd_; }
 
+  /**
+   * PARADA SEGURA pedida por la ley de control (FASE 4).
+   *
+   * El watchdog de la FASE 3 solo vigila la INFRAESTRUCTURA del lazo (ritmo de
+   * ciclo, llegada de /joint_states). Hay fallos que solo la ley puede ver: el
+   * LQR-SDRE exige que el par (A(q,q̇), B(q)) sea estabilizable y que la CARE
+   * devuelva una K con max Re(eig(A - B K)) < 0 en cada actualizacion, y si eso
+   * deja de cumplirse seguir comandando esa K es exactamente lo que no hay que
+   * hacer. El plan lo pide de forma explicita ("si falla, HOLD seguro").
+   *
+   * Efecto: se entra en SAFE_HOLD (estado TERMINAL, no se sale de el) y el par
+   * de la ley de ESTE ciclo NO se publica. A partir del siguiente tick se
+   * sostiene la ultima pose conocida con el PD modesto de la clase base.
+   *
+   * Llamable desde computeTau(). Idempotente.
+   */
+  void requestSafeHold(const std::string & reason);
+
+  /// Metadatos de trazabilidad: git SHA, hash de los parametros efectivos.
+  /// Protegido para que las subclases con ficheros de log propios (el CSV de
+  /// diagnostico del LQR-SDRE) pongan la MISMA cabecera que el CSV unificado.
+  std::map<std::string, std::string> traceMetadata() const;
+
+  /// Directorio de salida de los CSV, ya resuelto ("" = $HOME/.ros/...).
+  const std::string & csvDir() const { return csv_dir_; }
+  int testNum() const { return test_num_; }
+
 private:
   // SAFE_HOLD (FASE 3): estado terminal de seguridad al que se entra si el
   // watchdog detecta que el lazo dejo de ser fiable. No se sale de el.
@@ -131,8 +158,6 @@ private:
   void logRow(double t_sim, const Vector6d & q, const Vector6d & dq,
               const JointRef & ref, const Vector6d & tau_cmd,
               const std::string & state);
-  /// Metadatos de trazabilidad: git SHA, hash de los parametros efectivos.
-  std::map<std::string, std::string> traceMetadata() const;
   JointRef rampReference(double t_ramp) const;
   /// Aplica commandFromLaw() y publica. Devuelve el torque comandado (para el CSV).
   Vector6d publishTau(const Vector6d & tau_law, const Vector6d & q,

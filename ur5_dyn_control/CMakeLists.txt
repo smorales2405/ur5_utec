@@ -46,6 +46,8 @@ add_library(${PROJECT_NAME}_core SHARED
   src/joint_reference_generator.cpp
   src/controller_switcher.cpp
   src/csv_logger.cpp
+  src/diag_logger.cpp
+  src/care_solver.cpp
   src/torque_control_node_base.cpp
 )
 target_include_directories(${PROJECT_NAME}_core PUBLIC
@@ -71,6 +73,9 @@ target_link_libraries(gz_fl_control_node ${PROJECT_NAME}_core)
 add_executable(gz_smc_control_node src/gz_smc_control_node.cpp)
 target_link_libraries(gz_smc_control_node ${PROJECT_NAME}_core)
 
+add_executable(gz_lqr_sdre_control_node src/gz_lqr_sdre_control_node.cpp)
+target_link_libraries(gz_lqr_sdre_control_node ${PROJECT_NAME}_core)
+
 # ── Install ───────────────────────────────────────────────────────────────────
 install(TARGETS ${PROJECT_NAME}_core
   ARCHIVE DESTINATION lib
@@ -78,6 +83,7 @@ install(TARGETS ${PROJECT_NAME}_core
   RUNTIME DESTINATION bin
 )
 install(TARGETS gz_gravity_comp_node gz_fl_control_node gz_smc_control_node
+                gz_lqr_sdre_control_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 install(DIRECTORY include/ DESTINATION include)
@@ -113,6 +119,11 @@ if(BUILD_TESTING)
   # FASE 1: Gauss-Legendre, longitud de arco, S-curve y trayectoria de incision.
   ament_add_gtest(test_incision_trajectory test/test_incision_trajectory.cpp)
   target_link_libraries(test_incision_trajectory ${PROJECT_NAME}_core)
+
+  # FASE 4: solver CARE (funcion signo), estabilizabilidad y escalado por
+  # inercia de la Q del LQR-SDRE.
+  ament_add_gtest(test_care_solver test/test_care_solver.cpp)
+  target_link_libraries(test_care_solver ${PROJECT_NAME}_core)
 endif()
 
 ament_package()

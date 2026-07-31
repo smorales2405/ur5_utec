@@ -1,46 +1,13 @@
 #include "ur5_dyn_control/csv_logger.hpp"
 
-#include <sys/stat.h>
-#include <sys/types.h>
-
-#include <chrono>
 #include <cstdint>
-#include <cstdlib>
-#include <ctime>
 #include <iomanip>
 #include <sstream>
 
+#include "ur5_dyn_control/log_utils.hpp"
+
 namespace ur5_dyn_control
 {
-
-namespace
-{
-
-void makeDirs(const std::string & path)
-{
-  std::string acc;
-  std::istringstream iss(path);
-  std::string part;
-  if (!path.empty() && path.front() == '/') {acc = "/";}
-  while (std::getline(iss, part, '/')) {
-    if (part.empty()) {continue;}
-    acc += part + "/";
-    ::mkdir(acc.c_str(), 0755);
-  }
-}
-
-std::string isoTimestamp()
-{
-  const auto now = std::chrono::system_clock::now();
-  const std::time_t tt = std::chrono::system_clock::to_time_t(now);
-  std::tm tm{};
-  ::localtime_r(&tt, &tm);
-  std::ostringstream oss;
-  oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S%z");
-  return oss.str();
-}
-
-}  // namespace
 
 CsvLogger::~CsvLogger()
 {
@@ -76,12 +43,8 @@ bool CsvLogger::open(const std::string & output_dir,
 {
   close();
 
-  std::string dir = output_dir;
-  if (dir.empty()) {
-    const char * home = std::getenv("HOME");
-    dir = std::string(home ? home : ".") + "/.ros/ur5_dyn_control";
-  }
-  makeDirs(dir);
+  const std::string dir = log_utils::resolveDir(output_dir);
+  log_utils::makeDirs(dir);
 
   path_ = dir + "/" + prefix + "_" + std::to_string(test_num) + ".csv";
   csv_.open(path_);
@@ -95,7 +58,7 @@ bool CsvLogger::open(const std::string & output_dir,
   // funcionando sin cambios.
   csv_ << "# controller_id=" << prefix << "\n";
   csv_ << "# test_num=" << test_num << "\n";
-  csv_ << "# timestamp=" << isoTimestamp() << "\n";
+  csv_ << "# timestamp=" << log_utils::isoTimestamp() << "\n";
   for (const auto & [k, v] : metadata) {
     csv_ << "# " << k << "=" << v << "\n";
   }
