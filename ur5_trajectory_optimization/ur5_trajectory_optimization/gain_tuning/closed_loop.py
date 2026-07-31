@@ -237,12 +237,26 @@ class EvalResult:
 DQ_NOISE_STD_GAZEBO = 5.0e-6
 
 
+#: Retardo de tubería, en pasos de control. El lazo real no es instantáneo: el
+#: nodo lee `/joint_states` publicado en el ciclo anterior, calcula el par y lo
+#: publica, y el simulador lo aplica en el siguiente paso. La FASE 2 lo midió
+#: como ~1 ms de desfase (docs/02_friction.md), del orden de medio ciclo a 500
+#: Hz; se modela **un** paso completo, que es la hipótesis conservadora.
+#:
+#: NO es un detalle: sin él el evaluador premia `λ` arbitrariamente grande. Con
+#: las ganancias que salieron de la FASE 7 sin modelarlo (λ·dt hasta 0.60), la
+#: predicción offline daba 0.02 mm de error de TCP y Gazebo midió 29.7 mm.
+PIPELINE_DELAY_STEPS = 1
+
+
 def simulate(law, ref: Reference, plant: Plant,
              force: CuttingForce | None = None, friction=None,
              dq_noise_std: float = DQ_NOISE_STD_GAZEBO,
+             delay_steps: int = PIPELINE_DELAY_STEPS,
              seed: int = 0) -> EvalResult:
     model, data, tcp = plant.model, plant.data, plant.tcp
     rng = np.random.default_rng(seed)
+    delay_steps = max(0, int(delay_steps))
 
     dt, n = ref.dt, ref.n
     q, dq = ref.q[0].copy(), ref.dq[0].copy()
@@ -255,13 +269,20 @@ def simulate(law, ref: Reference, plant: Plant,
     n_sat = 0
 
     chi_max = 0.0
+    # Cola del retardo de tubería: la ley ve el estado de hace `delay_steps`.
+    from collections import deque
+    hist: deque = deque([(q.copy(), dq.copy())] * (delay_steps + 1),
+                        maxlen=delay_steps + 1)
 
     for k in range(n):
         t = k * dt
         # La ley ve la velocidad MEDIDA; la planta integra la verdadera.
         dq_meas = (dq + dq_noise_std * rng.standard_normal(6)
                    if dq_noise_std > 0.0 else dq)
-        tau_law, s, info = law(model, data, q, dq_meas, ref.q[k], ref.dq[k], ref.ddq[k])
+        hist.append((q.copy(), dq_meas))
+        q_seen, dq_seen = hist[0]
+        tau_law, s, info = law(model, data, q_seen, dq_seen,
+                               ref.q[k], ref.dq[k], ref.ddq[k])
         if "chi" in info:
             chi_max = max(chi_max, float(np.max(info["chi"])) * dt)
         if friction is not None:

@@ -147,6 +147,9 @@ private:
   // G3: true en Gazebo (el torque comandado incluye g), false en el UR5e real
   // (el robot compensa la gravedad internamente -> hay que restarla).
   bool gravity_in_command_ = true;
+  // FASE 5 — error inicial deliberado (ensayo de tiempo de alcance). Desplaza
+  // el destino de la rampa, de modo que TRACK arranca con s(0) = Lambda*offset.
+  Vector6d initial_offset_ = Vector6d::Zero();
   // FASE 2 — compensacion de friccion identificada (feedforward en el comando).
   FrictionCompensation friction_mode_ = FrictionCompensation::NONE;
   Vector6d friction_f_v_ = Vector6d::Zero();

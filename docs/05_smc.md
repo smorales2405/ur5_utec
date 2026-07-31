@@ -126,28 +126,97 @@ subir α son dos formas de aumentar `K/φ`. Comprobación: `α=0.1, φ=0.05` y
 
 ---
 
-## 6. PENDIENTE: ensayo de tiempo de alcance
+## 6. Ensayo de tiempo de alcance
 
 El criterio *"con `sign`, `s` alcanza el entorno de cero en tiempo finito,
-coherente con la cota"* **no es medible con la trayectoria actual**.
+coherente con la cota"* **no era medible con la trayectoria tal cual**: la fase
+**RAMP** de `TorqueControlNodeBase` lleva el robot desde `q0` hasta el primer
+punto de la tabla con una quíntica, así que al empezar `TRACK` el robot **ya
+está sobre la superficie deslizante** (`|s(0)| ≈ 0.003 rad/s`, dentro de la capa
+con φ=0.05) y no existe fase de alcance que cronometrar.
 
-Medido: `|s(0)| ≈ 0.003 rad/s`, ya dentro de la capa límite (φ=0.05). La causa
-es estructural: la fase **RAMP** de `TorqueControlNodeBase` lleva el robot desde
-`q0` hasta el primer punto de la tabla con una quíntica, así que cuando empieza
-`TRACK` el robot **ya está sobre la superficie deslizante**. No existe fase de
-alcance que cronometrar.
+### 6.1 Cómo se creó la fase de alcance
 
-**Qué hace falta** (≈ media hora, apuntado para antes de la campaña de la FASE 8):
+Parámetro **`initial_offset[6]`** (default cero: ninguna corrida previa cambia).
+Desplaza el **destino de la rampa**, no el estado: la quíntica lleva el brazo
+suavemente hasta `tabla[0] + offset` y lo deja **en reposo**, de modo que al
+entrar en `TRACK` el error es exactamente `offset` con `dq_e ≈ 0` y por tanto
 
-1. Un parámetro que introduzca un **error inicial deliberado** — p. ej.
-   `initial_offset[6]` sumado a `q0` al entrar en `TRACK`, o un modo que salte
-   la fase RAMP.
-2. Con `s(0)` grande y conocido, cronometrar `t` hasta `|s| < φ` por junta.
-3. Contrastar contra la cota `t_alcance ≤ |s_i(0)| / a_reach`, que con
-   `η_i = I_ii · a_reach` es `|s_i(0)| / 1.0 s`.
+```
+s_i(0) = λ_i · offset_i
+```
 
-Sin ese ensayo, cualquier afirmación sobre tiempo de alcance en el paper
-carecería de respaldo experimental.
+conocido y controlado. Saltarse la rampa —la otra opción que se barajó— daría un
+transitorio sin acotar y muy probablemente el watchdog cortando la corrida.
+
+Con `offset = 0.05 rad` en las seis juntas y `λ = 20`, la predicción es
+`s(0) = 1.0 rad/s`. **Medido: 0.961 – 1.035 rad/s**, o sea el mecanismo hace
+exactamente lo que dice.
+
+### 6.2 La cota
+
+Con modelo perfecto y `ρ = sgn(s)`:
+
+```
+M ṡ = −K ⊙ sgn(s)    ⟹    |ṡ_i| = K_i/M_ii ≥ η_i/M_ii = a_reach
+⟹  t_alcance,i ≤ |s_i(0)| / a_reach          (a_reach = 1.0 rad/s²)
+```
+
+Es una cota **superior**: `K = η + |cota de incertidumbre| > η`, así que alcanzar
+antes es correcto. Lo que invalidaría el modelo sería medir un tiempo **mayor**.
+
+### 6.3 Resultado
+
+`sign` (`smc_540`) y `sat` (`smc_541`), mismo offset:
+
+| junta | s(0) | t alcance `sign` | t alcance `sat` | cota \|s₀\|/a | pico \|s\| |
+|---|---|---|---|---|---|
+| 1 | 1.000 | 0.414 | 0.414 | 1.000 | 1.000 |
+| 2 | 1.002 | 0.400 | 0.402 | 1.002 | 1.002 |
+| 3 | 0.991 | 0.144 | 0.146 | 0.991 | 0.991 |
+| 4 | 1.049 | 0.434 | 0.440 | 1.049 | **2.973 (×2.83)** |
+| 5 | 1.000 | 1.016 | **1.040** | 1.000 | **2.584 (×2.58)** |
+| 6 | 0.998 | 0.332 | 0.328 | 0.998 | 0.998 |
+
+*(s(0) y pico de la corrida `sat`; en `sign` difieren en menos del 5 %.)*
+
+**Cinco de las seis juntas alcanzan la capa muy por debajo de la cota** — entre
+un 15 % y un 85 % del tiempo disponible. `sign` y `sat` dan prácticamente el
+mismo tiempo de alcance, que es lo esperable: fuera de la capa límite
+`sat(s/φ) = sgn(s)`, así que las dos leyes son idénticas **durante** el alcance
+y solo se separan al entrar.
+
+**La junta 5 queda justo en la cota**: 1.016 s con `sign` (cota 1.035, cumple) y
+1.040 s con `sat` (cota 1.000, la excede un 0.4 %). No son resultados
+contradictorios sino la misma junta rozando el límite por los dos lados, y
+tiene explicación — es precisamente la junta cuyo `|s|` sobrepasa ×2.58.
+
+### 6.4 Por qué: la cota por junta supone `M` diagonal
+
+Las juntas 4 y 5 **se alejan** de la superficie antes de volver: `|s|` sube a
+2.8× y 2.6× su valor inicial. No es un fallo, es que la cota por junta sale de
+`η_i = M_ii·a_reach`, que implícitamente trata `M` como diagonal. Con la `M`
+real acoplada,
+
+```
+ṡ = −M⁻¹ K ⊙ sgn(s)
+```
+
+y `M⁻¹` mezcla las juntas: lo que garantiza la convergencia es la función de
+Lyapunov `V = ½ sᵀM s`, **no** el decrecimiento monótono de cada `|s_i|` por
+separado. Que la única junta que roza la cota sea también la que más sobrepasa
+no es casualidad: el acoplamiento le mete energía antes de que empiece a
+converger, y ese rodeo es tiempo que la cota diagonal no contabiliza.
+
+En el paper la cota por junta hay que presentarla como lo que es —una estimación
+de ingeniería, verificada aquí en 5 de 6 juntas y rozada en la sexta— y **no**
+como una garantía derivada de la dinámica acoplada. La afirmación sólida es la
+de Lyapunov: `V` decrece y el alcance es en tiempo finito.
+
+Las excursiones de `|s|` posteriores a t = 2 s (hasta 0.39 en la junta 4) son los
+transitorios de las cinco fases de la incisión (§3), no fallos del alcance.
+
+Analizador: `ur5_identification/scripts/analyze_reaching.py`.
 
 ---
 

@@ -13,6 +13,9 @@ Usage:
 """
 
 import os
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from world_defaults import default_world  # noqa: E402
 from launch import LaunchDescription
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -34,7 +37,7 @@ def generate_launch_description():
         DeclareLaunchArgument("t_sim", default_value="0.0"),
         DeclareLaunchArgument(
             "world",
-            default_value=os.path.join(dyn_pkg, "worlds", "lab_torque_world.sdf"),
+            default_value=default_world(),
         ),
         DeclareLaunchArgument("gazebo_gui", default_value="true"),
         # FASE 2: friccion articular inyectada en la planta de Gazebo, para

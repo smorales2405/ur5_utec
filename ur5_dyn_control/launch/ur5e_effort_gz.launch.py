@@ -29,6 +29,9 @@ Usage:
 """
 
 import os
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from world_defaults import default_world  # noqa: E402
 import shlex
 import subprocess
 from launch import LaunchDescription
@@ -314,11 +317,12 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "world",
-            default_value=os.path.join(dyn_pkg, "worlds", "lab_torque_world.sdf"),
+            default_value=default_world(),
             description=(
-                "Mundo SDF. Default: lab_torque_world.sdf (contenido del "
-                "laboratorio, 1 kHz; RTF bajo por colisiones trimesh). Para "
-                "desarrollo rapido: empty_test_world.sdf (RTF ~1)."
+                "Mundo SDF. Default: lab_incision_world.sdf (laboratorio a "
+                "1 kHz SIN el obstaculo del pick & place; ver world_defaults.py). "
+                "Para reproducir campanas anteriores: lab_torque_world.sdf. "
+                "Para desarrollo rapido: empty_test_world.sdf (RTF ~1)."
             ),
         ),
         DeclareLaunchArgument(

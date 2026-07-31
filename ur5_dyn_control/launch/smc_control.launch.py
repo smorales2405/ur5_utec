@@ -14,6 +14,9 @@ Usage:
 """
 
 import os
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from world_defaults import default_world  # noqa: E402
 from launch import LaunchDescription
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
@@ -57,7 +60,8 @@ def launch_setup(context, *args, **kwargs):
         if raw:
             overrides[arg] = float(raw)
     for arg, key in (("friction_f_v", "friction.f_v"),
-                     ("friction_f_c", "friction.f_c")):
+                     ("friction_f_c", "friction.f_c"),
+                     ("initial_offset", "initial_offset")):
         raw = LaunchConfiguration(arg).perform(context).strip()
         if raw:
             vals = [float(v) for v in raw.replace(",", " ").split() if v]
@@ -65,12 +69,22 @@ def launch_setup(context, *args, **kwargs):
                 raise RuntimeError(f"{arg} debe tener 6 valores, se dio: {raw!r}")
             overrides[key] = vals
 
+    # FASE 7: fichero de ganancias generado por `run_gain_tuning`. Se superpone
+    # DESPUES del params_file, asi que solo pisa lambda/eta/phi/alpha y deja
+    # intacto el resto de la configuracion. Es el criterio de aceptacion del
+    # plan: las ganancias seleccionadas se cargan sin edicion manual.
+    params = [LaunchConfiguration("params_file")]
+    gains_file = LaunchConfiguration("gains_file").perform(context).strip()
+    if gains_file:
+        if not os.path.exists(gains_file):
+            raise RuntimeError(f"gains_file no existe: {gains_file}")
+        params.append(gains_file)
+
     node = Node(
         package="ur5_dyn_control",
         executable="gz_smc_control_node",
         output="screen",
-        parameters=[
-            LaunchConfiguration("params_file"),
+        parameters=params + [
             {
                 "test_num": LaunchConfiguration("test_num"),
                 "t_sim": LaunchConfiguration("t_sim"),
@@ -95,7 +109,7 @@ def generate_launch_description():
         DeclareLaunchArgument("t_sim", default_value="0.0"),
         DeclareLaunchArgument(
             "world",
-            default_value=os.path.join(dyn_pkg, "worlds", "lab_torque_world.sdf"),
+            default_value=default_world(),   # ver launch/world_defaults.py
         ),
         DeclareLaunchArgument("gazebo_gui", default_value="true"),
         # FASE 2: friccion articular inyectada en la planta de Gazebo, para
@@ -125,6 +139,16 @@ def generate_launch_description():
                               description="ancho de la capa limite de sat(s/phi)"),
         DeclareLaunchArgument("alpha", default_value="",
                               description="fraccion de incertidumbre en (0,1]"),
+        # FASE 5 — ensayo de tiempo de alcance.
+        DeclareLaunchArgument(
+            "initial_offset", default_value="",
+            description="6 offsets [rad] sumados al destino de la rampa; crean "
+                        "un error inicial deliberado con s(0) = Lambda*offset"),
+        # FASE 7 — ganancias optimizadas.
+        DeclareLaunchArgument(
+            "gains_file", default_value="",
+            description="YAML de ganancias de run_gain_tuning; se superpone al "
+                        "params_file (solo lambda/eta/phi/alpha)"),
     ]
 
 

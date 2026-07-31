@@ -160,6 +160,23 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
   // del robot y comandarla otra vez la duplica. Ver torque_command.hpp.
   gravity_in_command_ = declare_parameter<bool>("gravity_in_command", true);
 
+  // FASE 5 — error inicial DELIBERADO para el ensayo de tiempo de alcance.
+  //
+  // El criterio del plan ("con sign, s alcanza el entorno de cero en tiempo
+  // finito, coherente con la cota") no es medible en una corrida normal: la
+  // fase RAMP deja el robot exactamente sobre la tabla, asi que al entrar en
+  // TRACK ya esta SOBRE la superficie deslizante (|s(0)| ~ 0.003 rad/s medido)
+  // y no existe fase de alcance que cronometrar.
+  //
+  // Se desplaza el DESTINO de la rampa, no el estado: la rampa quintica lleva
+  // el brazo suavemente hasta tabla[0] + offset y alli lo deja en reposo, de
+  // modo que al empezar TRACK el error es exactamente `offset` con dq_e ~ 0 y
+  // por tanto  s(0) = Lambda * offset,  conocido y controlado. Saltarse la
+  // rampa en su lugar daria un transitorio sin acotar (y muy probablemente el
+  // watchdog cortando la corrida).
+  initial_offset_ = paramToVec6(declare_parameter<std::vector<double>>(
+      "initial_offset", std::vector<double>(6, 0.0)), "initial_offset");
+
   // FASE 2 — compensacion de friccion identificada. Default "none": el
   // comportamiento de las FASES 0-1 no cambia. Los coeficientes salen del YAML
   // que produce `ros2 run ur5_identification run_identification`.
@@ -617,7 +634,10 @@ JointRef TorqueControlNodeBase::rampReference(double t_ramp) const
   // Transicion quintica q0 -> tabla[0] con v = a = 0 en ambos extremos
   // (la tabla arranca con dq = ddq = 0 por el spline clamped).
   const double T = transition_duration_;
-  const Vector6d qf = ref_gen_->at(0).q;
+  // `initial_offset_` desplaza el DESTINO de la rampa: es lo que crea el error
+  // inicial deliberado del ensayo de alcance (FASE 5). Vale cero por defecto,
+  // asi que ninguna corrida existente cambia.
+  const Vector6d qf = ref_gen_->at(0).q + initial_offset_;
   const double s = std::clamp(t_ramp / T, 0.0, 1.0);
   const double s3 = s * s * s;
   const double p = 10.0 * s3 - 15.0 * s3 * s + 6.0 * s3 * s * s;

@@ -309,6 +309,63 @@ ganancias.
 
 ---
 
+## 5.6 Re-verificación en Gazebo: el retardo de tubería no era opcional
+
+La primera tanda de ganancias (`test1`, evaluador **sin** retardo) **no
+transfirió**:
+
+| | RMSE q | TCP | max\|s\|/φ | TV(τ) | >20 Hz |
+|---|---|---|---|---|---|
+| predicción offline | 2.3e-5 | 0.0198 mm | — | 120 | — |
+| **Gazebo medido** | 2.4e-2 | **29.72 mm** | 7.52 | 3 798 | 18.1 % |
+
+Factor **1 500×**. La causa se aisló midiendo: con un paso de retardo añadido al
+evaluador, esas ganancias se degradan 72× mientras las de la FASE 5 solo 2.7×.
+Sin retardo modelado, subir `λ` es gratis y el optimizador la lleva al borde de
+la caja; el lazo real, que sí tiene el desfase de ~1 ms que midió la FASE 2, no
+lo aguanta.
+
+Corregido el evaluador (`PIPELINE_DELAY_STEPS`) y reoptimizado (`test3`):
+
+| | RMSE q | TCP | max\|s\|/φ | TV(τ) | >20 Hz |
+|---|---|---|---|---|---|
+| `test1` (sin retardo) | 2.4e-2 | 29.72 mm | 7.52 | 3 798 | 18.1 % |
+| **`test3` (con retardo)** | **1.3e-5** | **0.0081 mm** | **0.08** | 963 | 4.8 % |
+
+**3 670× mejor en TCP**, y ahora sí cumple el criterio del plan `|s| = O(φ)`.
+
+### 5.6.1 El evaluador sirve para buscar, no para predecir
+
+El acuerdo cuantitativo **sigue sin ser bueno**, y en las dos direcciones:
+
+| ganancias | offline sin retardo | offline con retardo | Gazebo |
+|---|---|---|---|
+| `test1` | 0.0198 mm | 0.3921→1.418 mm | **29.72 mm** (peor que ambas) |
+| `test3` | 0.0196 mm | 0.3921 mm | **0.0081 mm** (mejor que ambas) |
+
+El modelo de un paso resultó **21× optimista** para unas ganancias y **48×
+pesimista** para otras, así que el sesgo no es una simple cuestión de «cuánto
+retardo». La FASE 2 midió ~1 ms, medio ciclo a 500 Hz, y el lazo real encadena
+además el paso de 1 ms del simulador, el retén de orden cero del publicador y el
+temporizador de pared del nodo.
+
+Conclusión operativa, que es la que hay que escribir en *Methods*: el evaluador
+offline es un **sustituto de búsqueda** válido —encuentra ganancias buenas 130×
+más barato que Gazebo— pero **no un predictor de prestaciones**. Cada juego de
+ganancias que salga de esta fase se re-verifica en Gazebo antes de usarlo. Eso
+ya no es una precaución teórica: aquí atrapó un fallo de 1 500×.
+
+### 5.6.2 Escena
+
+Las corridas de re-verificación usan `lab_incision_world.sdf`, que **no** lleva
+el obstáculo del caso de uso de pick & place (caja AABB en (0.85, 0, 0.73)) que
+`lab_torque_world.sdf` había heredado al copiarse. No afecta a nada ya medido
+—la holgura mínima sobre la trayectoria nominal es de 0.150 m— pero se retira de
+cara a la FASE 8, donde el desajuste de ±50 % y la carga de 4 kg desvían el
+brazo mucho más. Ver `ur5_dyn_control/launch/world_defaults.py`.
+
+---
+
 ## 6. Límites de validez del evaluador
 
 Declarados en el encabezado de `closed_loop.py` y verificados contra Gazebo:
