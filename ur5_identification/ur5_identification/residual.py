@@ -101,7 +101,28 @@ def load_csv(path: str) -> dict:
     t_col = "t_sim" if "t_sim" in data.dtype.names else "t"
     out = {"t": np.asarray(data[t_col], dtype=float),
            "state": np.asarray(data["state"], dtype=str)}
-    for key, col in (("q", "q%d"), ("dq", "dq%d"), ("tau", "tau%d")):
+
+    # Par a usar como medida: `tau_phys` (par FISICO entregado) si existe.
+    #
+    # NO vale `tau` en el robot real. `tau` es el par COMANDADO, y con
+    # `gravity_in_command=false` (obligatorio en el UR5e, compuerta G3) vale
+    # `tau_ley - g(q)`, porque `direct_torque()` compensa la gravedad dentro del
+    # robot. El residuo se calcula contra `rnea()`, que SI lleva gravedad: usar
+    # `tau` dejaria un sesgo de exactamente `g(q)` —varios N·m en hombro y
+    # codo— que el ajuste atribuiria a friccion de Coulomb, con buen R² y
+    # coeficientes inventados.
+    #
+    # Las campanas de Gazebo anteriores no tienen la columna; alli
+    # `gravity_in_command=true` y `tau_phys == tau`, asi que el fallback es
+    # exacto, no una aproximacion.
+    has_phys = "tau1_phys" in data.dtype.names
+    tau_col = "tau%d_phys" if has_phys else "tau%d"
+    out["tau_source"] = "tau_phys" if has_phys else "tau_cmd"
+    if not has_phys:
+        print(f"  [residual] {os.path.basename(path)}: sin columna tau_phys; "
+              f"se usa tau (correcto solo si gravity_in_command=true)")
+
+    for key, col in (("q", "q%d"), ("dq", "dq%d"), ("tau", tau_col)):
         out[key] = np.column_stack([np.asarray(data[col % (i + 1)], dtype=float)
                                     for i in range(6)])
     return out
@@ -215,6 +236,7 @@ def compute_residual(csv_path: str, urdf_path: str, gravity: float = 9.8,
         state = d["state"]
 
     return {"t": t, "state": state, "q": q_f, "dq": dq_f, "ddq": ddq,
+            "tau_source": d.get("tau_source", "tau_cmd"),
             "tau_cmd": tau, "tau_model": tau_model,
             "residual": tau - tau_model, "fs": fs, "tau_shift": tau_shift}
 

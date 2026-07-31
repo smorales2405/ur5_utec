@@ -38,6 +38,27 @@ struct LogSample
   /// 1 si esa junta quedo recortada por saturacion o por limite de tasa.
   std::array<int, 6> tau_sat_flag{};
 
+  /**
+   * Par FISICO que entrega la junta:  tau_phys = tau_cmd + (G3 ? 0 : g(q)).
+   *
+   * NO es redundante con `tau_cmd`, y confundirlos arruina la identificacion de
+   * friccion en el robot real. En Gazebo (`gravity_in_command=true`) coinciden.
+   * En el UR5e real (`=false`) se comanda `tau_ley - g(q)` porque
+   * `direct_torque()` compensa la gravedad DENTRO del robot: el par que la
+   * junta entrega de verdad es el comandado MAS esa gravedad interna.
+   *
+   * El residuo de friccion se calcula contra `rnea(q,dq,ddq)`, que SI incluye
+   * gravedad. Restarle `tau_cmd` en el robot real dejaria un sesgo de
+   * exactamente `g(q)` —varios N·m en hombro y codo— que el ajuste atribuiria a
+   * friccion de Coulomb, con buen R² y coeficientes inventados. Por eso el
+   * identificador usa esta columna, no `tau`.
+   *
+   * Se registra POST-saturacion (parte de `tau_cmd`), que es lo correcto: si el
+   * actuador quedo recortado, el par entregado es el recortado, no el que la ley
+   * pidio.
+   */
+  Vector6d tau_phys = Vector6d::Zero();
+
   /// Variable de deslizamiento del controlador (SMC/ASTSMC); 0 si no aplica.
   Vector6d s = Vector6d::Zero();
 

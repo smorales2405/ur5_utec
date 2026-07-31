@@ -24,6 +24,7 @@
 
 using ur5_dyn_control::Vector6d;
 using ur5_dyn_control::applyGravityPolicy;
+using ur5_dyn_control::physicalTorque;
 using ur5_dyn_control::saturate;
 using ur5_dyn_control::torqueCommand;
 
@@ -282,6 +283,55 @@ TEST(GravityPolicy, ApplyGravityPolicyMatchesDefinition)
   const Vector6d g_q = vec6(0.1, 0.2, 0.3, 0.4, 0.5, 0.6);
   EXPECT_TRUE(applyGravityPolicy(tau_law, g_q, true) == tau_law);
   EXPECT_TRUE(applyGravityPolicy(tau_law, g_q, false) == Vector6d(tau_law - g_q));
+}
+
+// ── Par FISICO (columna tau_phys del CSV) ───────────────────────────────────
+//
+// Es la columna que usa la identificacion de friccion. Si se desalinea de la
+// politica de gravedad, el residuo se sesga en g(q) y ese sesgo se convierte en
+// coeficientes de Coulomb inventados, con buen R². Por eso se testea la
+// relacion, no solo la formula.
+
+TEST(GravityPolicy, PhysicalTorqueMatchesDefinition)
+{
+  const Vector6d tau_cmd = vec6(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
+  const Vector6d g_q = vec6(0.1, 0.2, 0.3, 0.4, 0.5, 0.6);
+  EXPECT_TRUE(physicalTorque(tau_cmd, g_q, true) == tau_cmd);
+  EXPECT_TRUE(physicalTorque(tau_cmd, g_q, false) == Vector6d(tau_cmd + g_q));
+}
+
+TEST(GravityPolicy, PhysicalTorqueInvertsGravityPolicy)
+{
+  // Sin saturacion, tau_phys reconstruye EXACTAMENTE el par de la ley en las
+  // dos politicas: es la propiedad de la que depende la campana de friccion.
+  ur5_dyn_control::Ur5Dynamics dyn(urdfPath(), kGravity);
+  const Vector6d tau_law = vec6(12.0, -30.0, 8.0, 1.5, -2.0, 0.4);
+
+  for (const auto & q : testConfigurations()) {
+    const Vector6d g_q = dyn.gravity(q);
+    for (const bool policy : {true, false}) {
+      const Vector6d g_used = policy ? Vector6d::Zero().eval() : g_q;
+      const Vector6d cmd = applyGravityPolicy(tau_law, g_q, policy);
+      const Vector6d phys = physicalTorque(cmd, g_used, policy);
+      EXPECT_LT((phys - tau_law).cwiseAbs().maxCoeff(), 1e-9)
+        << "policy=" << policy << " q = " << q.transpose();
+    }
+  }
+}
+
+TEST(GravityPolicy, PhysicalTorqueKeepsSaturationInTheRealRobot)
+{
+  // Si el actuador quedo recortado, el par ENTREGADO es el recortado. tau_phys
+  // se calcula sobre el comando ya saturado, asi que debe reflejarlo: en otro
+  // caso la identificacion creeria que la junta entrego un par que nunca dio.
+  const Vector6d g_q = vec6(0.5, 20.0, 5.0, 0.2, 0.1, 0.0);
+  const Vector6d tau_law = vec6(1e4, 1e4, 1e4, 1e4, 1e4, 1e4);   // fuerza recorte
+  const Vector6d cmd = torqueCommand(tau_law, g_q, false, kTauMax);
+  EXPECT_TRUE(cmd == kTauMax);                       // saturado en el limite
+  const Vector6d phys = physicalTorque(cmd, g_q, false);
+  EXPECT_TRUE(phys == Vector6d(kTauMax + g_q));
+  // Y NO reconstruye tau_law: el recorte no se "deshace".
+  EXPECT_GT((phys - tau_law).cwiseAbs().maxCoeff(), 1.0);
 }
 
 int main(int argc, char ** argv)

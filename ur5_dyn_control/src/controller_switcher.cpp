@@ -20,40 +20,65 @@ void ControllerSwitcher::checkControllersLoaded(
   const std::vector<std::string> & names,
   std::function<void(bool, std::vector<std::string>)> cb)
 {
+  checkControllersLoaded(
+    names, {},
+    [cb](bool ready, std::vector<std::string> to_activate,
+         std::vector<std::string>) {cb(ready, std::move(to_activate));});
+}
+
+void ControllerSwitcher::checkControllersLoaded(
+  const std::vector<std::string> & activate_names,
+  const std::vector<std::string> & deactivate_names,
+  std::function<void(bool, std::vector<std::string>,
+                     std::vector<std::string>)> cb)
+{
   if (!list_client_->service_is_ready()) {
-    cb(false, {});
+    cb(false, {}, {});
     return;
   }
   auto req = std::make_shared<controller_manager_msgs::srv::ListControllers::Request>();
   list_client_->async_send_request(
     req,
-    [cb, names](
+    [cb, activate_names, deactivate_names](
       rclcpp::Client<controller_manager_msgs::srv::ListControllers>::SharedFuture future)
     {
       const auto res = future.get();
       if (!res) {
-        cb(false, {});
+        cb(false, {}, {});
         return;
       }
+      auto state_of = [&res](const std::string & name, bool & found) {
+          for (const auto & c : res->controller) {
+            if (c.name == name) {found = true; return c.state;}
+          }
+          found = false;
+          return std::string{};
+        };
+
       std::vector<std::string> to_activate;
       bool all_loaded = true;
-      for (const auto & name : names) {
+      for (const auto & name : activate_names) {
         bool found = false;
-        for (const auto & c : res->controller) {
-          if (c.name == name) {
-            found = true;
-            if (c.state != "active") {
-              to_activate.push_back(name);
-            }
-            break;
-          }
-        }
-        if (!found) {
-          all_loaded = false;
-          break;
+        const std::string st = state_of(name, found);
+        if (!found) {all_loaded = false; break;}
+        if (st != "active") {to_activate.push_back(name);}
+      }
+
+      // La lista de DESACTIVACION se filtra igual que la de activacion: pedir
+      // que se desactive algo que ya esta inactivo hace fallar un switch STRICT
+      // entero. En el robot real pasa en cuanto el driver arranca con
+      // `activate_joint_controller:=false` — el scaled_joint_trajectory_controller
+      // esta cargado pero inactivo—, y el nodo abortaria sin llegar a comandar.
+      // Un controlador NO cargado tampoco es un error aqui: si no existe, no
+      // hay nada que desactivar.
+      std::vector<std::string> to_deactivate;
+      for (const auto & name : deactivate_names) {
+        bool found = false;
+        if (state_of(name, found) == "active" && found) {
+          to_deactivate.push_back(name);
         }
       }
-      cb(all_loaded, std::move(to_activate));
+      cb(all_loaded, std::move(to_activate), std::move(to_deactivate));
     });
 }
 

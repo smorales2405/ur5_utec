@@ -551,6 +551,14 @@ void TorqueControlNodeBase::logRow(double t_sim, const Vector6d & q,
   d.dq_des = ref.dq;
   d.ddq_des = ref.ddq;
   d.tau_cmd = tau_cmd;
+  // Par FISICO entregado por la junta. En el robot real la gravedad la pone el
+  // propio robot (G3), asi que hay que devolverla para que la columna sea
+  // comparable con rnea() y la identificacion de friccion no se coma un sesgo
+  // de g(q). En Gazebo (gravity_in_command=true) coincide con tau_cmd y no se
+  // evalua la RNEA de gravedad. Ver csv_logger.hpp.
+  d.tau_phys = physicalTorque(
+    tau_cmd, gravity_in_command_ ? Vector6d::Zero().eval() : dyn_->gravity(q),
+    gravity_in_command_);
   for (int i = 0; i < 6; ++i) {
     d.tau_sat_flag[i] =
       (sat_flags_.saturated[i] || sat_flags_.rate_limited[i]) ? 1 : 0;
@@ -763,19 +771,22 @@ void TorqueControlNodeBase::tick()
           if (pre_hold_ticks_ % static_cast<int>(control_rate_ * 1.0) == 1) {
             check_pending_ = true;
             switcher_->checkControllersLoaded(
-              activate_controllers_,
-              [this](bool ready, std::vector<std::string> to_activate) {
+              activate_controllers_, deactivate_controllers_,
+              [this](bool ready, std::vector<std::string> to_activate,
+                     std::vector<std::string> to_deactivate) {
                 check_pending_ = false;
                 if (!ready || switch_requested_) {return;}
                 switch_requested_ = true;
                 request_tick_ = pre_hold_ticks_;
-                if (to_activate.empty() && deactivate_controllers_.empty()) {
-                  RCLCPP_INFO(get_logger(), "Controladores ya activos.");
+                if (to_activate.empty() && to_deactivate.empty()) {
+                  RCLCPP_INFO(get_logger(), "Controladores ya en el estado pedido.");
                   return;
                 }
-                RCLCPP_INFO(get_logger(), "Solicitando activacion de controladores...");
+                RCLCPP_INFO(get_logger(),
+                            "Solicitando switch: +%zu activar, -%zu desactivar",
+                            to_activate.size(), to_deactivate.size());
                 switcher_->requestSwitch(
-                  to_activate, deactivate_controllers_,
+                  to_activate, to_deactivate,
                   [this](bool ok) {
                     if (!ok) {
                       RCLCPP_FATAL(get_logger(), "Fallo el switch de controladores");

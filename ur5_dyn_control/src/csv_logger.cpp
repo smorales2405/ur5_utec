@@ -73,6 +73,9 @@ bool CsvLogger::open(const std::string & output_dir,
   }
   for (int i = 1; i <= 6; ++i) {csv_ << ",tau" << i;}
   for (int i = 1; i <= 6; ++i) {csv_ << ",tau" << i << "_sat";}
+  // tau_phys: par FISICO entregado = tau_cmd + g(q) si la gravedad la pone el
+  // robot. Es la columna que debe usar la identificacion de friccion.
+  for (int i = 1; i <= 6; ++i) {csv_ << ",tau" << i << "_phys";}
   for (int i = 1; i <= 6; ++i) {csv_ << ",s" << i;}
   csv_ << ",x,y,z,x_des,y_des,z_des,theta_err";
   for (int i = 1; i <= 6; ++i) {csv_ << ",wrench" << i;}
@@ -94,6 +97,7 @@ void CsvLogger::log(const LogSample & d)
   for (int i = 0; i < 6; ++i) {csv_ << ',' << d.ddq_des[i];}
   for (int i = 0; i < 6; ++i) {csv_ << ',' << d.tau_cmd[i];}
   for (int i = 0; i < 6; ++i) {csv_ << ',' << d.tau_sat_flag[i];}
+  for (int i = 0; i < 6; ++i) {csv_ << ',' << d.tau_phys[i];}
   for (int i = 0; i < 6; ++i) {csv_ << ',' << d.s[i];}
   csv_ << ',' << d.xyz.x() << ',' << d.xyz.y() << ',' << d.xyz.z()
        << ',' << d.xyz_des.x() << ',' << d.xyz_des.y() << ',' << d.xyz_des.z()

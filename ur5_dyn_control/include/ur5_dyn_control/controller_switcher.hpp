@@ -42,6 +42,22 @@ public:
     const std::vector<std::string> & names,
     std::function<void(bool, std::vector<std::string>)> cb);
 
+  /**
+   * Igual, pero filtrando TAMBIEN la lista de desactivacion:
+   *  - to_deactivate: subconjunto de 'deactivate_names' que esta ACTIVO.
+   *
+   * Pedir que se desactive un controlador ya inactivo hace fallar un switch
+   * STRICT completo. En el UR5e real ocurre en cuanto el driver arranca con
+   * `activate_joint_controller:=false`: el scaled_joint_trajectory_controller
+   * queda cargado pero inactivo, y sin este filtro el nodo abortaria antes de
+   * comandar el primer par.
+   */
+  void checkControllersLoaded(
+    const std::vector<std::string> & activate_names,
+    const std::vector<std::string> & deactivate_names,
+    std::function<void(bool, std::vector<std::string>,
+                       std::vector<std::string>)> cb);
+
   /// Envia la peticion (no bloquea); cb(ok) se invoca al llegar la respuesta.
   void requestSwitch(const std::vector<std::string> & activate,
                      const std::vector<std::string> & deactivate,

@@ -46,6 +46,27 @@ inline Vector6d applyGravityPolicy(const Vector6d & tau_law,
   return gravity_in_command ? tau_law : Vector6d(tau_law - g_q);
 }
 
+/**
+ * INVERSA de la politica de gravedad: par FISICO que entrega la junta a partir
+ * del comandado.
+ *
+ *   gravity_in_command = true  (Gazebo)    -> tau_phys = tau_cmd
+ *   gravity_in_command = false (UR5e real) -> tau_phys = tau_cmd + g(q)
+ *
+ * Existe porque la IDENTIFICACION DE FRICCION compara el par medido contra
+ * `rnea(q,dq,ddq)`, que incluye gravedad. En el robot real el par comandado NO
+ * la incluye (la pone el robot), asi que restarle el modelo dejaria un sesgo de
+ * exactamente `g(q)` que el ajuste atribuiria a friccion de Coulomb: buen R² y
+ * coeficientes inventados. Se aplica sobre el par YA saturado, porque si el
+ * actuador quedo recortado el par entregado es el recortado.
+ */
+inline Vector6d physicalTorque(const Vector6d & tau_cmd,
+                               const Vector6d & g_q,
+                               bool gravity_in_command)
+{
+  return gravity_in_command ? tau_cmd : Vector6d(tau_cmd + g_q);
+}
+
 /// Saturacion simetrica componente a componente: tau_i -> [-tau_max_i, tau_max_i].
 inline Vector6d saturate(const Vector6d & tau, const Vector6d & tau_max)
 {

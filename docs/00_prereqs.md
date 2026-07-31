@@ -480,6 +480,103 @@ razón; aquí queda además como requisito de seguridad firmado.
 
 ---
 
+## Procedimiento de sesión con torque en el UR5e real
+
+Orden fijo. Los pasos 1–5 son del operador y hay que **verificarlos** antes de
+que nada comande par; por eso `ur5e_real.launch.py` **no** levanta el driver:
+encadenarlo significaría que el primer torque sale en cuanto el driver esté
+listo, sin ventana para abortar.
+
+**1. Driver** (terminal aparte; robot encendido, sin protective stop)
+
+```bash
+ros2 launch ur_robot_driver ur_control.launch.py \
+    ur_type:=ur5e robot_ip:=192.168.0.102 launch_rviz:=false \
+    initial_joint_controller:=scaled_joint_trajectory_controller
+```
+
+**2. Pendant**: cargar el programa con `External Control` y darle a play.
+
+**3. Verificar**
+
+```bash
+ros2 control list_controllers      # forward_effort_controller debe estar cargado
+ros2 topic hz /joint_states        # ~500 Hz
+```
+
+**4. Escalas de fricción interna** (G4) — fijarlas **siempre** de forma
+explícita, aunque coincidan con el default: sin la llamada el valor efectivo no
+queda registrado y la campaña no es reproducible. Comandos en §G4.
+
+**5. `zero_ftsensor`** antes de aproximar, y firmar el checklist §7 del plan.
+
+**6. Primer ensayo: el brazo solo se sostiene** (sin moverse). Valida G3, el
+watchdog y el switch sin que el robot recorra nada:
+
+```bash
+ros2 launch ur5_dyn_control ur5e_real.launch.py \
+    controller:=gravity_comp skip_trajectory:=true tau_scale:=0.30 test_num:=900
+```
+
+Si la gravedad estuviera mal compensada se ve **aquí**, con el robot quieto.
+
+**7. Campaña de fricción**, una corrida por junta (0..5) y por nivel de
+compensación interna (`0.0`, `default`, `1.0`):
+
+```bash
+ros2 launch ur5_dyn_control ur5e_real.launch.py \
+    controller:=fl trajectory_type:=joint_sweep sweep_joint:=0 \
+    tau_scale:=0.30 test_num:=901
+```
+
+**8. Identificación**
+
+```bash
+ros2 run ur5_identification run_identification \
+    --csv ~/.ros/ur5_dyn_control/fl_90*.csv \
+    --models viscous_coulomb stribeck --out ~/friction_real.yaml
+```
+
+**9. Los coeficientes van a DOS sitios**, no a uno:
+
+| Destino | Para qué | Si se olvida |
+|---|---|---|
+| Controlador (`friction_compensation`, `friction.f_v/f_c`) | Feedforward en el comando | El SMC tiene que absorber la fricción con el término discontinuo |
+| **URDF/xacro** (`<dynamics damping= friction=>`) | Planta de Gazebo | **La campaña de la FASE 8 compara controladores sobre una planta SIN fricción**, que no existe |
+
+`ur_macro.xacro` genera ambos a **cero**, así que el segundo destino es fácil de
+pasar por alto y no da ningún síntoma.
+
+### Lo que hace `ur5e_real.launch.py` por ti
+
+- `gravity_in_command:=false` — **forzado, no expuesto como argumento**, para
+  que no pueda quedarse a `true` por descuido (G3).
+- `use_sim_time:=false`, `perform_unpause:=false`.
+- `activate_controllers:=[forward_effort_controller]` (el único que arranca
+  inactivo) y `deactivate_controllers:=[scaled_joint_trajectory_controller]`
+  (mutuamente excluyentes, ver arriba). **Las dos listas se filtran** contra el
+  estado real antes del switch: pedir que se desactive algo ya inactivo hace
+  fallar un switch `STRICT` entero.
+- `tau_scale` con **default 0.30**, no 1.0 — el §7 pide empezar conservador y
+  subir gradualmente, así que subirlo es una decisión consciente.
+
+### ⛔ La columna `tau_phys` del CSV
+
+La identificación **no** debe usar la columna `tau` en el robot real. `tau` es
+el par **comandado**, y con `gravity_in_command=false` vale `tau_ley − g(q)`. El
+residuo se calcula contra `rnea()`, que **sí** lleva gravedad: usar `tau`
+dejaría un sesgo de exactamente `g(q)` —varios N·m en hombro y codo— que el
+ajuste atribuiría a **fricción de Coulomb**, con buen R² y coeficientes
+inventados.
+
+Por eso el CSV registra `tau<i>_phys` = par **físico** entregado
+(`tau_cmd + g(q)` en el real, `tau_cmd` en Gazebo), calculado post-saturación, y
+`residual.py` la usa cuando existe. Los CSV antiguos de Gazebo no la tienen;
+allí `gravity_in_command=true` y las dos coinciden, así que el fallback es
+exacto y se avisa por consola.
+
+---
+
 ## Referencias
 
 - `UniversalRobots/Universal_Robots_ROS2_Driver`, tag `2.13.2` (el que empaqueta
