@@ -3,6 +3,7 @@
 #include <pinocchio/parsers/urdf.hpp>
 #include <pinocchio/algorithm/crba.hpp>
 #include <pinocchio/algorithm/rnea.hpp>
+#include <pinocchio/algorithm/compute-all-terms.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/frames.hpp>
@@ -72,6 +73,18 @@ Vector6d Ur5Dynamics::nle(const Vector6d & q, const Vector6d & dq)
 Vector6d Ur5Dynamics::gravity(const Vector6d & q)
 {
   return pinocchio::computeGeneralizedGravity(model_, *data_, q);
+}
+
+Matrix6d Ur5Dynamics::coriolis(const Vector6d & q, const Vector6d & dq)
+{
+  pinocchio::computeCoriolisMatrix(model_, *data_, q, dq);
+  return data_->C;
+}
+
+Matrix6d Ur5Dynamics::dM(const Vector6d & q, const Vector6d & dq)
+{
+  const Matrix6d C = coriolis(q, dq);
+  return C + C.transpose();
 }
 
 Matrix6d Ur5Dynamics::frameJacobian(const Vector6d & q)

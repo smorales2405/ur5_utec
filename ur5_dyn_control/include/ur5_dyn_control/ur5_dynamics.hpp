@@ -62,6 +62,17 @@ public:
   /// Vector de gravedad g(q).
   Vector6d gravity(const Vector6d & q);
 
+  /// Matriz de Coriolis C(q,q̇) tal que n(q,q̇) = C(q,q̇)·q̇ + g(q).
+  Matrix6d coriolis(const Vector6d & q, const Vector6d & dq);
+
+  /// Derivada temporal de la matriz de inercia, Ṁ(q,q̇) = C + Cᵀ.
+  ///
+  /// Se apoya en la propiedad de antisimetria de Ṁ − 2C: con la C construida a
+  /// partir de los simbolos de Christoffel (la que devuelve Pinocchio), esa
+  /// propiedad equivale exactamente a Ṁ = C + Cᵀ. Hace falta para la cota de
+  /// ganancia del SMC, que incluye un termino (1−α)·Ṁ·q̇_r.
+  Matrix6d dM(const Vector6d & q, const Vector6d & dq);
+
   /// Jacobiano 6x6 del frame TCP en LOCAL_WORLD_ALIGNED.
   Matrix6d frameJacobian(const Vector6d & q);
 

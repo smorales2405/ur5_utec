@@ -1,0 +1,157 @@
+# ============================================================================
+#  SMC sobre la trayectoria de INCISION — FASE 5 del plan (Journal Q2)
+#
+#  Controlador: Sliding Mode Control (gz_smc_control_node). Misma trayectoria
+#  de incision que el FL, para que la comparacion del paper sea a igualdad de
+#  referencia. Solo cambian las ganancias.
+#
+#  Geometria (frame base_link; en Gazebo z_mundo = z + 0.63):
+#
+#      z
+#    0.35 ┤ ●  start_pose = FK(q_init)
+#         │  \
+#    0.05 ┤   ●───────────────●          z_above    = surface_z + approach_height
+#         │   │               ↑
+#    0.02 ┤   ●━━━━━━━━━━━━━━━┿━━━━━━━    superficie del tejido (surface_z)
+#    0.015┤   ●───────────────●           z_cut = surface_z - cut_depth
+#         └───┴───────────────┴──────→ y
+#         -0.05  -0.04    +0.04  +0.05
+#          approach → contact → penetration → cut → withdraw
+#          trazo total 100 mm; los 80 mm centrales a feed constante (medidos)
+#
+#  La mesa de cirugia queda exactamente en z = 0.00 de base_link (pedestal del
+#  robot y mesa miden ambos 0.63 m), asi que surface_z es el espesor de la
+#  muestra apoyada sobre ella.
+#
+#  Supuestos vigentes: A1 (sin masa de herramienta), A2 (punta de hoja =
+#  gripper_tcp), A3 (metricas en base_link), A4 (orientacion TCP constante).
+#  Ver docs/00_assumptions.md.
+# ============================================================================
+
+gz_smc_control_node:
+  ros__parameters:
+    use_sim_time: true
+
+    control_rate: 500.0
+
+    urdf_path: ""
+    gravity: 9.8
+    q_init: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+
+    # G3 — true en Gazebo; false en el UR5e real (docs/00_prereqs.md).
+    gravity_in_command: true
+
+    # A2 / A1 (docs/00_assumptions.md)
+    tcp_offset_z: 0.141
+    tool_mass: 0.0                       # PENDIENTE de medir el acople del bisturi
+    tool_com: [0.0, 0.0, 0.0]
+    tool_inertia: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    command_topic: "/forward_effort_controller/commands"
+    controller_manager: "/controller_manager"
+    activate_controllers: ["joint_state_broadcaster", "forward_effort_controller"]
+    perform_switch: true
+    perform_unpause: true
+    world_name: "default"
+
+    hold_start_duration: 1.0
+    transition_duration: 3.0
+    t_sim: 2.0
+    skip_trajectory: false
+
+    # -- Ganancias del SMC (FASE 5) -------------------------------------------
+    # s = dq_e + Lambda*q_e. Sobre s = 0 el error decae con constante 1/lambda,
+    # asi que lambda = 20 -> 50 ms, del orden del lazo cerrado del FL (wn = 10).
+    lambda: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
+    # eta: margen de alcance por encima de la cota de incertidumbre, ESCALADO
+    # POR INERCIA:  eta_i = I_ii * a_reach,  con a_reach = 1.0 rad/s^2 y I_ii la
+    # diagonal de M(q_init).
+    #
+    # POR QUE. Dentro de la capa limite, sat(s/phi) actua como una ganancia
+    # K/phi, asi que el polo del lazo es (K/phi)/I_ii. Con eta uniforme
+    # ([5,5,5,1,1,1]) ese polo iba de 39 rad/s en el hombro a 77 652 rad/s en
+    # wrist_3 (I = 2.6e-4 kg m^2), y el numero de estabilidad discreta
+    # (K/phi)*dt/I valia 155: MEDIDO, el SMC daba |s| max de 4.09 rad/s = 82*phi
+    # (el criterio del plan es O(phi)) y un error RMS 150 veces peor que el FL
+    # sobre la misma trayectoria.
+    #
+    # Con eta ~ I ese polo vale a_reach/phi = 20 rad/s en las SEIS juntas y el
+    # numero discreto 0.040. Es el mismo escalado que gravity_comp necesito.
+    eta: [1.05823, 2.59146, 0.88146, 0.02324, 0.00535, 0.00026]
+    # phi: ancho de la capa limite de sat(s/phi) [rad/s]. NO tiene nada que ver
+    # con tau_max: phi vive en el espacio de la superficie deslizante, tau_max
+    # en el del actuador. Confundirlos es el error que el plan avisa de evitar.
+    phi: 0.05
+    # alpha en (0,1]: fraccion de los terminos nominales que se asume incierta.
+    # Estudio de sensibilidad del plan: 0.1 / 0.3 / 0.5 / 1.0.
+    alpha: 0.3
+    # sign -> chattering maximo, s -> 0 exacto en tiempo finito
+    # sat  -> chattering suprimido, |s| acotada por O(phi)
+    switching_function: "sat"
+
+    tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
+
+    # -- Trayectoria ---------------------------------------------------------
+    # cubic_spline   : historico (jerk discontinuo en los nudos)
+    # quintic_spline : spline quintico C4 sobre waypoints_xyz/waypoint_times
+    # incision       : las 5 fases de abajo
+    trajectory_type: "incision"
+
+    # A4 — orientacion del TCP constante, gripper hacia abajo.
+    tcp_orientation_rpy: [3.14159265, 0.0, -1.57079633]
+
+    incision:
+      # Pose de partida: FK(q_init), para que la rampa inicial sea minima.
+      start_pose: [0.49, 0.13, 0.35]
+
+      # Superficie e incision (decisiones experimentales, docs/00_prereqs.md).
+      surface_z: 0.02             # [m] cara superior del tejido
+      cut_x: 0.50                 # [m] centro del trazo en x
+      cut_center_y: 0.0           # [m] centro del trazo en y
+      cut_axis: "y"               # el trazo recorre Y (manipulabilidad ~constante)
+      cut_length: 0.08            # [m] 80 mm MEDIDOS, integros a feed constante
+      cut_lead: 0.010             # [m] entrada/salida a cada lado (rampas)
+                                  #     -> trazo total de material: 100 mm
+      cut_depth: 0.005            # [m] 5 mm
+      approach_height: 0.03       # [m] cota de aproximacion sobre la superficie
+
+      # Velocidades por fase [m/s].
+      v_approach: 0.10
+      v_contact: 0.015            # descenso cuidadoso hasta el primer contacto
+      v_penetration: 0.005        # penetracion lenta: aqui crece la fuerza
+      v_cut: 0.010                # FEED del corte: 10 mm/s
+      v_withdraw: 0.05
+
+      # Forma del perfil temporal. La fraccion de rampa del CORTE no es un
+      # parametro libre: se deriva de cut_lead, de modo que la meseta de feed
+      # constante coincide EXACTAMENTE con los cut_length medidos.
+      #   trazo   = cut_length + 2*cut_lead = 100 mm  (material cortado)
+      #   meseta  = cut_length              =  80 mm  (medido y reportado)
+      # ramp_fraction_move = 0.5 -> fases punto a punto sin meseta.
+      ramp_fraction_move: 0.5
+      dwell: 0.3                  # [s] reposo entre fases
+
+    # -- IK (QP de ur5_kinematics, target gripper_tcp) ------------------------
+    ik_seed: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+    ik_max_iterations: 450
+    ik_alpha: 0.5
+    ik_weight_pos: 1.0
+    ik_weight_orient: 1.0
+    ik_fk_tol: 0.005
+    q_jump_tol: 0.15
+
+    # -- Validacion de la tabla de referencias (FASE 1) ----------------------
+    # dq_max: limite REAL del UR5e, 180 deg/s (ur_description joint_limits.yaml).
+    # ddq_max: el robot NO tiene limite de aceleracion articular; 5.0 rad/s^2 es
+    #   el valor conservador de ur_moveit_config, adoptado como cota DECLARADA
+    #   (se reporta como tal en el paper, no es un dato de hardware).
+    # sigma_min_threshold: aborta la generacion si el trazo se acerca a una
+    #   singularidad. En la incision sigma_min ~ 0.243, muy por encima.
+    dq_max:  [3.14159, 3.14159, 3.14159, 3.14159, 3.14159, 3.14159]
+    ddq_max: [5.0, 5.0, 5.0, 5.0, 5.0, 5.0]
+    sigma_min_threshold: 0.05
+    manipulability_threshold: 0.0     # 0 = desactivado (se registra igualmente)
+
+    csv_output_dir: ""
+    test_num: 1
+    csv_hold_decimation: 10

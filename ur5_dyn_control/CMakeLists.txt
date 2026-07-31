@@ -68,13 +68,16 @@ target_link_libraries(gz_gravity_comp_node ${PROJECT_NAME}_core)
 add_executable(gz_fl_control_node src/gz_fl_control_node.cpp)
 target_link_libraries(gz_fl_control_node ${PROJECT_NAME}_core)
 
+add_executable(gz_smc_control_node src/gz_smc_control_node.cpp)
+target_link_libraries(gz_smc_control_node ${PROJECT_NAME}_core)
+
 # ── Install ───────────────────────────────────────────────────────────────────
 install(TARGETS ${PROJECT_NAME}_core
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
 )
-install(TARGETS gz_gravity_comp_node gz_fl_control_node
+install(TARGETS gz_gravity_comp_node gz_fl_control_node gz_smc_control_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 install(DIRECTORY include/ DESTINATION include)
