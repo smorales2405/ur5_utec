@@ -108,14 +108,26 @@ def main():
             ss_res = float(((loaded[:, 1:2] - pred) ** 2).sum())
             ss_tot = float(((loaded[:, 1:2] - loaded[:, 1:2].mean()) ** 2).sum())
             r2 = 1 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-            print(f"Ajuste F_v = -lag·(dg/dq) sobre las {len(loaded)} juntas "
-                  f"cargadas:")
+            print(f"Diagnostico: ajuste F_v = -lag·(dg/dq) sobre las "
+                  f"{len(loaded)} juntas cargadas")
             print(f"   lag = {-slope * 1e3:.3f} ms      R² = {r2:.4f}")
-            print("   (un R² alto confirma que es UN retardo comun, no "
-                  "friccion de cada junta)")
+            if r2 > 0.9:
+                print("   R² alto -> compatible con UN retardo comun a todas.")
+            else:
+                print("   R² BAJO -> un solo retardo NO explica todas las "
+                      "juntas: hay al menos")
+                print("   un segundo efecto. La calibracion valida es la "
+                      "PER-JUNTA de la tabla,")
+                print("   que es empirica y no depende de acertar el "
+                      "mecanismo.")
         floor = float(np.abs(d[:, 1]).max())
-        print(f"\nSuelo de identificacion: |F_v| < {floor:.4f} N.m.s/rad es "
-              f"indistinguible del artefacto.")
+        print(f"\nCALIBRACION (restar por junta) y suelo global:")
+        print(f"   |F_v| < {floor:.4f} N.m.s/rad es indistinguible del "
+              f"artefacto en la peor junta.")
+        print("   En la campana real, restar el F_v de ESTA tabla junta por "
+              "junta antes de")
+        print("   reportar friccion. Es empirico: vale aunque el mecanismo no "
+              "este cerrado.")
 
 
 if __name__ == "__main__":

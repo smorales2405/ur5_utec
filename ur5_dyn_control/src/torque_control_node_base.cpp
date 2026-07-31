@@ -2,14 +2,27 @@
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
+#include <pinocchio/spatial/explog.hpp>
+
 #include <chrono>
 #include <cmath>
+#include <map>
 
 namespace ur5_dyn_control
 {
 
 namespace
 {
+
+// Ganancias del PD de SAFE_HOLD (FASE 3). Deliberadamente MODESTAS y
+// escaladas a la inercia tipica de cada junta: el objetivo no es seguir una
+// referencia sino frenar y sostener sin excitar nada. Las munecas van bajas
+// porque su inercia es de 1e-3 kg·m² y un PD agresivo alli chatea (medido en
+// la puesta a punto de gravity_comp).
+const Vector6d kSafeHoldKp =
+  (Vector6d() << 60.0, 60.0, 60.0, 10.0, 5.0, 2.0).finished();
+const Vector6d kSafeHoldKd =
+  (Vector6d() << 10.0, 10.0, 10.0, 1.0, 0.5, 0.2).finished();
 
 Vector6d paramToVec6(const std::vector<double> & v, const char * name)
 {
@@ -182,6 +195,30 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
                   friction_dq_eps_);
     }
   }
+
+  // FASE 3 — limite de tasa, watchdog y dry-run.
+  tau_rate_max_ = paramToVec6(declare_parameter<std::vector<double>>(
+      "tau_rate_max", std::vector<double>(6, 0.0)), "tau_rate_max");
+  watchdog_enabled_ = declare_parameter<bool>("watchdog.enabled", true);
+  watchdog_dt_factor_ = declare_parameter<double>("watchdog.dt_factor", 5.0);
+  watchdog_js_timeout_ = declare_parameter<double>("watchdog.joint_state_timeout", 0.2);
+  watchdog_strikes_ = static_cast<int>(declare_parameter<int>("watchdog.strikes", 5));
+  dry_run_ = declare_parameter<bool>("dry_run", false);
+  if (dry_run_) {
+    RCLCPP_WARN(get_logger(),
+                "DRY-RUN: se calcula todo pero NO se publica ningun torque.");
+  }
+  if (tau_rate_max_.maxCoeff() > 0.0) {
+    RCLCPP_INFO(get_logger(),
+                "Limite de tasa: [%.0f %.0f %.0f %.0f %.0f %.0f] N.m/s",
+                tau_rate_max_[0], tau_rate_max_[1], tau_rate_max_[2],
+                tau_rate_max_[3], tau_rate_max_[4], tau_rate_max_[5]);
+  }
+  RCLCPP_INFO(get_logger(),
+              "Watchdog %s (dt > %.1fx nominal o /joint_states mudo > %.2f s, "
+              "%d ciclos seguidos)",
+              watchdog_enabled_ ? "activo" : "DESACTIVADO",
+              watchdog_dt_factor_, watchdog_js_timeout_, watchdog_strikes_);
 
   command_topic_ = declare_parameter<std::string>(
     "command_topic", "/forward_effort_controller/commands");
@@ -380,7 +417,10 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
   tau_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>(command_topic_, 10);
   js_sub_ = create_subscription<sensor_msgs::msg::JointState>(
     "/joint_states", 10,
-    [this](sensor_msgs::msg::JointState::SharedPtr msg) {last_js_ = std::move(msg);});
+    [this](sensor_msgs::msg::JointState::SharedPtr msg) {
+      last_js_ = std::move(msg);
+      ++js_seq_;
+    });
   switcher_ = std::make_unique<ControllerSwitcher>(this, controller_manager_ns_);
 }
 
@@ -391,7 +431,7 @@ TorqueControlNodeBase::~TorqueControlNodeBase()
 
 void TorqueControlNodeBase::start()
 {
-  if (!csv_.open(csv_dir_, csvPrefix(), test_num_)) {
+  if (!csv_.open(csv_dir_, csvPrefix(), test_num_, traceMetadata())) {
     RCLCPP_WARN(get_logger(), "No se pudo abrir el CSV (se continua sin log)");
   } else {
     RCLCPP_INFO(get_logger(), "CSV: %s", csv_.path().c_str());
@@ -426,6 +466,117 @@ bool TorqueControlNodeBase::readJointStates(Vector6d & q, Vector6d & dq)
   return found == 6;
 }
 
+std::map<std::string, std::string> TorqueControlNodeBase::traceMetadata() const
+{
+  std::map<std::string, std::string> params;
+  // Conjunto EFECTIVO de parametros: recoge tambien los overrides de linea de
+  // comandos, no solo lo que diga el YAML. Dos corridas con distinto
+  // sweep.joint tienen que dar hashes distintos.
+  for (const auto & name : const_cast<TorqueControlNodeBase *>(this)->
+       list_parameters({}, 0).names)
+  {
+    params[name] = get_parameter(name).value_to_string();
+  }
+  return {
+    {"git_sha", UR5_DYN_CONTROL_GIT_SHA},
+    {"params_hash", CsvLogger::hashParameters(params)},
+    {"n_params", std::to_string(params.size())},
+  };
+}
+
+void TorqueControlNodeBase::logRow(double t_sim, const Vector6d & q,
+                                   const Vector6d & dq, const JointRef & ref,
+                                   const Vector6d & tau_cmd,
+                                   const std::string & state)
+{
+  LogSample d;
+  d.t_wall = std::chrono::duration<double>(
+    std::chrono::system_clock::now().time_since_epoch()).count();
+  d.t_sim = t_sim;
+  d.q = q;
+  d.dq = dq;
+  d.q_des = ref.q;
+  d.dq_des = ref.dq;
+  d.ddq_des = ref.ddq;
+  d.tau_cmd = tau_cmd;
+  for (int i = 0; i < 6; ++i) {
+    d.tau_sat_flag[i] =
+      (sat_flags_.saturated[i] || sat_flags_.rate_limited[i]) ? 1 : 0;
+  }
+  d.s = slidingVariable();
+
+  const pinocchio::SE3 T = dyn_->fk(q);
+  const pinocchio::SE3 T_des = dyn_->fk(ref.q);
+  d.xyz = T.translation();
+  d.xyz_des = T_des.translation();
+  // theta_err = ||log(R_des^T R)||: angulo del error de orientacion. NUNCA
+  // angulos de Euler — el wrap los hace inservibles para una metrica.
+  d.theta_err = pinocchio::log3(
+    Eigen::Matrix3d(T_des.rotation().transpose() * T.rotation())).norm();
+
+  d.wrench = last_wrench_;   // 0 en simulacion; ft_data en el robot real
+  d.state = state;
+  csv_.log(d);
+}
+
+bool TorqueControlNodeBase::watchdogOk(double dt_sim)
+{
+  if (!watchdog_enabled_) {return true;}
+  // Estados en los que el lazo aun no esta en regimen: no se vigila.
+  if (state_ == State::PRE_HOLD || state_ == State::WAIT_STATE ||
+      state_ == State::SAFE_HOLD || state_ == State::DONE)
+  {
+    return true;
+  }
+
+  const double t_wall = std::chrono::duration<double>(
+    std::chrono::steady_clock::now().time_since_epoch()).count();
+
+  std::string reason;
+  // 1) Ritmo del lazo: dt de SIMULACION muy por encima del nominal significa
+  //    que el lazo perdio ciclos y la referencia va a saltar.
+  const double dt_max = watchdog_dt_factor_ / control_rate_;
+  if (dt_sim > dt_max) {
+    reason = "dt de simulacion " + std::to_string(dt_sim) + " s > " +
+      std::to_string(dt_max) + " s (" + std::to_string(watchdog_dt_factor_) +
+      "x el periodo nominal)";
+  }
+  // 2) /joint_states: se mide con el reloj de PARED, porque si la fuente de
+  //    estado muere el reloj de simulacion tambien puede congelarse y un
+  //    timeout en tiempo de sim nunca se dispararia.
+  if (reason.empty() && t_last_js_wall_ > 0.0 && js_seq_ == js_seq_prev_ &&
+      (t_wall - t_last_js_wall_) > watchdog_js_timeout_)
+  {
+    reason = "sin /joint_states nuevos durante " +
+      std::to_string(t_wall - t_last_js_wall_) + " s";
+  }
+  if (js_seq_ != js_seq_prev_) {
+    js_seq_prev_ = js_seq_;
+    t_last_js_wall_ = t_wall;
+  }
+
+  if (reason.empty()) {
+    watchdog_bad_ticks_ = 0;
+    return true;
+  }
+  // Se exigen varios ciclos malos seguidos: un dt largo aislado (arranque, GC
+  // del sistema, hipo del planificador) no debe abortar un ensayo largo.
+  if (++watchdog_bad_ticks_ < watchdog_strikes_) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+                         "watchdog: %s (%d/%d)", reason.c_str(),
+                         watchdog_bad_ticks_, watchdog_strikes_);
+    return true;
+  }
+
+  RCLCPP_FATAL(get_logger(),
+               "WATCHDOG DISPARADO tras %d ciclos: %s. Entrando en SAFE_HOLD "
+               "(se mantiene el par de sosten en la ultima pose conocida).",
+               watchdog_bad_ticks_, reason.c_str());
+  q_safe_ = q_last_;
+  enterState(State::SAFE_HOLD);
+  return false;
+}
+
 JointRef TorqueControlNodeBase::rampReference(double t_ramp) const
 {
   // Transicion quintica q0 -> tabla[0] con v = a = 0 en ambos extremos
@@ -457,7 +608,21 @@ Vector6d TorqueControlNodeBase::commandFromLaw(const Vector6d & tau_law,
   // g(q) solo se evalua cuando hace falta restarla (ahorra una RNEA por tick
   // en el caso de Gazebo, que es el default).
   const Vector6d g_q = gravity_in_command_ ? Vector6d::Zero().eval() : dyn_->gravity(q);
-  return torqueCommand(tau_total, g_q, gravity_in_command_, tau_max_);
+  const Vector6d tau_sat = torqueCommand(tau_total, g_q, gravity_in_command_, tau_max_);
+
+  // FASE 3 — limite de tasa sobre el comando ya saturado, y marcas de recorte
+  // para el hook de anti-windup.
+  const double dt_nom = 1.0 / control_rate_;
+  const Vector6d tau_cmd = rateLimit(tau_sat, tau_prev_cmd_, tau_rate_max_, dt_nom);
+
+  const Vector6d tau_unsat = applyGravityPolicy(tau_total, g_q, gravity_in_command_);
+  for (int i = 0; i < 6; ++i) {
+    sat_flags_.saturated[i] = std::abs(tau_unsat[i]) > tau_max_[i];
+    sat_flags_.rate_limited[i] = std::abs(tau_cmd[i] - tau_sat[i]) > 1e-12;
+  }
+  onSaturation(sat_flags_);
+
+  return tau_cmd;
 }
 
 Vector6d TorqueControlNodeBase::publishTau(const Vector6d & tau_law,
@@ -465,9 +630,15 @@ Vector6d TorqueControlNodeBase::publishTau(const Vector6d & tau_law,
                                            const Vector6d & dq)
 {
   const Vector6d tau_cmd = commandFromLaw(tau_law, q, dq);
-  std_msgs::msg::Float64MultiArray cmd;
-  cmd.data.assign(tau_cmd.data(), tau_cmd.data() + 6);
-  tau_pub_->publish(cmd);
+  tau_prev_cmd_ = tau_cmd;
+  // FASE 3 — dry-run: se calcula todo (referencias, ley, limites) pero NO se
+  // publica. Sirve para validar una configuracion contra el robot real sin
+  // moverlo.
+  if (!dry_run_) {
+    std_msgs::msg::Float64MultiArray cmd;
+    cmd.data.assign(tau_cmd.data(), tau_cmd.data() + 6);
+    tau_pub_->publish(cmd);
+  }
   return tau_cmd;
 }
 
@@ -487,6 +658,7 @@ const char * TorqueControlNodeBase::stateName(State s) const
     case State::RAMP: return "RAMP";
     case State::TRACK: return "TRACK";
     case State::HOLD_END: return "HOLD_END";
+    case State::SAFE_HOLD: return "SAFE_HOLD";
     case State::DONE: return "DONE";
   }
   return "?";
@@ -501,6 +673,11 @@ void TorqueControlNodeBase::tick()
 
   Vector6d q, dq;
   const bool have_state = readJointStates(q, dq);
+  if (have_state) {q_last_ = q;}
+
+  // FASE 3 — el watchdog vigila el ritmo del lazo y la llegada de estado.
+  // Si dispara, entra en SAFE_HOLD y este tick ya cae en ese caso.
+  watchdogOk(dt);
 
   switch (state_) {
     case State::PRE_HOLD: {
@@ -591,8 +768,7 @@ void TorqueControlNodeBase::tick()
         ref.q = q0_;
         const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q, dq);
         if (++hold_log_counter_ % csv_hold_decimation_ == 0) {
-          csv_.log(t_sim, q, dq, ref, tau, dyn_->fk(q).translation(),
-                   dyn_->fk(ref.q).translation(), "HOLD_START");
+          logRow(t_sim, q, dq, ref, tau, "HOLD_START");
         }
         if (skip_trajectory_) {
           if (t_sim_limit_ > 0.0 && t_sim - t_state_start_ >= t_sim_limit_) {
@@ -612,8 +788,7 @@ void TorqueControlNodeBase::tick()
         if (!have_state) {break;}
         const JointRef ref = rampReference(t_sim - t_state_start_);
         const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q, dq);
-        csv_.log(t_sim, q, dq, ref, tau, dyn_->fk(q).translation(),
-                 dyn_->fk(ref.q).translation(), "RAMP");
+        logRow(t_sim, q, dq, ref, tau, "RAMP");
         if (t_sim - t_state_start_ >= transition_duration_) {
           track_index_ = 0;
           enterState(State::TRACK);
@@ -632,8 +807,7 @@ void TorqueControlNodeBase::tick()
         // identificar friccion (alli ddq = 0 y el residuo es friccion pura).
         std::string label = ref_gen_->phaseLabel(track_index_);
         if (label.empty()) {label = "TRACK";}
-        csv_.log(t_sim, q, dq, ref, tau, dyn_->fk(q).translation(),
-                 dyn_->fk(ref.q).translation(), label);
+        logRow(t_sim, q, dq, ref, tau, label);
 
         RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
                              "TRACK t=%.2f  |e|max=%.4f rad",
@@ -652,8 +826,7 @@ void TorqueControlNodeBase::tick()
         ref.q = ref_gen_->at(ref_gen_->size() - 1).q;
         const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q, dq);
         if (++hold_log_counter_ % csv_hold_decimation_ == 0) {
-          csv_.log(t_sim, q, dq, ref, tau, dyn_->fk(q).translation(),
-                   dyn_->fk(ref.q).translation(), "HOLD_END");
+          logRow(t_sim, q, dq, ref, tau, "HOLD_END");
         }
         if (t_sim_limit_ > 0.0 && t_sim - t_state_start_ >= t_sim_limit_) {
           RCLCPP_INFO(get_logger(), "t_sim agotado; finalizando (hold se detiene).");
@@ -661,6 +834,22 @@ void TorqueControlNodeBase::tick()
           timer_->cancel();
           csv_.close();
         }
+        break;
+      }
+
+    case State::SAFE_HOLD: {
+        // Estado terminal: se sostiene la ultima pose conocida con un PD sobre
+        // la gravedad. No se usa computeTau() a proposito — si el lazo dejo de
+        // ser fiable, la ley del controlador es justo lo que no hay que seguir
+        // ejecutando. Con dq desconocido se usa 0, que es conservador.
+        const Vector6d q_now = have_state ? q : q_safe_;
+        const Vector6d dq_now = have_state ? dq : Vector6d::Zero();
+        const Vector6d tau_hold = dyn_->gravity(q_now) +
+          kSafeHoldKp.asDiagonal() * (q_safe_ - q_now) -
+          kSafeHoldKd.asDiagonal() * dq_now;
+        publishTau(tau_hold, q_now, dq_now);
+        RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 2000,
+                              "SAFE_HOLD: sosteniendo la ultima pose conocida.");
         break;
       }
 

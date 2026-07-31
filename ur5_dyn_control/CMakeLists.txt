@@ -8,6 +8,20 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# SHA del commit con el que se compila, para la cabecera de trazabilidad de los
+# CSV (FASE 3). Se captura en tiempo de BUILD: en tiempo de ejecucion el nodo
+# corre desde el install space, donde no hay repositorio git que consultar.
+execute_process(
+  COMMAND git -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse --short HEAD
+  OUTPUT_VARIABLE UR5_DYN_CONTROL_GIT_SHA
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_QUIET)
+if(NOT UR5_DYN_CONTROL_GIT_SHA)
+  set(UR5_DYN_CONTROL_GIT_SHA "unknown")
+endif()
+add_compile_definitions(UR5_DYN_CONTROL_GIT_SHA="${UR5_DYN_CONTROL_GIT_SHA}")
+message(STATUS "ur5_dyn_control git SHA: ${UR5_DYN_CONTROL_GIT_SHA}")
+
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -88,6 +102,10 @@ if(BUILD_TESTING)
   # FASE 1: spline quintico (derivadas analiticas, continuidad de jerk).
   ament_add_gtest(test_quintic_spline test/test_quintic_spline.cpp)
   target_link_libraries(test_quintic_spline ${PROJECT_NAME}_core)
+
+  # FASE 3: limite de tasa, marcas de saturacion y hash de trazabilidad.
+  ament_add_gtest(test_limits_and_traceability test/test_limits_and_traceability.cpp)
+  target_link_libraries(test_limits_and_traceability ${PROJECT_NAME}_core)
 
   # FASE 1: Gauss-Legendre, longitud de arco, S-curve y trayectoria de incision.
   ament_add_gtest(test_incision_trajectory test/test_incision_trajectory.cpp)

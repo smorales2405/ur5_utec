@@ -1,6 +1,7 @@
 #ifndef UR5_DYN_CONTROL_TORQUE_COMMAND_HPP
 #define UR5_DYN_CONTROL_TORQUE_COMMAND_HPP
 
+#include <array>
 #include <cmath>
 
 #include "ur5_dyn_control/common.hpp"
@@ -102,6 +103,56 @@ inline Vector6d frictionFeedforward(const Vector6d & dq,
   }
   return Vector6d::Zero();
 }
+
+/**
+ * Limite de TASA de variacion del comando (FASE 3).
+ *
+ * La saturacion acota |tau|, pero no cuan rapido puede cambiar. Un salto
+ * instantaneo de decenas de N·m entre dos ciclos excita la estructura y, en el
+ * robot real, dispara las protecciones del controlador. El limite de tasa acota
+ * |dtau/dt| a `rate_max` [N·m/s] por junta.
+ *
+ * Importa especialmente para el SMC de la FASE 5: el termino discontinuo
+ * sgn(s) conmuta a la frecuencia del lazo, y este limite es lo que separa el
+ * chattering "del papel" del que realmente llega al actuador. Se registra en el
+ * CSV para poder reportar cuando actua.
+ *
+ * rate_max <= 0 desactiva el limite.
+ */
+inline Vector6d rateLimit(const Vector6d & tau, const Vector6d & tau_prev,
+                          const Vector6d & rate_max, double dt)
+{
+  if (!(dt > 0.0)) {return tau;}
+  Vector6d out = tau;
+  for (int i = 0; i < 6; ++i) {
+    if (!(rate_max[i] > 0.0)) {continue;}
+    const double max_step = rate_max[i] * dt;
+    const double delta = tau[i] - tau_prev[i];
+    if (delta > max_step) {
+      out[i] = tau_prev[i] + max_step;
+    } else if (delta < -max_step) {
+      out[i] = tau_prev[i] - max_step;
+    }
+  }
+  return out;
+}
+
+/// Marca por junta de que el comando quedo recortado (por saturacion o por
+/// limite de tasa). Es la senal que consume el hook onSaturation() para
+/// congelar integradores (anti-windup) en las subclases.
+struct SaturationFlags
+{
+  std::array<bool, 6> saturated{};   ///< |tau| llego a tau_max
+  std::array<bool, 6> rate_limited{};
+
+  bool any() const
+  {
+    for (int i = 0; i < 6; ++i) {
+      if (saturated[i] || rate_limited[i]) {return true;}
+    }
+    return false;
+  }
+};
 
 /// Composicion completa: lo que realmente se publica al controlador.
 /// El ORDEN importa: primero la politica de gravedad, despues la saturacion,

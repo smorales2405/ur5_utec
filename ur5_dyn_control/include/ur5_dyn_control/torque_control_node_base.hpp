@@ -1,6 +1,7 @@
 #ifndef UR5_DYN_CONTROL_TORQUE_CONTROL_NODE_BASE_HPP
 #define UR5_DYN_CONTROL_TORQUE_CONTROL_NODE_BASE_HPP
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -85,8 +86,36 @@ protected:
 
   bool gravityInCommand() const { return gravity_in_command_; }
 
+  /**
+   * Hook de ANTI-WINDUP (FASE 3). Se llama en cada tick DESPUES de calcular el
+   * comando efectivo, con las marcas de que juntas quedaron recortadas por
+   * saturacion o por limite de tasa.
+   *
+   * Las subclases con estado interno que integra (el termino v del
+   * super-twisting en ASTSMC, o cualquier accion integral) deben CONGELAR esa
+   * integracion en las juntas marcadas: si el actuador ya no puede entregar mas
+   * par, seguir integrando el error solo acumula un windup que hay que
+   * "descargar" despues, con sobre-disparo garantizado.
+   *
+   * Implementacion por defecto: nada (las leyes sin estado no la necesitan).
+   */
+  virtual void onSaturation(const SaturationFlags & /*flags*/) {}
+
+  /// Variable de deslizamiento del controlador, para la columna `s` del CSV.
+  /// Las leyes que no la tienen (FL, LQR) dejan la implementacion por defecto.
+  virtual Vector6d slidingVariable() const { return Vector6d::Zero(); }
+
+  /// Ultimo comando efectivamente publicado (post-saturacion y post-limite de
+  /// tasa). Lo necesitan las leyes que razonan sobre el par realmente aplicado.
+  const Vector6d & lastCommand() const { return tau_prev_cmd_; }
+
 private:
-  enum class State { PRE_HOLD, WAIT_STATE, HOLD_START, RAMP, TRACK, HOLD_END, DONE };
+  // SAFE_HOLD (FASE 3): estado terminal de seguridad al que se entra si el
+  // watchdog detecta que el lazo dejo de ser fiable. No se sale de el.
+  enum class State
+  {
+    PRE_HOLD, WAIT_STATE, HOLD_START, RAMP, TRACK, HOLD_END, SAFE_HOLD, DONE
+  };
 
   void tick();
   /// Declara los parametros `incision.*` y construye la trayectoria de 5 fases.
@@ -95,6 +124,15 @@ private:
   /// Declara los parametros `sweep.*` y construye la campana de excitacion.
   std::unique_ptr<JointReferenceTable> buildJointSweep(std::string & description);
   bool readJointStates(Vector6d & q, Vector6d & dq);
+  /// Comprueba el ritmo del lazo y la llegada de /joint_states. Devuelve false
+  /// (y entra en SAFE_HOLD) si el lazo dejo de ser fiable.
+  bool watchdogOk(double dt_sim);
+  /// Rellena y escribe una fila del CSV unificado (FASE 3).
+  void logRow(double t_sim, const Vector6d & q, const Vector6d & dq,
+              const JointRef & ref, const Vector6d & tau_cmd,
+              const std::string & state);
+  /// Metadatos de trazabilidad: git SHA, hash de los parametros efectivos.
+  std::map<std::string, std::string> traceMetadata() const;
   JointRef rampReference(double t_ramp) const;
   /// Aplica commandFromLaw() y publica. Devuelve el torque comandado (para el CSV).
   Vector6d publishTau(const Vector6d & tau_law, const Vector6d & q,
@@ -114,6 +152,18 @@ private:
   Vector6d friction_f_v_ = Vector6d::Zero();
   Vector6d friction_f_c_ = Vector6d::Zero();
   double friction_dq_eps_ = 1e-3;
+
+  // FASE 3 — limite de tasa del comando y watchdog del lazo.
+  Vector6d tau_rate_max_ = Vector6d::Zero();   // 0 = desactivado
+  bool watchdog_enabled_ = true;
+  /// Se dispara si el dt real supera k veces el periodo nominal del lazo.
+  double watchdog_dt_factor_ = 5.0;
+  /// Se dispara si /joint_states deja de llegar durante este tiempo [s].
+  double watchdog_js_timeout_ = 0.2;
+  /// Ciclos consecutivos malos antes de disparar: un unico dt largo (arranque,
+  /// GC del sistema) no debe abortar un ensayo de media hora.
+  int watchdog_strikes_ = 5;
+  bool dry_run_ = false;
   std::string command_topic_;
   std::string controller_manager_ns_;
   std::vector<std::string> activate_controllers_;
@@ -154,6 +204,17 @@ private:
   double t_state_start_ = 0.0;              // tiempo sim al entrar al estado
   double t_prev_ = -1.0;                    // tiempo sim del tick anterior
   std::size_t track_index_ = 0;
+
+  // FASE 3
+  Vector6d tau_prev_cmd_ = Vector6d::Zero();  // ultimo comando publicado
+  SaturationFlags sat_flags_;
+  int watchdog_bad_ticks_ = 0;
+  double t_last_js_wall_ = -1.0;             // reloj de PARED del ultimo /joint_states
+  std::size_t js_seq_ = 0;                   // cuenta de mensajes recibidos
+  std::size_t js_seq_prev_ = 0;
+  Vector6d q_last_ = Vector6d::Zero();       // ultima pose medida valida
+  Vector6d q_safe_ = Vector6d::Zero();       // pose de sosten al entrar en SAFE_HOLD
+  Vector6d last_wrench_ = Vector6d::Zero();  // ft_data del robot real; 0 en sim
 };
 
 }  // namespace ur5_dyn_control

@@ -75,16 +75,31 @@ def load_csv(path: str) -> dict:
     por un renglón incompleto.
     """
     import warnings
+    # La cabecera de trazabilidad son lineas `#` al principio. OJO:
+    # numpy.genfromtxt con names=True NO las salta — toma la primera linea del
+    # fichero como cabecera de columnas, comentario incluido. Hay que contarlas
+    # y pasarlas por skip_header.
+    n_meta = 0
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith("#"):
+                n_meta += 1
+            else:
+                break
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         data = np.genfromtxt(path, delimiter=",", names=True, dtype=None,
-                             encoding="utf-8", invalid_raise=False)
+                             encoding="utf-8", invalid_raise=False,
+                             skip_header=n_meta)
     n_bad = sum(1 for w in caught if "Some errors were detected" in str(w.message)
                 or "were skipped" in str(w.message))
     if n_bad:
         print(f"  [residual] {os.path.basename(path)}: filas malformadas "
               f"descartadas (corrida interrumpida?)")
-    out = {"t": np.asarray(data["t"], dtype=float),
+    # El esquema de la FASE 3 renombro `t` a `t_sim` (y anadio `t_wall`); se
+    # acepta cualquiera de los dos para poder leer campanas antiguas y nuevas.
+    t_col = "t_sim" if "t_sim" in data.dtype.names else "t"
+    out = {"t": np.asarray(data[t_col], dtype=float),
            "state": np.asarray(data["state"], dtype=str)}
     for key, col in (("q", "q%d"), ("dq", "dq%d"), ("tau", "tau%d")):
         out[key] = np.column_stack([np.asarray(data[col % (i + 1)], dtype=float)
