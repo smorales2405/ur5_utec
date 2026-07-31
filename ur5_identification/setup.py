@@ -14,6 +14,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
         (os.path.join('lib', package_name), glob('scripts/*.sh')),
+        (os.path.join('lib', package_name), glob('scripts/*.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

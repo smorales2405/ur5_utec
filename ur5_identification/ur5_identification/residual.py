@@ -66,8 +66,24 @@ class SweepWindow:
 
 
 def load_csv(path: str) -> dict:
-    """Lee el CSV de un nodo de control. Devuelve columnas como arrays."""
-    data = np.genfromtxt(path, delimiter=",", names=True, dtype=None, encoding="utf-8")
+    """
+    Lee el CSV de un nodo de control. Devuelve columnas como arrays.
+
+    Tolera filas malformadas al FINAL del fichero: si una corrida se interrumpe
+    (SIGKILL, corte de energía), la última fila queda a medio escribir. Se
+    descartan avisando, en vez de abortar el análisis de una campaña de horas
+    por un renglón incompleto.
+    """
+    import warnings
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        data = np.genfromtxt(path, delimiter=",", names=True, dtype=None,
+                             encoding="utf-8", invalid_raise=False)
+    n_bad = sum(1 for w in caught if "Some errors were detected" in str(w.message)
+                or "were skipped" in str(w.message))
+    if n_bad:
+        print(f"  [residual] {os.path.basename(path)}: filas malformadas "
+              f"descartadas (corrida interrumpida?)")
     out = {"t": np.asarray(data["t"], dtype=float),
            "state": np.asarray(data["state"], dtype=str)}
     for key, col in (("q", "q%d"), ("dq", "dq%d"), ("tau", "tau%d")):
@@ -97,9 +113,35 @@ def zero_phase_lowpass(x: np.ndarray, fs: float, cutoff_hz: float,
 
 
 def compute_residual(csv_path: str, urdf_path: str, gravity: float = 9.8,
-                     cutoff_hz: float = 10.0) -> dict:
+                     cutoff_hz: float = 10.0, tau_shift: int = 0) -> dict:
     """
     Calcula el residuo de par en TODA la corrida.
+
+    `tau_shift` desplaza `tau_cmd` respecto de `(q, dq, ddq)` en muestras, para
+    corregir el RETARDO DE TUBERÍA entre el instante en que se mide el estado y
+    aquel en que el par correspondiente actúa sobre la planta.
+
+    POR QUÉ HACE FALTA (medido, no supuesto). En una junta cargada por gravedad
+    un desalineo `lag` produce un residuo
+
+        (dg/dq) · lag · q̇
+
+    que es PROPORCIONAL A LA VELOCIDAD y por tanto indistinguible de fricción
+    viscosa. En el control negativo de Gazebo (planta sin fricción):
+
+      - `shoulder_pan`  tiene dg/dq = 0 (gira sobre el eje vertical) y da
+        F_v = -0.0001 — inmune al artefacto;
+      - `shoulder_lift` tiene |dg/dq| ~ 37 N·m/rad y da **F_v = -0.040**, pese a
+        no haber ninguna fricción en la planta.
+
+    Barriendo `tau_shift` en esa misma corrida, F_v varía LINEALMENTE
+    (-0.143, -0.092, -0.040, +0.012, +0.064 para shift -2..+2) y cruza cero en
+    ~0.8 muestras. La fricción no tendría por qué depender del desplazamiento;
+    un artefacto de temporización sí, y linealmente. Eso identifica la causa.
+
+    Procedimiento recomendado: correr el control negativo (planta SIN fricción),
+    elegir el `tau_shift` que anula F_v en las juntas cargadas, y usar ese mismo
+    valor en la campaña real.
 
     Devuelve dict con t, q, dq (filtradas), ddq (derivada filtrada), tau_cmd,
     tau_model (RNEA) y residual, todos de forma (N, 6).
@@ -141,9 +183,25 @@ def compute_residual(csv_path: str, urdf_path: str, gravity: float = 9.8,
     for k in range(len(t)):
         tau_model[k] = pin.rnea(model, data, q_f[k], dq_f[k], ddq[k])
 
-    return {"t": t, "state": d["state"], "q": q_f, "dq": dq_f, "ddq": ddq,
+    # Alineado tau <-> estado. Se recorta por ambos lados para que todas las
+    # series conserven la misma longitud y el mismo eje temporal.
+    if tau_shift != 0:
+        n = abs(tau_shift)
+        if tau_shift > 0:      # tau se adelanta respecto del estado
+            tau_a, model_a = tau[n:], tau_model[:-n]
+            sl = slice(None, -n)
+        else:                  # tau se retrasa
+            tau_a, model_a = tau[:-n], tau_model[n:]
+            sl = slice(n, None)
+        t, q_f, dq_f, ddq = t[sl], q_f[sl], dq_f[sl], ddq[sl]
+        state = d["state"][sl]
+        tau, tau_model = tau_a, model_a
+    else:
+        state = d["state"]
+
+    return {"t": t, "state": state, "q": q_f, "dq": dq_f, "ddq": ddq,
             "tau_cmd": tau, "tau_model": tau_model,
-            "residual": tau - tau_model, "fs": fs}
+            "residual": tau - tau_model, "fs": fs, "tau_shift": tau_shift}
 
 
 def extract_windows(res: dict, joint: int, trim_fraction: float = 0.1,

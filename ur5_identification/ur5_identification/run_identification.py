@@ -30,13 +30,15 @@ from .residual import (JOINT_NAMES, compute_residual, default_urdf,
 
 
 def identify_one(csv_path: str, urdf: str, gravity: float, cutoff: float,
-                 trim: float, models: list[str], truth=None) -> dict:
+                 trim: float, models: list[str], truth=None,
+                 tau_shift: int = 0) -> dict:
     joint = infer_joint_from_csv(csv_path)
     if joint is None:
         raise RuntimeError(f"{csv_path}: no hay ventanas de meseta "
                            "(state SWEEP_<v>_POS/NEG). ¿Es un CSV de barrido?")
 
-    res = compute_residual(csv_path, urdf, gravity=gravity, cutoff_hz=cutoff)
+    res = compute_residual(csv_path, urdf, gravity=gravity, cutoff_hz=cutoff,
+                           tau_shift=tau_shift)
     windows = extract_windows(res, joint, trim_fraction=trim)
     if not windows:
         raise RuntimeError(f"{csv_path}: ninguna meseta con muestras suficientes")
@@ -146,12 +148,15 @@ def main():
     ap.add_argument("--truth", nargs=2, type=float, default=None,
                     metavar=("F_V", "F_C"),
                     help="verdad inyectada en Gazebo, para validar")
+    ap.add_argument("--tau-shift", type=int, default=0,
+                    help="desplaza tau respecto del estado, en muestras, para "
+                         "corregir el retardo de tuberia (ver residual.py)")
     ap.add_argument("--out", default=None, help="YAML de salida")
     args, _ = ap.parse_known_args()
 
     urdf = args.urdf or default_urdf()
     results = [identify_one(c, urdf, args.gravity, args.cutoff, args.trim,
-                            args.models, args.truth) for c in args.csv]
+                            args.models, args.truth, args.tau_shift) for c in args.csv]
 
     if args.out:
         # YAML consumible por ur5_dyn_control: 6 valores por parámetro, en el
