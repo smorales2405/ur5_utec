@@ -80,7 +80,8 @@ protected:
    * politica de gravedad + saturacion. Es la unica ruta hacia publishTau(),
    * y es la que ejercita el test unitario de la compuerta G3.
    */
-  Vector6d commandFromLaw(const Vector6d & tau_law, const Vector6d & q);
+  Vector6d commandFromLaw(const Vector6d & tau_law, const Vector6d & q,
+                          const Vector6d & dq);
 
   bool gravityInCommand() const { return gravity_in_command_; }
 
@@ -96,7 +97,8 @@ private:
   bool readJointStates(Vector6d & q, Vector6d & dq);
   JointRef rampReference(double t_ramp) const;
   /// Aplica commandFromLaw() y publica. Devuelve el torque comandado (para el CSV).
-  Vector6d publishTau(const Vector6d & tau_law, const Vector6d & q);
+  Vector6d publishTau(const Vector6d & tau_law, const Vector6d & q,
+                      const Vector6d & dq);
   void enterState(State s);
   const char * stateName(State s) const;
 
@@ -107,6 +109,11 @@ private:
   // G3: true en Gazebo (el torque comandado incluye g), false en el UR5e real
   // (el robot compensa la gravedad internamente -> hay que restarla).
   bool gravity_in_command_ = true;
+  // FASE 2 — compensacion de friccion identificada (feedforward en el comando).
+  FrictionCompensation friction_mode_ = FrictionCompensation::NONE;
+  Vector6d friction_f_v_ = Vector6d::Zero();
+  Vector6d friction_f_c_ = Vector6d::Zero();
+  double friction_dq_eps_ = 1e-3;
   std::string command_topic_;
   std::string controller_manager_ns_;
   std::vector<std::string> activate_controllers_;

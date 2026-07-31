@@ -179,6 +179,103 @@ TEST(TorqueSaturation, AppliesToCommandNotToLaw)
   EXPECT_GT((cmd - cmd_wrong_order).cwiseAbs().maxCoeff(), 1.0);
 }
 
+// ── Compensacion de friccion (FASE 2) ────────────────────────────────────────
+using ur5_dyn_control::FrictionCompensation;
+using ur5_dyn_control::frictionFeedforward;
+
+// Default 'none': no cambia nada. Es lo que garantiza que las FASES 0-1 sigan
+// dando exactamente los mismos numeros.
+TEST(FrictionCompensation, NoneIsExactlyZero)
+{
+  const Vector6d dq = vec6(1.0, -1.0, 0.5, -0.5, 0.1, -0.1);
+  const Vector6d f_v = vec6(1.5, 1.5, 1.5, 1.5, 1.5, 1.5);
+  const Vector6d f_c = vec6(2.5, 2.5, 2.5, 2.5, 2.5, 2.5);
+  const Vector6d ff =
+    frictionFeedforward(dq, f_v, f_c, FrictionCompensation::NONE, 1e-3);
+  EXPECT_TRUE(ff == Vector6d::Zero());
+}
+
+// Muy por encima de la banda de suavizado, tanh -> ±1 y la compensacion
+// reproduce el modelo identificado F_v*dq + F_c*sgn(dq).
+TEST(FrictionCompensation, MatchesIdentifiedModelAwayFromZero)
+{
+  const Vector6d f_v = vec6(1.5, 1.2, 0.9, 0.4, 0.3, 0.2);
+  const Vector6d f_c = vec6(2.5, 2.0, 1.5, 0.6, 0.5, 0.4);
+  const Vector6d dq = vec6(1.0, -1.0, 0.5, -0.5, 0.2, -0.2);
+
+  const Vector6d ff =
+    frictionFeedforward(dq, f_v, f_c, FrictionCompensation::VISCOUS_COULOMB, 1e-4);
+  for (int i = 0; i < 6; ++i) {
+    const double expected = f_v[i] * dq[i] + f_c[i] * (dq[i] > 0 ? 1.0 : -1.0);
+    EXPECT_NEAR(ff[i], expected, 1e-9) << "junta " << i;
+  }
+}
+
+// El termino de Coulomb debe ser CONTINUO en dq = 0: usar sgn() daria un salto
+// de 2*F_c y el lazo discreto entraria en ciclo limite.
+TEST(FrictionCompensation, IsContinuousAtZeroVelocity)
+{
+  const Vector6d f_v = Vector6d::Zero();
+  const Vector6d f_c = vec6(2.5, 2.5, 2.5, 2.5, 2.5, 2.5);
+  const double eps = 1e-3;
+
+  const Vector6d ff_zero = frictionFeedforward(
+    Vector6d::Zero(), f_v, f_c, FrictionCompensation::VISCOUS_COULOMB, eps);
+  EXPECT_LT(ff_zero.cwiseAbs().maxCoeff(), 1e-12);
+
+  // Cruzando cero, el salto queda acotado por el ancho de la banda.
+  const double delta = 1e-6;
+  const Vector6d plus = frictionFeedforward(
+    Vector6d::Constant(delta), f_v, f_c, FrictionCompensation::VISCOUS_COULOMB, eps);
+  const Vector6d minus = frictionFeedforward(
+    Vector6d::Constant(-delta), f_v, f_c, FrictionCompensation::VISCOUS_COULOMB, eps);
+  EXPECT_LT((plus - minus).cwiseAbs().maxCoeff(), 0.02)
+    << "la compensacion salta en el cruce por cero";
+}
+
+TEST(FrictionCompensation, ViscousModeIgnoresCoulombTerm)
+{
+  const Vector6d f_v = vec6(1.5, 1.5, 1.5, 1.5, 1.5, 1.5);
+  const Vector6d f_c = vec6(2.5, 2.5, 2.5, 2.5, 2.5, 2.5);
+  const Vector6d dq = vec6(1.0, -1.0, 0.5, -0.5, 0.2, -0.2);
+  const Vector6d ff =
+    frictionFeedforward(dq, f_v, f_c, FrictionCompensation::VISCOUS, 1e-3);
+  EXPECT_LT((ff - Vector6d(f_v.cwiseProduct(dq))).cwiseAbs().maxCoeff(), 1e-12);
+}
+
+// La compensacion es IMPAR en la velocidad: se opone al movimiento en ambos
+// sentidos con la misma magnitud.
+TEST(FrictionCompensation, IsOddInVelocity)
+{
+  const Vector6d f_v = vec6(1.5, 1.2, 0.9, 0.4, 0.3, 0.2);
+  const Vector6d f_c = vec6(2.5, 2.0, 1.5, 0.6, 0.5, 0.4);
+  const Vector6d dq = vec6(0.8, 0.3, -0.6, 0.05, -0.4, 0.9);
+  const Vector6d a =
+    frictionFeedforward(dq, f_v, f_c, FrictionCompensation::VISCOUS_COULOMB, 1e-3);
+  const Vector6d b = frictionFeedforward(
+    Vector6d(-dq), f_v, f_c, FrictionCompensation::VISCOUS_COULOMB, 1e-3);
+  EXPECT_LT((a + b).cwiseAbs().maxCoeff(), 1e-12);
+}
+
+// G3 y la compensacion de friccion son INDEPENDIENTES: restar g(q) no debe
+// tocar el termino de friccion.
+TEST(FrictionCompensation, DoesNotInterfereWithGravityPolicy)
+{
+  ur5_dyn_control::Ur5Dynamics dyn(urdfPath(), kGravity);
+  const Vector6d f_v = vec6(1.5, 1.2, 0.9, 0.4, 0.3, 0.2);
+  const Vector6d f_c = vec6(2.5, 2.0, 1.5, 0.6, 0.5, 0.4);
+  const Vector6d dq = vec6(0.8, 0.3, -0.6, 0.2, -0.4, 0.9);
+
+  for (const auto & q : testConfigurations()) {
+    const Vector6d g_q = dyn.gravity(q);
+    const Vector6d ff =
+      frictionFeedforward(dq, f_v, f_c, FrictionCompensation::VISCOUS_COULOMB, 1e-3);
+    // Ley de gravedad pura + friccion, en el robot real: queda solo la friccion.
+    const Vector6d cmd = torqueCommand(g_q + ff, g_q, false, kTauMax);
+    EXPECT_LT((cmd - ff).cwiseAbs().maxCoeff(), 1e-9) << "q = " << q.transpose();
+  }
+}
+
 TEST(GravityPolicy, ApplyGravityPolicyMatchesDefinition)
 {
   const Vector6d tau_law = vec6(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);

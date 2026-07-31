@@ -16,10 +16,60 @@ Usage:
 import os
 from launch import LaunchDescription
 from ament_index_python.packages import get_package_share_directory
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
+                            OpaqueFunction)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+
+def launch_setup(context, *args, **kwargs):
+    dyn_pkg = get_package_share_directory("ur5_dyn_control")
+
+    sim = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(dyn_pkg, "launch", "ur5e_effort_gz.launch.py")
+        ),
+        launch_arguments={
+            "paused": "true",
+            "auto_start": "false",          # el nodo activa y despausa
+            "world": LaunchConfiguration("world"),
+            "gazebo_gui": LaunchConfiguration("gazebo_gui"),
+            "joint_damping": LaunchConfiguration("joint_damping"),
+            "joint_friction": LaunchConfiguration("joint_friction"),
+        }.items(),
+    )
+
+    # Overrides de FASE 2: solo se anaden los que el usuario dio explicitamente,
+    # de modo que sin ellos el params_file manda (comportamiento historico).
+    overrides = {}
+    mode = LaunchConfiguration("friction_compensation").perform(context).strip()
+    if mode:
+        overrides["friction_compensation"] = mode
+    for arg, key in (("friction_f_v", "friction.f_v"),
+                     ("friction_f_c", "friction.f_c")):
+        raw = LaunchConfiguration(arg).perform(context).strip()
+        if raw:
+            vals = [float(v) for v in raw.replace(",", " ").split() if v]
+            if len(vals) != 6:
+                raise RuntimeError(f"{arg} debe tener 6 valores, se dio: {raw!r}")
+            overrides[key] = vals
+
+    node = Node(
+        package="ur5_dyn_control",
+        executable="gz_fl_control_node",
+        output="screen",
+        parameters=[
+            LaunchConfiguration("params_file"),
+            {
+                "test_num": LaunchConfiguration("test_num"),
+                "t_sim": LaunchConfiguration("t_sim"),
+            },
+            overrides,
+        ],
+    )
+
+    return [sim, node]
 
 
 def generate_launch_description():
@@ -42,33 +92,19 @@ def generate_launch_description():
         # poder validar el identificador contra la verdad. "0" = URDF sin tocar.
         DeclareLaunchArgument("joint_damping", default_value="0"),
         DeclareLaunchArgument("joint_friction", default_value="0"),
+        # FASE 2: compensacion de friccion identificada. Sobrescriben lo que
+        # diga el params_file, para poder hacer barridos A/B sin duplicar YAMLs.
+        DeclareLaunchArgument(
+            "friction_compensation", default_value="",
+            description="'' = usar el params_file; si no: none|viscous|viscous_coulomb"),
+        DeclareLaunchArgument(
+            "friction_f_v", default_value="",
+            description="6 coeficientes viscosos coma-separados [N.m.s/rad]"),
+        DeclareLaunchArgument(
+            "friction_f_c", default_value="",
+            description="6 coeficientes de Coulomb coma-separados [N.m]"),
     ]
 
-    sim = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(dyn_pkg, "launch", "ur5e_effort_gz.launch.py")
-        ),
-        launch_arguments={
-            "paused": "true",
-            "auto_start": "false",          # el nodo activa y despausa
-            "world": LaunchConfiguration("world"),
-            "gazebo_gui": LaunchConfiguration("gazebo_gui"),
-            "joint_damping": LaunchConfiguration("joint_damping"),
-            "joint_friction": LaunchConfiguration("joint_friction"),
-        }.items(),
-    )
 
-    node = Node(
-        package="ur5_dyn_control",
-        executable="gz_fl_control_node",
-        output="screen",
-        parameters=[
-            LaunchConfiguration("params_file"),
-            {
-                "test_num": LaunchConfiguration("test_num"),
-                "t_sim": LaunchConfiguration("t_sim"),
-            },
-        ],
-    )
-
-    return LaunchDescription(declared_arguments + [sim, node])
+    return LaunchDescription(
+        declared_arguments + [OpaqueFunction(function=launch_setup)])

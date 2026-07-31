@@ -144,6 +144,45 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
   // En el UR5e real DEBE ser false: direct_torque() compensa la gravedad dentro
   // del robot y comandarla otra vez la duplica. Ver torque_command.hpp.
   gravity_in_command_ = declare_parameter<bool>("gravity_in_command", true);
+
+  // FASE 2 — compensacion de friccion identificada. Default "none": el
+  // comportamiento de las FASES 0-1 no cambia. Los coeficientes salen del YAML
+  // que produce `ros2 run ur5_identification run_identification`.
+  {
+    const std::string mode =
+      declare_parameter<std::string>("friction_compensation", "none");
+    if (mode == "none") {
+      friction_mode_ = FrictionCompensation::NONE;
+    } else if (mode == "viscous") {
+      friction_mode_ = FrictionCompensation::VISCOUS;
+    } else if (mode == "viscous_coulomb") {
+      friction_mode_ = FrictionCompensation::VISCOUS_COULOMB;
+    } else {
+      throw std::runtime_error(
+        "friction_compensation desconocido: '" + mode +
+        "' (validos: none, viscous, viscous_coulomb)");
+    }
+    friction_f_v_ = paramToVec6(declare_parameter<std::vector<double>>(
+        "friction.f_v", std::vector<double>(6, 0.0)), "friction.f_v");
+    friction_f_c_ = paramToVec6(declare_parameter<std::vector<double>>(
+        "friction.f_c", std::vector<double>(6, 0.0)), "friction.f_c");
+    friction_dq_eps_ = declare_parameter<double>("friction.dq_eps", 1e-3);
+    if (!(friction_dq_eps_ > 0.0)) {
+      throw std::runtime_error("friction.dq_eps debe ser > 0");
+    }
+    if (friction_mode_ != FrictionCompensation::NONE) {
+      RCLCPP_INFO(get_logger(),
+                  "Compensacion de friccion '%s': F_v=[%.3f %.3f %.3f %.3f %.3f %.3f] "
+                  "F_c=[%.3f %.3f %.3f %.3f %.3f %.3f] (tanh eps=%.4f rad/s)",
+                  mode.c_str(),
+                  friction_f_v_[0], friction_f_v_[1], friction_f_v_[2],
+                  friction_f_v_[3], friction_f_v_[4], friction_f_v_[5],
+                  friction_f_c_[0], friction_f_c_[1], friction_f_c_[2],
+                  friction_f_c_[3], friction_f_c_[4], friction_f_c_[5],
+                  friction_dq_eps_);
+    }
+  }
+
   command_topic_ = declare_parameter<std::string>(
     "command_topic", "/forward_effort_controller/commands");
   controller_manager_ns_ = declare_parameter<std::string>(
@@ -406,17 +445,26 @@ JointRef TorqueControlNodeBase::rampReference(double t_ramp) const
   return ref;
 }
 
-Vector6d TorqueControlNodeBase::commandFromLaw(const Vector6d & tau_law, const Vector6d & q)
+Vector6d TorqueControlNodeBase::commandFromLaw(const Vector6d & tau_law,
+                                               const Vector6d & q,
+                                               const Vector6d & dq)
 {
+  // FASE 2: la friccion se SUMA al comando (se opone al movimiento en la
+  // planta), antes de la politica de gravedad y de la saturacion, porque es un
+  // termino mas del par fisico que la articulacion debe entregar.
+  const Vector6d tau_total = tau_law + frictionFeedforward(
+    dq, friction_f_v_, friction_f_c_, friction_mode_, friction_dq_eps_);
   // g(q) solo se evalua cuando hace falta restarla (ahorra una RNEA por tick
   // en el caso de Gazebo, que es el default).
   const Vector6d g_q = gravity_in_command_ ? Vector6d::Zero().eval() : dyn_->gravity(q);
-  return torqueCommand(tau_law, g_q, gravity_in_command_, tau_max_);
+  return torqueCommand(tau_total, g_q, gravity_in_command_, tau_max_);
 }
 
-Vector6d TorqueControlNodeBase::publishTau(const Vector6d & tau_law, const Vector6d & q)
+Vector6d TorqueControlNodeBase::publishTau(const Vector6d & tau_law,
+                                           const Vector6d & q,
+                                           const Vector6d & dq)
 {
-  const Vector6d tau_cmd = commandFromLaw(tau_law, q);
+  const Vector6d tau_cmd = commandFromLaw(tau_law, q, dq);
   std_msgs::msg::Float64MultiArray cmd;
   cmd.data.assign(tau_cmd.data(), tau_cmd.data() + 6);
   tau_pub_->publish(cmd);
@@ -461,7 +509,7 @@ void TorqueControlNodeBase::tick()
         // Aun no hay /joint_states: se evalua g en q_init (con
         // gravity_in_command=false esto da exactamente 0, que es el comando
         // correcto para el robot real en reposo).
-        publishTau(tau_hold_blind_, q_init_);
+        publishTau(tau_hold_blind_, q_init_, Vector6d::Zero());
         ++pre_hold_ticks_;
 
         // 1) Esperar a que los controladores esten CARGADOS (los spawners
@@ -520,7 +568,8 @@ void TorqueControlNodeBase::tick()
       }
 
     case State::WAIT_STATE: {
-        publishTau(tau_hold_blind_, have_state ? q : q_init_);
+        publishTau(tau_hold_blind_, have_state ? q : q_init_,
+                   have_state ? dq : Vector6d::Zero().eval());
         if (!have_state) {break;}
         q0_ = q;
         const double err0 = (q0_ - q_init_).cwiseAbs().maxCoeff();
@@ -540,7 +589,7 @@ void TorqueControlNodeBase::tick()
         if (!have_state) {break;}
         JointRef ref;
         ref.q = q0_;
-        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q);
+        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q, dq);
         if (++hold_log_counter_ % csv_hold_decimation_ == 0) {
           csv_.log(t_sim, q, dq, ref, tau, dyn_->fk(q).translation(),
                    dyn_->fk(ref.q).translation(), "HOLD_START");
@@ -562,7 +611,7 @@ void TorqueControlNodeBase::tick()
     case State::RAMP: {
         if (!have_state) {break;}
         const JointRef ref = rampReference(t_sim - t_state_start_);
-        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q);
+        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q, dq);
         csv_.log(t_sim, q, dq, ref, tau, dyn_->fk(q).translation(),
                  dyn_->fk(ref.q).translation(), "RAMP");
         if (t_sim - t_state_start_ >= transition_duration_) {
@@ -577,7 +626,7 @@ void TorqueControlNodeBase::tick()
         track_index_ = static_cast<std::size_t>(
           std::max(0.0, (t_sim - t_state_start_) / ref_gen_->dt()));
         const JointRef & ref = ref_gen_->at(track_index_);
-        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q);
+        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q, dq);
         // La etiqueta la puede refinar el generador: el barrido de excitacion
         // marca la MESETA de velocidad constante, que es la ventana util para
         // identificar friccion (alli ddq = 0 y el residuo es friccion pura).
@@ -601,7 +650,7 @@ void TorqueControlNodeBase::tick()
         if (!have_state) {break;}
         JointRef ref;
         ref.q = ref_gen_->at(ref_gen_->size() - 1).q;
-        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q);
+        const Vector6d tau = publishTau(computeTau(q, dq, ref, dt), q, dq);
         if (++hold_log_counter_ % csv_hold_decimation_ == 0) {
           csv_.log(t_sim, q, dq, ref, tau, dyn_->fk(q).translation(),
                    dyn_->fk(ref.q).translation(), "HOLD_END");
