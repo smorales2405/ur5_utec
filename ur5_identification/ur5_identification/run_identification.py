@@ -23,6 +23,7 @@ import sys
 import numpy as np
 import yaml
 
+from .differencing import identify_by_differencing
 from .estimator import cross_validate, fit, fit_stribeck
 from .residual import (JOINT_NAMES, compute_residual, default_urdf,
                        extract_windows, infer_joint_from_csv)
@@ -52,6 +53,27 @@ def identify_one(csv_path: str, urdf: str, gravity: float, cutoff: float,
 
     out = {"joint": int(joint), "joint_name": JOINT_NAMES[joint], "csv": csv_path,
            "n_windows": int(len(windows)), "models": {}}
+
+    # ── Método 2: diferenciación entre sentidos (NO usa el URDF) ─────────────
+    # Se calcula siempre, porque su comparación con el método basado en RNEA es
+    # lo que cuantifica el error de modelado (ver differencing.py).
+    diff = None
+    try:
+        diff = identify_by_differencing(csv_path, joint)
+        print("\n  --- diferenciación entre sentidos (sin URDF, sin RNEA) ---")
+        print("    |v| [rad/s]   tau_f [N.m]   sigma    solape en q [rad]")
+        for pt in diff.points:
+            print(f"      {pt.speed:7.3f}     {pt.tau_friction:9.4f}"
+                  f"   {pt.tau_std:7.4f}   {pt.q_overlap:8.4f}")
+        print(diff.summary())
+        out["differencing"] = {
+            "f_v": float(diff.params.f_v), "f_c": float(diff.params.f_c),
+            "r2": float(diff.r2), "rmse": float(diff.rmse),
+            "stderr": [float(x) for x in diff.stderr],
+            "points": [{"speed": float(p.speed), "tau_f": float(p.tau_friction),
+                        "std": float(p.tau_std)} for p in diff.points]}
+    except (ValueError, np.linalg.LinAlgError) as exc:
+        print(f"\n  [diferenciación] no aplicable: {exc}")
 
     for model in models:
         print(f"\n  --- modelo '{model}' ---")
@@ -87,6 +109,24 @@ def identify_one(csv_path: str, urdf: str, gravity: float, cutoff: float,
             out["truth"] = {"f_v": float(fv_t), "f_c": float(fc_t),
                             "error_pct": [float(e_v), float(e_c)],
                             "passes_10pct": bool(ok)}
+            if diff is not None:
+                d_v = 100 * abs(diff.params.f_v - fv_t) / fv_t if fv_t else float("nan")
+                d_c = 100 * abs(diff.params.f_c - fc_t) / fc_t if fc_t else float("nan")
+                print(f"      (diferenciación: F_v {diff.params.f_v:.4f} -> {d_v:5.2f} %, "
+                      f"F_c {diff.params.f_c:.4f} -> {d_c:5.2f} %)")
+
+    # ── Discrepancia entre métodos = medida del ERROR DE MODELADO ────────────
+    if diff is not None and "viscous_coulomb" in out["models"]:
+        m = out["models"]["viscous_coulomb"]
+        dv = abs(m["f_v"] - diff.params.f_v)
+        dc = abs(m["f_c"] - diff.params.f_c)
+        print(f"\n  DISCREPANCIA entre métodos (RNEA vs diferenciación):")
+        print(f"    F_v: {m['f_v']:.4f} vs {diff.params.f_v:.4f}  ->  {dv:.4f} N.m.s/rad")
+        print(f"    F_c: {m['f_c']:.4f} vs {diff.params.f_c:.4f}  ->  {dc:.4f} N.m")
+        print("    (el metodo RNEA depende de la exactitud del URDF; la "
+              "diferenciacion no.\n     Una discrepancia grande apunta a error "
+              "de modelado, no a friccion.)")
+        out["method_discrepancy"] = {"f_v": float(dv), "f_c": float(dc)}
     return out
 
 

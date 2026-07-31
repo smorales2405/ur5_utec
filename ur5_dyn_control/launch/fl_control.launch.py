@@ -46,6 +46,9 @@ def launch_setup(context, *args, **kwargs):
     mode = LaunchConfiguration("friction_compensation").perform(context).strip()
     if mode:
         overrides["friction_compensation"] = mode
+    sweep_joint = LaunchConfiguration("sweep_joint").perform(context).strip()
+    if sweep_joint:
+        overrides["sweep.joint"] = int(sweep_joint)
     for arg, key in (("friction_f_v", "friction.f_v"),
                      ("friction_f_c", "friction.f_c")):
         raw = LaunchConfiguration(arg).perform(context).strip()
@@ -103,6 +106,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "friction_f_c", default_value="",
             description="6 coeficientes de Coulomb coma-separados [N.m]"),
+        # FASE 2: junta a barrer, para poder recorrer la campana sin duplicar YAMLs.
+        DeclareLaunchArgument(
+            "sweep_joint", default_value="",
+            description="'' = usar el params_file; si no, junta 0..5 a barrer"),
     ]
 
 
