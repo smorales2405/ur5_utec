@@ -2,9 +2,10 @@
 
 Control **basado en torque** (interfaz `effort`) del UR5e en Gazebo Fortress
 (ROS 2 Humble), con miras a su implementación en el robot real vía
-`ur_robot_driver`. Primer controlador: **Feedback Linearization** (computed
-torque); la arquitectura permite añadir Sliding Mode, MRAC, etc. como nodos
-delgados que solo implementan su ley de control.
+`ur_robot_driver`. Controladores implementados: **Feedback Linearization**
+(computed torque) y **Sliding Mode** (`sgn` / `sat`); la arquitectura permite
+añadir LQR-SDRE, ASTSMC, etc. como nodos delgados que solo implementan su ley
+de control.
 
 ## Arquitectura
 
@@ -15,15 +16,22 @@ CartesianTrajectory (interfaz)   p(t), ṗ(t), p̈(t), p⃛(t) analíticas;
         ├── QuinticSplineTrajectory     quíntico C⁴ — jerk CONTINUO
         └── IncisionTrajectory          5 fases, geometría ∘ arco ∘ S-curve
         │
-JointReferenceGenerator     IK QP (ur5_kinematics) + refinamiento de Newton +
-                            dq = J⁻¹ẋ, ddq = J⁻¹(ẍ − J̇q̇)  →  tabla {q,dq,ddq}
-        │                   Aborta si: salto de rama IK · σ_min(J) bajo umbral ·
-        │                   dq/ddq fuera de límites del UR5e
+JointReferenceTable  (base)  tabla {q,dq,ddq} + diagnósticos + phaseLabel(k)
+   ┌────┴──────────────────┐
+JointReferenceGenerator     JointSweepGenerator
+IK QP (ur5_kinematics) +    barrido de excitación por junta (FASE 2),
+refinamiento de Newton +    SIN IK: se escribe la referencia articular
+dq = J⁻¹ẋ, ddq = J⁻¹(ẍ−J̇q̇)  directamente
+Aborta si: salto de rama IK · σ_min(J) bajo umbral · dq/ddq fuera de límites
+        │
 TorqueControlNodeBase       máquina de estados PRE_HOLD → WAIT → HOLD_START →
-        │                   RAMP (quíntica) → TRACK → HOLD_END; CSV; G3; saturación
-   ┌────┴─────────┐         τ ∈ ±[150,150,150,28,28,28] N·m
-gz_gravity_comp   gz_fl_control_node        (futuros: gz_lqr_sdre, gz_smc, gz_astsmc)
-τ=g+Kp e−Kd dq    τ = M(q)(q̈d+Kp e+Kd ė) + C q̇ + g      [Pinocchio: crba+nle]
+        │                   RAMP (quíntica) → TRACK → HOLD_END → (SAFE_HOLD)
+        │                   CSV · G3 · saturación · límite de tasa · watchdog
+   ┌────┼─────────────┬──────────────────┐   τ ∈ ±[150,150,150,28,28,28] N·m
+gz_gravity_comp  gz_fl_control_node  gz_smc_control_node   (futuros: lqr_sdre, astsmc)
+τ=g+Kp e−Kd dq   τ = M(q̈d+Kp e+Kd ė)   τ = b̂ + M̂ q̈_r − K⊙ρ(s)
+                     + C q̇ + g          s = ė + Λe,  ρ = sgn | sat(s/φ)
+                                         K = η + |α M̂ q̈_r + α b̂ + (1−α) Ṁ̂ q̇_r|
 ```
 
 ### Trayectorias
@@ -35,6 +43,7 @@ gz_gravity_comp   gz_fl_control_node        (futuros: gz_lqr_sdre, gz_smc, gz_as
 | `cubic_spline` | `CartesianSplineTrajectory` | Histórico. Jerk constante a trozos y discontinuo en los nudos; aceleración no nula en los extremos. Se conserva para la comparación cúbico↔quíntico del paper. |
 | `quintic_spline` | `QuinticSplineTrajectory` | Spline quíntico C⁴ sobre `waypoints_xyz`/`waypoint_times`. `v=a=0` en los extremos, jerk continuo. Sustituto directo del cúbico. |
 | `incision` | `IncisionTrajectory` | Las 5 fases de la incisión (`config/incision_params.yaml`). |
+| `joint_sweep` | `JointSweepGenerator` | Barrido de excitación de UNA junta a varias velocidades, con las demás fijas (FASE 2, identificación de fricción). No pasa por IK: la referencia es articular. `config/sweep_params.yaml`. |
 
 **Separación geometría / temporización** (`IncisionTrajectory`):
 
@@ -109,28 +118,86 @@ ros2 launch ur5_dyn_control fl_control.launch.py \
 # Bringup solo (robot congelado en q_init hasta despausar; sin nodo el brazo
 # cae al despausar porque la única interfaz es effort):
 ros2 launch ur5_dyn_control ur5e_effort_gz.launch.py auto_start:=false
+
+# SMC sobre la incisión; sign vs sat sin duplicar YAMLs
+ros2 launch ur5_dyn_control smc_control.launch.py test_num:=510 switching_function:=sat
+ros2 launch ur5_dyn_control smc_control.launch.py test_num:=511 switching_function:=sign
+
+# SMC con las ganancias que produce la FASE 7 (sin editarlas a mano)
+ros2 launch ur5_dyn_control smc_control.launch.py test_num:=704 \
+    gains_file:=<...>/ur5_trajectory_optimization/results/gain_tuning/smc/test3/selected_gains.yaml
+
+# Ensayo de tiempo de alcance: error inicial deliberado (FASE 5 §6)
+ros2 launch ur5_dyn_control smc_control.launch.py test_num:=540 \
+    switching_function:=sign initial_offset:="0.05 0.05 0.05 0.05 0.05 0.05"
 ```
 
 Parámetros (waypoints, tiempos, ganancias, tasas, IK, CSV):
-`config/fl_control_params.yaml` y `config/gravity_comp_params.yaml`.
-CSV de resultados: `~/.ros/ur5_dyn_control/<prefijo>_<test_num>.csv`
-(columnas: `t, q, dq, q_des, dq_des, ddq_des, tau, xyz, xyz_des, state`).
+`config/fl_control_params.yaml`, `config/gravity_comp_params.yaml`,
+`config/smc_params.yaml`, `config/incision_params.yaml`, `config/sweep_params.yaml`.
+CSV de resultados: `~/.ros/ur5_dyn_control/<prefijo>_<test_num>.csv`, con
+cabecera de trazabilidad (`#` con SHA de git y hash FNV-1a de los parámetros
+efectivos) y esquema unificado `t, q, dq, q_des, dq_des, ddq_des, tau,
+tau_sat, s, xyz, xyz_des, wrench, state`.
+
+> ⚠️ `numpy.genfromtxt(names=True)` **no** salta las líneas `#`: toma la primera
+> del fichero como cabecera de columnas. Hay que contarlas y pasar
+> `skip_header`. Ha mordido dos veces en este proyecto; está documentado en
+> `csv_logger.hpp` y cubierto por un test de regresión.
+
+### Parámetros añadidos por las fases posteriores
+
+| Parámetro | Fase | Para qué |
+|---|---|---|
+| `gravity_in_command` | 0 (G3) | `false` en el robot real: `direct_torque` ya compensa `g(q)`. |
+| `friction_compensation` / `friction.f_v` / `friction.f_c` | 2 | Feedforward de fricción identificada (`none`\|`viscous`\|`viscous_coulomb`). |
+| `tau_rate_max`, `watchdog.*` | 3 | Límite de tasa del comando y vigilancia del lazo → `SAFE_HOLD`. |
+| `initial_offset[6]` | 5 | Error inicial **deliberado** para cronometrar el alcance. Desplaza el destino de la rampa, así que TRACK arranca en reposo con `s(0) = Λ·offset` conocido. Default cero. |
+| `reference_table_out` | 7 | Vuelca la tabla `{q,dq,ddq}` a CSV para el evaluador offline de sintonía. La referencia **no se reimplementa** en Python: optimizador y robot comparten la misma tabla. |
 
 ## Mundos
 
-- `lab_torque_world.sdf` — contenido de `lab_base_world.sdf` (mesa base,
-  surgery table, obstáculo) con física a **1 kHz** (paso 1 ms). RTF ~0.07
-  en esta máquina por las colisiones malla-malla (igual que el pick-place);
-  todo corre en tiempo de sim, así que solo alarga el tiempo de pared.
+- **`lab_incision_world.sdf`** — **el default de los cuatro launches**. Mesa
+  base + surgery table, física a **1 kHz** (paso 1 ms), **sin** el obstáculo del
+  caso de uso de pick & place.
+- `lab_torque_world.sdf` — el anterior, que al copiarse de `lab_base_world.sdf`
+  heredó ese obstáculo (caja AABB en (0.85, 0, 0.73)). Se conserva **intacto**
+  para reproducir campañas anteriores:
+  `world:=$(ros2 pkg prefix --share ur5_dyn_control)/worlds/lab_torque_world.sdf`
 - `empty_test_world.sdf` — solo ground plane, física 1 kHz, RTF ~1
   (desarrollo y tuning).
 
-## Añadir un controlador nuevo (SMC, MRAC, ...)
+Por qué se retiró el obstáculo: ningún código de control por torque lo
+referencia, y la holgura mínima medida sobre la trayectoria de incisión (todos
+los orígenes de junta y el TCP, tabla completa) es de **0.150 m**, así que nada
+de lo ya registrado está afectado. Se quita mirando a la FASE 8, donde el
+desajuste de modelo de ±50 % y los 4 kg en el TCP desvían el brazo mucho más: una
+colisión contra un objeto ajeno al experimento no dejaría rastro evidente en el
+CSV.
+
+El default vive en **un solo sitio**, `launch/world_defaults.py`, del que
+importan los cuatro launches. Que dos controladores acabasen corriendo en
+escenas distintas invalidaría la comparación del paper sin dar ningún síntoma.
+
+## Añadir un controlador nuevo (LQR-SDRE, ASTSMC, ...)
 
 Subclasear `TorqueControlNodeBase`, implementar `computeTau(q, dq, ref, dt)`
 y `csvPrefix()`, declarar las ganancias propias y llamar `start()` al final
-del constructor (ver `src/gz_fl_control_node.cpp`, ~60 líneas). El acceso a
-la dinámica es `dyn()` (M, nle, gravity, J, J̇q̇, FK).
+del constructor (ver `src/gz_fl_control_node.cpp`, ~60 líneas; el SMC completo
+son ~160 con toda la formulación documentada). El acceso a la dinámica es
+`dyn()` (M, nle, gravity, `dM = C + Cᵀ`, J, J̇q̇, FK).
+
+Ganchos opcionales: `slidingVariable()` para volcar `s` a la columna del CSV, y
+`onSaturation()` para congelar integradores cuando una junta queda recortada
+(anti-windup; lo necesita el super-twisting del ASTSMC).
+
+> **Escala por inercia siempre.** Este robot tiene cuatro órdenes de magnitud de
+> dispersión en inercia articular (2.59 kg·m² en `shoulder_lift` frente a
+> 2.6e-4 en `wrist_3`). Cualquier ganancia uniforme rompe en las muñecas: ya
+> pasó en `gravity_comp`, en el `η` del SMC y en el `a_reach` del alcance. La
+> regla práctica es referir la ganancia a `M_ii` y vigilar el número de
+> estabilidad discreta correspondiente (`kd·dt/I` para un PD, `(K/φ)·dt/M` para
+> la capa límite del SMC): por encima de ~1 hay ciclo límite.
 
 ## Hacia el robot real (compuertas en `docs/00_prereqs.md`)
 
@@ -171,7 +238,7 @@ colcon build --packages-select ur5_dyn_control
 colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
 ```
 
-- `test_gravity_policy` (8) — compuerta G3 y saturación.
+- `test_gravity_policy` (14) — compuerta G3, saturación y feedforward de fricción.
 - `test_tool_inertia_hook` (4) — supuestos A1 (herramienta en el TCP) y A2
   (offset del TCP configurable).
 - `test_quintic_spline` (9) — derivadas analíticas vs diferencias finitas
@@ -182,7 +249,9 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
 - `test_limits_and_traceability` (13) — límite de tasa del comando, marcas de
   saturación, hash de trazabilidad y compatibilidad de nombres de columna del CSV.
 
-Total: **68 tests** en `ur5_dyn_control` + 19 pytest en `ur5_identification`.
+Total: **63 tests** en 5 ejecutables de `ur5_dyn_control`, + 19 pytest en
+`ur5_identification` y 18 en `ur5_trajectory_optimization` (**105** en el
+workspace).
 
 ## Seguridad del lazo (FASE 3)
 
@@ -214,3 +283,15 @@ retardo de una muestra del lazo, ciclo límite con la velocidad saturando en
   y acciones pendientes del operador.
 - [`docs/00_assumptions.md`](../docs/00_assumptions.md) — supuestos A1–A4 y su
   trazabilidad al código.
+- [`docs/01_trajectory.md`](../docs/01_trajectory.md) — trayectoria de incisión:
+  geometría ∘ arco ∘ S-curve, y la ventana de meseta donde se miden las métricas.
+- [`docs/02_friction.md`](../docs/02_friction.md) — identificación de fricción y
+  el control negativo: en una planta sin fricción, las juntas cargadas por
+  gravedad muestran fricción viscosa **aparente** por el desfase de ~1 ms.
+- [`docs/05_smc.md`](../docs/05_smc.md) — `sgn` vs `sat`, barridos de φ y α (el
+  compromiso clásico está **invertido** bajo el umbral discreto) y el ensayo de
+  tiempo de alcance.
+- [`docs/07_gain_tuning.md`](../docs/07_gain_tuning.md) — sintonía multiobjetivo
+  (NSGA-II + ε-restricción) y por qué el retardo de tubería no era opcional: sin
+  modelarlo, las ganancias «óptimas» daban 29.7 mm de error en Gazebo frente a
+  los 0.02 mm predichos.
