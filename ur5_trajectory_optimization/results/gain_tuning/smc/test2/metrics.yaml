@@ -1,0 +1,201 @@
+run:
+  controller: smc
+  mode: scalar
+  seed: 42
+  pop_size: 40
+  n_gen: 60
+  alpha: 0.3
+  f_cut_N: 5.0
+  chi_limit: 0.8
+  reference: /home/utec/.ros/ur5_dyn_control/incision_ref.csv
+  urdf: /home/utec/ur5_ws/install/ur5_kinematics/share/ur5_kinematics/ur5e.urdf
+  jobs: 16
+  weights:
+  - 1.0
+  - 1.0
+  - 1.0
+cost:
+  sec_per_eval: .nan
+  n_eval_nsga2: 0
+  nsga2_min: 0.0
+  epsilon_min: 0.0
+  total_min: 7.9509663383166
+  evaluator:
+    n_eval: 1928
+    n_cache_hit: 4541
+    n_diverged: 0
+phase5_start:
+  F:
+  - 6.733675211361538
+  - 22802.670536998085
+  - 20127.173738521826
+  G:
+  - -25.350171979878013
+  - 0.5744424094896936
+  - 0.9745006856016958
+  - 456.69852996307225
+  tcp_rmse_mm: 457.69852996307225
+  chi: 1.7745006856016958
+  feasible: 0
+metrics:
+  hv_nsga2: 268920879.26372886
+  hv_epsilon: 266943870.84349793
+  hv_combined: 274623336.0404346
+  hv_ref_point:
+  - 0.017282877777
+  - 184271.76031000004
+  - 1525636.7566000002
+  igd_nsga2: 932.1500186800187
+  igd_epsilon: 27319.31528701391
+  coverage_nsga2_over_epsilon: 0.125
+  coverage_epsilon_over_nsga2: 0.05
+  n_nondominated_combined: 45
+  n_feasible_nsga2: 40
+  n_feasible_epsilon: 8
+  n_total_nsga2: 40
+  n_total_epsilon: 8
+  convergence_hv_ref: null
+selected:
+  x:
+  - 2.461263698
+  - 2.196389621
+  - 0.999954886
+  lambda:
+  - 289.24355988238386
+  - 289.24355988238386
+  - 289.24355988238386
+  - 289.24355988238386
+  - 289.24355988238386
+  - 289.24355988238386
+  eta:
+  - 166.32992673201585
+  - 407.31772659224265
+  - 138.54471062559807
+  - 3.6528858549006373
+  - 0.8411377634571086
+  - 0.040482566449803095
+  phi: 0.999954886
+  F:
+  - 0.01476259587
+  - 119672.527
+  - 948336.5766
+  norm_dist_utopia: 0.9314693840755608
+  tcp_rmse_mm: 0.8234070735272649
+  rmse_q: 0.0013883336296984967
+  s_max: 1.2584268386958768
+  chi: 0.470951221312979
+min_f1_extreme:
+  F:
+  - 0.01366685377
+  - 167519.7821
+  - 1386942.506
+  tcp_rmse_mm: 0.7045634150257806
+  chi: 0.522350063770332
+disturbance_bound_Nm:
+- 2.2980970388580944
+- 2.4708021932001136
+- 2.5759531874565185
+- 0.8562329368072243
+- 1.105819171533639
+- 2.551029105732488e-16
+tcp_tol_mm: 1.0
+kkt:
+  stationarity_residual: 1.4228758511953785
+  stationarity_relative: 0.043384171544986146
+  grad_f_norm: 32.797119330029446
+  max_violation: 0.09648526151473176
+  complementarity: 1.1463114098809346
+  active:
+  - eps
+  - g1
+  - x0_hi
+  multipliers:
+    eps: 11.880689256419865
+    g1: 0.0
+    x0_hi: 158.38918951111268
+  constraints_normalised:
+    eps: 0.09648526151473176
+    g1: 0.0
+    g2: -0.23558289647176564
+    g3: -0.2779274670402
+    g4: -0.2941180269692232
+  eps_level: 0.01366685377
+  slsqp_success: 0
+alpha_sensitivity:
+- alpha: 0.1
+  f1_iae: 0.014593068791083989
+  f2_effort: 108342.11319891742
+  f3_chatter: 850130.4753158124
+  tcp_rmse_mm: 0.8402384227555818
+  rmse_q: 0.0014157034723642776
+  s_max: 1.3220829326549428
+  chi: 0.46476885068961665
+  g1_tau: 0.0
+  g2_dq: -1.112230504631933
+  feasible: 1
+- alpha: 0.3
+  f1_iae: 0.014762595884863061
+  f2_effort: 119672.52672604322
+  f3_chatter: 948336.5739342846
+  tcp_rmse_mm: 0.8234070735272649
+  rmse_q: 0.0013883336296984967
+  s_max: 1.2584268386958768
+  chi: 0.470951221312979
+  g1_tau: 0.0
+  g2_dq: -0.9893139975328014
+  feasible: 1
+- alpha: 0.5
+  f1_iae: 0.01484913310553704
+  f2_effort: 130251.72076379671
+  f3_chatter: 1036164.6797395704
+  tcp_rmse_mm: 0.8102134192498452
+  rmse_q: 0.0013669634914402142
+  s_max: 1.201589128995185
+  chi: 0.4963045336918506
+  g1_tau: 0.0
+  g2_dq: -0.7858735393718508
+  feasible: 1
+- alpha: 1.0
+  f1_iae: 0.0166511681425966
+  f2_effort: 155975.73415868255
+  f3_chatter: 1545177.3158329593
+  tcp_rmse_mm: 0.7835023967479579
+  rmse_q: 0.001323569409942889
+  s_max: 1.1350444718382326
+  chi: 0.8876881002674761
+  g1_tau: 0.0
+  g2_dq: -0.13901691119022663
+  feasible: 0
+baseline_weighted_sum:
+  x:
+  - 2.4771212547196626
+  - -1.0
+  - 1.0
+  F:
+  - 5.657023938177731
+  - 22665.778315550582
+  - 2176.829200444139
+  G:
+  - -26.058532437215128
+  - -2.34077589331522
+  - -0.7041382407096138
+  - 428.1434888165797
+  feasible: 0
+  surrogate_pred: -3419658294.8099003
+  scalar_true: 2758.880911808864
+  n_samples: 11
+  fit_r2: 1.0
+  tcp_rmse_mm: 429.1434888165797
+  chi: 0.09586175929038625
+  improvement_pct_knee_vs_baseline: null
+epsilon:
+  n_success: 0
+  n_steps: 8
+  normalisation_lo:
+  - 0.01366685377
+  - 59153.51931
+  - 503898.4395
+  normalisation_scale:
+  - 0.0020448533000000015
+  - 108366.26279000001
+  - 883044.0665000001

@@ -5,6 +5,8 @@
 #include <pinocchio/spatial/explog.hpp>
 
 #include <chrono>
+#include <fstream>
+#include <iomanip>
 #include <cmath>
 #include <map>
 
@@ -204,6 +206,11 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
   watchdog_js_timeout_ = declare_parameter<double>("watchdog.joint_state_timeout", 0.2);
   watchdog_strikes_ = static_cast<int>(declare_parameter<int>("watchdog.strikes", 5));
   dry_run_ = declare_parameter<bool>("dry_run", false);
+  // FASE 7: volcado de la tabla de referencias para el evaluador de lazo
+  // cerrado offline. Se exporta desde AQUI, no se reimplementa en Python: la
+  // tabla sale de la trayectoria + IK QP + refinamiento de Newton, y una
+  // segunda implementacion divergiria en silencio de la que se ejecuta.
+  reference_table_out_ = declare_parameter<std::string>("reference_table_out", "");
   if (dry_run_) {
     RCLCPP_WARN(get_logger(),
                 "DRY-RUN: se calcula todo pero NO se publica ningun torque.");
@@ -431,6 +438,34 @@ TorqueControlNodeBase::~TorqueControlNodeBase()
 
 void TorqueControlNodeBase::start()
 {
+  if (!reference_table_out_.empty() && ref_gen_) {
+    std::ofstream fh(reference_table_out_);
+    if (fh.is_open()) {
+      fh << "# dt=" << ref_gen_->dt() << "\n";
+      fh << "# n=" << ref_gen_->size() << "\n";
+      fh << "k";
+      for (const char * g : {"q", "dq", "ddq"}) {
+        for (int i = 1; i <= 6; ++i) {fh << ',' << g << i;}
+      }
+      fh << ",phase\n";
+      fh << std::fixed << std::setprecision(12);
+      for (std::size_t k = 0; k < ref_gen_->size(); ++k) {
+        const JointRef & r = ref_gen_->at(k);
+        fh << k;
+        for (int i = 0; i < 6; ++i) {fh << ',' << r.q[i];}
+        for (int i = 0; i < 6; ++i) {fh << ',' << r.dq[i];}
+        for (int i = 0; i < 6; ++i) {fh << ',' << r.ddq[i];}
+        std::string ph = ref_gen_->phaseLabel(k);
+        fh << ',' << (ph.empty() ? "TRACK" : ph) << '\n';
+      }
+      RCLCPP_INFO(get_logger(), "Tabla de referencias exportada: %s (%zu muestras)",
+                  reference_table_out_.c_str(), ref_gen_->size());
+    } else {
+      RCLCPP_ERROR(get_logger(), "No se pudo escribir %s",
+                   reference_table_out_.c_str());
+    }
+  }
+
   if (!csv_.open(csv_dir_, csvPrefix(), test_num_, traceMetadata())) {
     RCLCPP_WARN(get_logger(), "No se pudo abrir el CSV (se continua sin log)");
   } else {

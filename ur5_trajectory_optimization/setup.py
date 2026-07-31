@@ -7,7 +7,7 @@ package_name = 'ur5_trajectory_optimization'
 setup(
     name=package_name,
     version='0.1.0',
-    packages=[package_name],
+    packages=[package_name, package_name + '.gain_tuning'],
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -16,6 +16,7 @@ setup(
             glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
+    tests_require=['pytest'],
     zip_safe=True,
     maintainer='Sergio Morales',
     maintainer_email='smorales@utec.edu.pe',
@@ -27,6 +28,7 @@ setup(
             'run_singleobjective = ur5_trajectory_optimization.run_singleobjective:main',
             'export_trajectory  = ur5_trajectory_optimization.export_selected_trajectory:main',
             'eval_baseline_cu2  = ur5_trajectory_optimization.eval_baseline_cu2:main',
+            'run_gain_tuning    = ur5_trajectory_optimization.gain_tuning.run_gain_tuning:main',
         ],
     },
 )

@@ -164,6 +164,7 @@ private:
   /// GC del sistema) no debe abortar un ensayo de media hora.
   int watchdog_strikes_ = 5;
   bool dry_run_ = false;
+  std::string reference_table_out_;   // FASE 7: volcado para el evaluador offline
   std::string command_topic_;
   std::string controller_manager_ns_;
   std::vector<std::string> activate_controllers_;

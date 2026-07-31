@@ -1,0 +1,31 @@
+# FASE 7 — ganancias seleccionadas por sintonía multiobjetivo.
+# Generado por run_gain_tuning.py; NO editar a mano.
+#   metodo: knee point sobre frente combinado NSGA-II + ε-restricción
+#   objetivos: f1=0.0147626 f2=119673 f3=948337
+#   TCP_RMSE_mm: 0.8234
+#   chi: 0.4710 (limite 0.8)
+#   semilla: 42
+#   parametrizacion: scalar
+#   fuerza_corte_N: 5.0
+#   AVISO: evaluador offline sin retardo de tuberia ni ruido de q̇: re-verificar en Gazebo antes de la campana de la FASE 8
+#
+# Se fusiona sobre config/smc_params.yaml (solo ganancias).
+gz_smc_control_node:
+  ros__parameters:
+    lambda:
+    - 289.24355988
+    - 289.24355988
+    - 289.24355988
+    - 289.24355988
+    - 289.24355988
+    - 289.24355988
+    eta:
+    - 166.32992673
+    - 407.31772659
+    - 138.54471063
+    - 3.65288585
+    - 0.84113776
+    - 0.04048257
+    phi: 0.99995489
+    alpha: 0.3
+    switching_function: sat
