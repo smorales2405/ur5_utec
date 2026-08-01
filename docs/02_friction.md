@@ -15,6 +15,12 @@ Barrido de **una junta a velocidad constante**, con las demás sostenidas en
 usuario), **±45° desde su posición fija**, en **ambos sentidos** y a **8 niveles
 de velocidad**.
 
+> El `q_fixed` por defecto pasó después a `[π/2, −π/2, π/2, −π/2, −π/2, 0]`, para
+> que la escena de Gazebo coincida con la pose en la que se coloca el UR5e real.
+> Los resultados de abajo son los MEDIDOS con la pose anterior y se dejan tal
+> cual: la fricción depende de la configuración, así que una campaña nueva no
+> sería directamente comparable con esta.
+
 | | |
 |---|---|
 | Niveles de \|q̇\| | 0.02, 0.05, 0.10, 0.20, 0.35, 0.50, 0.75, 1.00 rad/s |

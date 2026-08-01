@@ -29,7 +29,7 @@ const char * toString(IncisionPhaseId id);
 struct IncisionParams
 {
   // -- Geometria (frame base_link, metros) ----------------------------------
-  Eigen::Vector3d start_pose{0.49, 0.13, 0.35};  ///< TCP al inicio (= FK(q_init))
+  Eigen::Vector3d start_pose{-0.1333, 0.4919, 0.3469};  ///< TCP al inicio (= FK(q_init))
   double surface_z = 0.02;                       ///< cara superior del tejido
   double cut_x = 0.50;                           ///< coordenada fija del trazo
   /// Longitud de la incision MEDIDA: el tramo que se recorre a feed

@@ -22,7 +22,7 @@ Cierre de la FASE 1 del plan `PLAN_INCISION_UR5e.md`.
 
 ```
    z [m, base_link]
-  0.35 ┤ ●  start_pose = FK(q_init) = [0.49, 0.13, 0.35]
+  0.35 ┤ ●  start_pose = FK(q_init) = [-0.1333, 0.4919, 0.3469]
        │  ╲  approach (100 mm/s)
   0.05 ┤   ●───────────────────────●   z_above = 0.050
        │   │ contact (15 mm/s)     ↑ withdraw (50 mm/s)

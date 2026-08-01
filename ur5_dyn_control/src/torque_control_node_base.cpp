@@ -47,7 +47,7 @@ TorqueControlNodeBase::buildIncisionTrajectory(const std::vector<double> & rpy,
   ip.tcp_rpy = Eigen::Vector3d(rpy[0], rpy[1], rpy[2]);
 
   const auto start = declare_parameter<std::vector<double>>(
-    "incision.start_pose", std::vector<double>{0.49, 0.13, 0.35});
+    "incision.start_pose", std::vector<double>{-0.1333, 0.4919, 0.3469});
   if (start.size() != 3) {
     throw std::runtime_error("incision.start_pose debe tener 3 elementos");
   }
@@ -114,7 +114,7 @@ TorqueControlNodeBase::buildJointSweep(std::string & description)
 {
   JointSweepParams sp;
   sp.q_fixed = paramToVec6(declare_parameter<std::vector<double>>(
-      "sweep.q_fixed", {0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0}),
+      "sweep.q_fixed", {1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0}),
       "sweep.q_fixed");
   sp.joint = static_cast<int>(declare_parameter<int>("sweep.joint", 0));
   sp.amplitude = declare_parameter<double>("sweep.amplitude", M_PI / 4);
@@ -160,7 +160,7 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
   // ── Parametros generales ───────────────────────────────────────────────────
   control_rate_ = declare_parameter<double>("control_rate", 500.0);
   q_init_ = paramToVec6(declare_parameter<std::vector<double>>(
-      "q_init", {0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0}), "q_init");
+      "q_init", {1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0}), "q_init");
   tau_max_ = paramToVec6(declare_parameter<std::vector<double>>(
       "tau_max", {150.0, 150.0, 150.0, 28.0, 28.0, 28.0}), "tau_max");
   // G3 — politica de gravedad. Default true = Gazebo (comportamiento historico).
@@ -396,7 +396,7 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
 
     IkParams ik;
     ik.seed = paramToVec6(declare_parameter<std::vector<double>>(
-        "ik_seed", {0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0}), "ik_seed");
+        "ik_seed", {1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0}), "ik_seed");
     ik.max_iterations = static_cast<int>(declare_parameter<int>("ik_max_iterations", 450));
     ik.alpha = declare_parameter<double>("ik_alpha", 0.5);
     ik.weight_pos = declare_parameter<double>("ik_weight_pos", 1.0);

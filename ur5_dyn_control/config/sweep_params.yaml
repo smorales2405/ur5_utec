@@ -30,7 +30,7 @@ gz_fl_control_node:
 
     urdf_path: ""
     gravity: 9.8
-    q_init: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+    q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
 
     gravity_in_command: true         # G3 — false en el UR5e real
 
@@ -63,7 +63,7 @@ gz_fl_control_node:
       # Configuracion en la que se mantienen las juntas NO barridas.
       # (= q_init del paquete: pan 0, lift -pi/2, elbow pi/2,
       #    wrist_1 -pi/2, wrist_2 -pi/2, wrist_3 0)
-      q_fixed: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+      q_fixed: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
 
       joint: 0                  # junta que se barre (0..5), una por corrida
 

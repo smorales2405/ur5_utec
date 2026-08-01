@@ -90,7 +90,9 @@ JTC ↔ `forward_effort_controller` SÍ está soportado por el driver.
 Esquema adoptado (validado, el robot **nunca cae**):
 
 1. Gazebo arranca **PAUSADO**; el robot spawnea en la pose inicial
-   (`initial_value`): `[0, −π/2, π/2, −π/2, −π/2, 0]`.
+   (`initial_value`): `[π/2, −π/2, π/2, −π/2, −π/2, 0]` — la muñeca queda
+   apuntando hacia +y; es la pose en la que hay que colocar el UR5e **real**
+   para que coincida con la escena de Gazebo.
 2. Los spawners cargan+configuran (`--inactive`) `joint_state_broadcaster` y
    `forward_effort_controller` (activar en pausa no es posible: el
    controller_manager solo actualiza en cada paso de física).
