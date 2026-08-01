@@ -14,8 +14,8 @@
 #         │   │               ↑
 #    0.02 ┤   ●━━━━━━━━━━━━━━━┿━━━━━━━    superficie del tejido (surface_z)
 #    0.015┤   ●───────────────●           z_cut = surface_z - cut_depth
-#         └───┴───────────────┴──────→ x
-#          0.80  0.79       0.71  0.70   (sentido -1: x decreciente)
+#         └───┴───────────────┴──────→ world_x  (= base_y)
+#          0.80  0.79       0.71  0.70   (sentido -1: decreciente)
 #          approach → contact → penetration → cut → withdraw
 #          trazo total 100 mm; los 80 mm centrales a feed constante (medidos)
 #
@@ -137,7 +137,7 @@ gz_lqr_sdre_control_node:
     trajectory_type: "incision"
 
     # A4 — orientacion del TCP constante, gripper hacia abajo.
-    tcp_orientation_rpy: [3.14159265, 0.0, -1.57079633]
+    tcp_orientation_rpy: [3.14159265, 0.0, 0.0]
 
     incision:
       # Pose de partida: FK(q_init), para que la rampa inicial sea minima.
@@ -148,8 +148,13 @@ gz_lqr_sdre_control_node:
       #   cut_axis "y" -> punto = (cut_x, cut_center_y + offset)   -> cut_x FIJO
       #   cut_axis "x" -> punto = (cut_x + offset, cut_center_y)   -> cut_x CENTRO
       # Con eje X, cut_x es el CENTRO del trazo y cut_center_y la coordenada fija.
-      cut_x: 0.75                 # [m] centro del trazo (eje X)
-      cut_center_y: 0.0           # [m] coordenada FIJA en y
+      # La base del robot esta girada -90 deg en el mundo (ver el spawn en
+      # ur5e_effort_gz.launch.py), asi que base_link tambien: world_x = base_y,
+      # world_y = -base_x. El trazo se describe en BASE_LINK, y estos valores
+      # son los que lo dejan en world x[0.70, 0.80], y = 0 — encima de la mesa,
+      # exactamente donde estaba antes de girar la base.
+      cut_x: 0.0                  # [m] coordenada FIJA en x (base_link)
+      cut_center_y: 0.75          # [m] centro del trazo (eje Y de base_link)
       # El trazo recorre X. Antes recorria Y "manipulabilidad ~constante": al
       # ir en X cambia la distancia radial a la base, asi que la
       # manipulabilidad SI varia a lo largo del corte. Medido: sigma_min(J) =
@@ -157,10 +162,10 @@ gz_lqr_sdre_control_node:
       # margen de sobra; pero al interpretar el error de seguimiento hay que
       # tener presente que puede variar a lo largo del trazo por geometria y
       # no por el controlador.
-      cut_axis: "x"
+      cut_axis: "y"
       # Sentido del recorrido a lo largo de cut_axis: +1 o -1.
-      #   +1 -> x CRECIENTE: el TCP se ALEJA de la base (0.70 -> 0.80)
-      #   -1 -> x DECRECIENTE: el TCP se ACERCA a la base (0.80 -> 0.70)
+      #   +1 -> base_y CRECIENTE (world_x 0.70 -> 0.80): se ALEJA
+      #   -1 -> base_y DECRECIENTE (world_x 0.80 -> 0.70): se ACERCA
       # Invierte las CINCO fases: aproximacion, contacto y penetracion
       # pasan al extremo por el que ahora se empieza, y la retirada al otro.
       cut_direction: -1

@@ -351,7 +351,7 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
     }
     if (!is_sweep) {
     const auto rpy = declare_parameter<std::vector<double>>(
-      "tcp_orientation_rpy", {3.14159265, 0.0, -1.57079633});
+      "tcp_orientation_rpy", {3.14159265, 0.0, 0.0});
     if (rpy.size() != 3) {
       throw std::runtime_error("tcp_orientation_rpy debe tener 3 elementos");
     }

@@ -236,7 +236,13 @@ def launch_setup(context, *args, **kwargs):
             "-z", "0.63",
             "-R", "0.0",
             "-P", "0.0",
-            "-Y", "0.0",
+            # Base girada -90 deg. El UR5e REAL esta montado asi respecto a la
+            # celda, de modo que su pose de trabajo es q_init = [pi/2, ...]. Con
+            # este yaw, ese q_init deja el brazo en la MISMA orientacion respecto
+            # a la mesa que tenia antes con q_init = [0, ...], y sim y real
+            # coinciden. Comprobado: FK(q_init) cae en world (0.4919, 0.1333),
+            # que es exactamente donde caia antes.
+            "-Y", "-1.5708",
         ],
     )
 
