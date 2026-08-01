@@ -5,7 +5,7 @@ gz_gravity_comp_node:
     control_rate: 500.0
     urdf_path: ""
     gravity: 9.8
-    q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+    q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
 
     # G3 — true (Gazebo): tau_cmd = tau_ley. false (UR5e real): tau_cmd =
     # tau_ley - g(q). Con esta ley y kp=kd=0, gravity_in_command=false comanda

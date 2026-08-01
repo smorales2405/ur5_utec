@@ -32,7 +32,7 @@ gz_lqr_sdre_control_node:
 
     urdf_path: ""
     gravity: 9.8
-    q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+    q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
 
     # G3 — true en Gazebo; false en el UR5e real (docs/00_prereqs.md).
     gravity_in_command: true
@@ -137,7 +137,7 @@ gz_lqr_sdre_control_node:
     trajectory_type: "incision"
 
     # A4 — orientacion del TCP constante, gripper hacia abajo.
-    tcp_orientation_rpy: [3.14159265, 0.0, 0.0]
+    tcp_orientation_rpy: [3.14159265, 0.0, 3.14159265]
 
     incision:
       # Pose de partida: FK(q_init), para que la rampa inicial sea minima.
@@ -184,7 +184,7 @@ gz_lqr_sdre_control_node:
       dwell: 0.3                  # [s] reposo entre fases
 
     # -- IK (QP de ur5_kinematics, target gripper_tcp) ------------------------
-    ik_seed: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+    ik_seed: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
     ik_max_iterations: 450
     ik_alpha: 0.5
     ik_weight_pos: 1.0

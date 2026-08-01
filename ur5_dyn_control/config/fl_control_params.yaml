@@ -33,7 +33,7 @@ gz_fl_control_node:
                    0.0, 0.0, 0.0]         #   [Ixx, Iyy, Izz, Ixy, Ixz, Iyz]
 
     # -- Pose inicial (= initial_positions.yaml del bringup) -----------------
-    q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+    q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
 
     # -- Plumbing de comandos / switch (portable al robot real) --------------
     command_topic: "/forward_effort_controller/commands"
@@ -61,7 +61,7 @@ gz_fl_control_node:
     # Orientacion del TCP constante: gripper apuntando hacia abajo.
     # W0 ~= FK(q_init) = [0.492, 0.133, 0.347] -> rampa inicial minima.
     # Barrido suave dentro del espacio de trabajo, lejos del obstaculo (x=0.85).
-    tcp_orientation_rpy: [3.14159265, 0.0, 0.0]
+    tcp_orientation_rpy: [3.14159265, 0.0, 3.14159265]
     waypoints_xyz: [0.49,  0.13, 0.35,
                     0.55,  0.35, 0.28,
                     0.55, -0.10, 0.25,
@@ -69,7 +69,7 @@ gz_fl_control_node:
     waypoint_times: [0.0, 2.5, 5.0, 7.5]
 
     # -- IK (QP de ur5_kinematics, target gripper_tcp) ------------------------
-    ik_seed: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+    ik_seed: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
     ik_max_iterations: 450
     ik_alpha: 0.5
     ik_weight_pos: 1.0
