@@ -277,6 +277,12 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
   t_sim_limit_ = declare_parameter<double>("t_sim", 0.0);
   skip_trajectory_ = declare_parameter<bool>("skip_trajectory", false);
   q_init_check_tol_ = declare_parameter<double>("q_init_check_tol", 0.15);
+  // Que hacer si q0 se sale de esa tolerancia: avisar y seguir, o PARAR.
+  // Por defecto estricto en el robot real (gravity_in_command=false, G3) y
+  // permisivo en Gazebo, donde una rampa larga no rompe nada y varias campañas
+  // dependen del comportamiento historico. Ver el uso en WAIT_STATE.
+  q_init_check_strict_ = declare_parameter<bool>(
+    "q_init_check_strict", !gravity_in_command_);
   // En HOLD_START/HOLD_END se registra 1 de cada N muestras (los holds pueden
   // durar indefinidamente y a 500 Hz el CSV crece a GB/hora).
   csv_hold_decimation_ = std::max<int>(
@@ -836,14 +842,35 @@ void TorqueControlNodeBase::tick()
         if (!have_state) {break;}
         q0_ = q;
         const double err0 = (q0_ - q_init_).cwiseAbs().maxCoeff();
+        RCLCPP_INFO(get_logger(),
+                    "q0 = [%.3f %.3f %.3f %.3f %.3f %.3f]",
+                    q0_[0], q0_[1], q0_[2], q0_[3], q0_[4], q0_[5]);
         if (err0 > q_init_check_tol_) {
+          // En el ROBOT REAL esto NO puede ser solo un aviso.
+          //
+          // Tras WAIT_STATE viene la rampa quintica hasta el primer punto de la
+          // tabla. Si q0 esta lejos de q_init, esa rampa es un movimiento largo
+          // y NO PLANIFICADO desde donde quiera que este el brazo. Medido en un
+          // incidente real: con q0 a 1.884 rad de q_init el nodo avisó y rampó
+          // igual, moviendo wrist_1 100.6 grados. En Gazebo es inocuo; con
+          // hardware es justo el fallo que rompe algo.
+          //
+          // Estricto por defecto cuando gravity_in_command=false, que es la
+          // marca de "robot real" en este paquete (G3). En Gazebo se conserva
+          // el aviso, para no cambiar el comportamiento de las campañas.
+          if (q_init_check_strict_) {
+            q_last_ = q0_;
+            requestSafeHold(
+              "q0 difiere de q_init en " + std::to_string(err0) +
+              " rad (tolerancia " + std::to_string(q_init_check_tol_) +
+              "). Lleve el robot a q_init antes de arrancar, o suba "
+              "q_init_check_tol si el desvio es intencionado");
+            break;
+          }
           RCLCPP_WARN(get_logger(),
                       "q0 difiere de q_init en %.3f rad (> %.3f). Se regula en q0.",
                       err0, q_init_check_tol_);
         }
-        RCLCPP_INFO(get_logger(),
-                    "q0 = [%.3f %.3f %.3f %.3f %.3f %.3f]",
-                    q0_[0], q0_[1], q0_[2], q0_[3], q0_[4], q0_[5]);
         enterState(State::HOLD_START);
         break;
       }

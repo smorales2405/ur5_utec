@@ -116,6 +116,7 @@ def launch_setup(context, *args, **kwargs):
     # Overrides opcionales del operador.
     optional = {}
     for arg, key, cast in (("test_num", "test_num", int),
+                           ("t_sim", "t_sim", float),
                            ("switching_function", "switching_function", str),
                            ("sweep_joint", "sweep.joint", int),
                            ("trajectory_type", "trajectory_type", str),
@@ -167,6 +168,12 @@ def generate_launch_description():
             description="fraccion del par nominal del UR5e (checklist §7: "
                         "empezar en 0.30 y subir gradualmente)"),
         DeclareLaunchArgument("test_num", default_value=""),
+        # Sin esto, el ensayo de sostén (skip_trajectory:=true) no termina
+        # nunca: `t_sim` es lo que acota su duración. Solo tiene efecto con
+        # skip_trajectory; una corrida con trayectoria acaba con la tabla.
+        DeclareLaunchArgument(
+            "t_sim", default_value="",
+            description="duracion [s] del ensayo de sosten (con skip_trajectory)"),
         DeclareLaunchArgument(
             "trajectory_type", default_value="",
             description="'' = params_file; joint_sweep para la campana de FASE 2"),
