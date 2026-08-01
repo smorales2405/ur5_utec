@@ -14,8 +14,8 @@
 #         │   │               ↑
 #    0.02 ┤   ●━━━━━━━━━━━━━━━┿━━━━━━━    superficie del tejido (surface_z)
 #    0.015┤   ●───────────────●           z_cut = surface_z - cut_depth
-#         └───┴───────────────┴──────→ y
-#         -0.05  -0.04    +0.04  +0.05
+#         └───┴───────────────┴──────→ x
+#          0.80  0.79       0.71  0.70   (sentido -1: x decreciente)
 #          approach → contact → penetration → cut → withdraw
 #          trazo total 100 mm; los 80 mm centrales a feed constante (medidos)
 #
@@ -144,9 +144,26 @@ gz_lqr_sdre_control_node:
       start_pose: [0.49, 0.13, 0.35]
 
       surface_z: 0.02             # [m] cara superior del tejido
-      cut_x: 0.50                 # [m] centro del trazo en x
-      cut_center_y: 0.0           # [m] centro del trazo en y
-      cut_axis: "y"               # el trazo recorre Y (manipulabilidad ~constante)
+      # OJO con los nombres: NO siguen al eje. En incision_trajectory.cpp,
+      #   cut_axis "y" -> punto = (cut_x, cut_center_y + offset)   -> cut_x FIJO
+      #   cut_axis "x" -> punto = (cut_x + offset, cut_center_y)   -> cut_x CENTRO
+      # Con eje X, cut_x es el CENTRO del trazo y cut_center_y la coordenada fija.
+      cut_x: 0.75                 # [m] centro del trazo (eje X)
+      cut_center_y: 0.0           # [m] coordenada FIJA en y
+      # El trazo recorre X. Antes recorria Y "manipulabilidad ~constante": al
+      # ir en X cambia la distancia radial a la base, asi que la
+      # manipulabilidad SI varia a lo largo del corte. Medido: sigma_min(J) =
+      # 0.2168 (umbral 0.05) frente a 0.2432 del trazo en Y, asi que hay
+      # margen de sobra; pero al interpretar el error de seguimiento hay que
+      # tener presente que puede variar a lo largo del trazo por geometria y
+      # no por el controlador.
+      cut_axis: "x"
+      # Sentido del recorrido a lo largo de cut_axis: +1 o -1.
+      #   +1 -> x CRECIENTE: el TCP se ALEJA de la base (0.70 -> 0.80)
+      #   -1 -> x DECRECIENTE: el TCP se ACERCA a la base (0.80 -> 0.70)
+      # Invierte las CINCO fases: aproximacion, contacto y penetracion
+      # pasan al extremo por el que ahora se empieza, y la retirada al otro.
+      cut_direction: -1
       cut_length: 0.08            # [m] 80 mm MEDIDOS, integros a feed constante
       cut_lead: 0.010             # [m] entrada/salida a cada lado (rampas)
       cut_depth: 0.005            # [m] 5 mm

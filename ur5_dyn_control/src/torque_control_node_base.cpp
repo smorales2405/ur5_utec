@@ -67,6 +67,12 @@ TorqueControlNodeBase::buildIncisionTrajectory(const std::vector<double> & rpy,
   }
   ip.cut_axis = axis[0];
 
+  ip.cut_direction = static_cast<int>(
+    declare_parameter<int>("incision.cut_direction", 1));
+  if (ip.cut_direction != 1 && ip.cut_direction != -1) {
+    throw std::runtime_error("incision.cut_direction debe ser 1 o -1");
+  }
+
   ip.v_approach    = declare_parameter<double>("incision.v_approach", 0.10);
   ip.v_contact     = declare_parameter<double>("incision.v_contact", 0.015);
   ip.v_penetration = declare_parameter<double>("incision.v_penetration", 0.005);
@@ -81,9 +87,11 @@ TorqueControlNodeBase::buildIncisionTrajectory(const std::vector<double> & rpy,
   RCLCPP_INFO(get_logger(),
               "Incision: %.1f mm MEDIDOS a feed constante de %.1f mm/s "
               "(+ %.1f mm de entrada y salida -> %.1f mm de trazo), "
-              "profundidad %.1f mm, eje '%c', superficie z=%.3f m",
+              "profundidad %.1f mm, eje '%c' sentido %+d (%c %s), superficie z=%.3f m",
               ip.cut_length * 1e3, ip.v_cut * 1e3, ip.cut_lead * 1e3,
-              ip.cutStroke() * 1e3, ip.cut_depth * 1e3, ip.cut_axis, ip.surface_z);
+              ip.cutStroke() * 1e3, ip.cut_depth * 1e3, ip.cut_axis,
+              ip.cut_direction, ip.cut_axis,
+              ip.cut_direction > 0 ? "creciente" : "decreciente", ip.surface_z);
   for (const auto & ph : traj->phases()) {
     RCLCPP_INFO(get_logger(),
                 "  %-11s t=[%6.2f, %6.2f] s  L=%6.1f mm  v=%5.1f mm/s"

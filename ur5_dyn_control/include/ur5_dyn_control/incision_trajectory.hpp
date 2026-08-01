@@ -46,6 +46,21 @@ struct IncisionParams
   /// Eje del corte en el plano: 'y' (recomendado) o 'x'.
   char cut_axis = 'y';
 
+  /**
+   * SENTIDO del recorrido a lo largo de `cut_axis`: +1 o -1.
+   *
+   *   +1 -> el trazo va de (centro - medio) a (centro + medio): la coordenada
+   *         del eje CRECE. Con cut_axis 'x', el TCP se ALEJA de la base.
+   *   -1 -> al reves: la coordenada DECRECE; con 'x', se ACERCA a la base.
+   *
+   * Invierte las CINCO fases, no solo el corte: la aproximacion, el contacto y
+   * la penetracion ocurren en el extremo por el que ahora se empieza, y la
+   * retirada en el otro. Se implementa multiplicando los desplazamientos
+   * respecto del centro, de modo que no hay geometria duplicada que pueda
+   * quedar desincronizada.
+   */
+  int cut_direction = +1;
+
   /// Longitud total del trazo (lo que se corta de material).
   double cutStroke() const { return cut_length + 2.0 * cut_lead; }
 

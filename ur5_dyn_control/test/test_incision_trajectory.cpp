@@ -468,6 +468,67 @@ TEST(IncisionTrajectory, RejectsInvalidParameters)
   EXPECT_THROW(IncisionTrajectory{p}, std::invalid_argument);
 }
 
+// ── Sentido del trazo (cut_direction) ───────────────────────────────────────
+
+TEST(IncisionTrajectory, CutDirectionReversesTheStroke)
+{
+  IncisionParams p = defaultParams();
+  p.cut_axis = 'x';
+  p.cut_x = 0.85;
+
+  p.cut_direction = +1;
+  const IncisionTrajectory fwd(p);
+  p.cut_direction = -1;
+  const IncisionTrajectory rev(p);
+
+  const auto & cf = fwd.phase(IncisionPhaseId::CUT);
+  const auto & cr = rev.phase(IncisionPhaseId::CUT);
+
+  // El corte recorre el mismo segmento, en sentidos opuestos.
+  const Eigen::Vector3d f0 = fwd.position(cf.t_start), f1 = fwd.position(cf.t_end);
+  const Eigen::Vector3d r0 = rev.position(cr.t_start), r1 = rev.position(cr.t_end);
+  EXPECT_GT(f1.x(), f0.x()) << "con +1 la x debe CRECER";
+  EXPECT_LT(r1.x(), r0.x()) << "con -1 la x debe DECRECER";
+  EXPECT_NEAR(f0.x(), r1.x(), 1e-9);
+  EXPECT_NEAR(f1.x(), r0.x(), 1e-9);
+
+  // Y sigue siendo la coordenada fija en ambos sentidos.
+  EXPECT_NEAR(r0.y(), p.cut_center_y, 1e-9);
+  EXPECT_NEAR(r1.y(), p.cut_center_y, 1e-9);
+}
+
+TEST(IncisionTrajectory, CutDirectionPreservesMeasuredLengthAndDepth)
+{
+  // Invertir el sentido NO debe cambiar lo que se mide ni la profundidad: si
+  // lo hiciera, las campanas en los dos sentidos no serian comparables.
+  IncisionParams p = defaultParams();
+  p.cut_axis = 'x';
+  p.cut_x = 0.85;
+  p.cut_direction = -1;
+  const IncisionTrajectory traj(p);
+
+  const auto & cut = traj.phase(IncisionPhaseId::CUT);
+  const double measured =
+    (cut.plateau_t1 - cut.plateau_t0) * cut.v_max;
+  EXPECT_NEAR(measured, p.cut_length, 1e-6);
+
+  const double z_cut = p.surface_z - p.cut_depth;
+  for (double t = cut.t_start; t <= cut.t_end; t += 0.01) {
+    EXPECT_NEAR(traj.position(t).z(), z_cut, 1e-9);
+  }
+}
+
+TEST(IncisionTrajectory, CutDirectionRejectsInvalidValues)
+{
+  // Un valor distinto de +-1 ESCALARIA el trazo en vez de invertirlo, y la
+  // longitud medida dejaria de ser cut_length sin que nada avisara.
+  IncisionParams p = defaultParams();
+  for (const int bad : {0, 2, -3}) {
+    p.cut_direction = bad;
+    EXPECT_THROW(IncisionTrajectory{p}, std::invalid_argument) << "dir = " << bad;
+  }
+}
+
 int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);

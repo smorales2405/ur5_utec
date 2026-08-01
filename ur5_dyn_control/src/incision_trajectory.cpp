@@ -25,6 +25,12 @@ IncisionTrajectory::IncisionTrajectory(const IncisionParams & p)
   if (p.cut_axis != 'x' && p.cut_axis != 'y') {
     throw std::invalid_argument("IncisionTrajectory: cut_axis debe ser 'x' o 'y'");
   }
+  // Solo +1 o -1: cualquier otro valor ESCALARIA el trazo en vez de invertirlo,
+  // y la longitud medida dejaria de ser cut_length sin que nada avisara.
+  if (p.cut_direction != 1 && p.cut_direction != -1) {
+    throw std::invalid_argument(
+            "IncisionTrajectory: cut_direction debe ser +1 o -1");
+  }
   if (!(p.cut_length > 0.0)) {
     throw std::invalid_argument("IncisionTrajectory: cut_length debe ser > 0");
   }
@@ -58,10 +64,15 @@ IncisionTrajectory::IncisionTrajectory(const IncisionParams & p)
              ? Eigen::Vector2d(p.cut_x, p.cut_center_y + offset)
              : Eigen::Vector2d(p.cut_x + offset, p.cut_center_y);
     };
-  const Eigen::Vector2d xy_a = planePoint(-half_stroke);
-  const Eigen::Vector2d xy_b = planePoint(+half_stroke);
-  const Eigen::Vector2d xy_m0 = planePoint(-half_measured);
-  const Eigen::Vector2d xy_m1 = planePoint(+half_measured);
+  // Sentido del recorrido. Al multiplicar los cuatro desplazamientos por `dir`
+  // se invierten a la vez el trazo Y las fases que lo enmarcan (aproximacion,
+  // contacto y penetracion pasan al otro extremo, la retirada tambien), sin
+  // duplicar geometria que pudiera quedar desincronizada.
+  const double dir = static_cast<double>(p.cut_direction);
+  const Eigen::Vector2d xy_a = planePoint(-dir * half_stroke);
+  const Eigen::Vector2d xy_b = planePoint(+dir * half_stroke);
+  const Eigen::Vector2d xy_m0 = planePoint(-dir * half_measured);
+  const Eigen::Vector2d xy_m1 = planePoint(+dir * half_measured);
 
   const Eigen::Vector3d p_above_a(xy_a.x(), xy_a.y(), z_above);
   const Eigen::Vector3d p_surf_a(xy_a.x(), xy_a.y(), z_surface);
