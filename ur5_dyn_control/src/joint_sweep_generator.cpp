@@ -93,26 +93,44 @@ bool JointSweepGenerator::build(double dt, std::string & error_msg)
     levels.push_back({v, amp});
   }
 
-  const double amp0 = levels.front().amp;
-
-  // Instantes de los tramos. `q_at` devuelve la posicion de la junta barrida.
+  // Instantes de los tramos.
+  //
+  // CADA nivel se RECENTRA antes de empezar: se inserta una transicion hasta
+  // q_center - amp_del_nivel. Encadenar sin recentrar solo es simetrico si
+  // todas las amplitudes coinciden, y `max_sweep_duration` las recorta a baja
+  // velocidad, asi que el barrido derivaba: con las velocidades por defecto
+  // llegaba a q_center + 72 grados en vez de +45. Ver Segment::q_target.
   double t = 0.0;
-  segments_.push_back({t, t + p.approach_duration, 0.0, 0.0, 0.0, amp0, false});
-  t += p.approach_duration + p.dwell;
+  double q_cur = q_center;
+
+  auto push_transition = [&](double target) {
+      segments_.push_back({t, t + p.approach_duration, 0.0, 0.0, 0.0, 0.0,
+                           false, target});
+      t += p.approach_duration + p.dwell;
+      q_cur = target;
+    };
 
   for (const auto & lv : levels) {
+    const double start = q_center - lv.amp;
+    if (std::abs(q_cur - start) > 1e-9) {
+      push_transition(start);
+    }
     const double L = 2.0 * lv.amp;
     const ScurveProfile prof(L, lv.v, p.ramp_fraction);
     double r0, r1;
     prof.plateauInterval(r0, r1);
-    // Sentido positivo, luego negativo, al mismo nivel de velocidad.
+    // Sentido positivo, luego negativo, al mismo nivel de velocidad: el par
+    // deja la junta de vuelta en `start`.
     for (const double sign : {+1.0, -1.0}) {
       segments_.push_back({t, t + prof.duration(), t + r0, t + r1,
-                           sign * lv.v, lv.amp, true});
+                           sign * lv.v, lv.amp, true, 0.0});
       t += prof.duration() + p.dwell;
+      q_cur += sign * L;
     }
   }
-  segments_.push_back({t, t + p.approach_duration, 0.0, 0.0, 0.0, amp0, false});
+  // Vuelta al centro.
+  segments_.push_back({t, t + p.approach_duration, 0.0, 0.0, 0.0, 0.0,
+                       false, q_center});
   t += p.approach_duration;
   duration_ = t;
 
@@ -130,8 +148,7 @@ bool JointSweepGenerator::build(double dt, std::string & error_msg)
     for (std::size_t s = 0; s < segments_.size(); ++s) {
       seg_start[s] = q;
       if (!segments_[s].useful) {
-        // Transicion: la primera baja a -amp; la ultima vuelve al centro.
-        q = (s == 0) ? (q_center - amp0) : q_center;
+        q = segments_[s].q_target;      // destino explicito de la transicion
       } else {
         q += (segments_[s].velocity > 0.0 ? +1.0 : -1.0) * 2.0 * segments_[s].amplitude;
       }
@@ -196,6 +213,32 @@ bool JointSweepGenerator::build(double dt, std::string & error_msg)
 
     table_.push_back(ref);
     labels_.push_back(std::move(label));
+  }
+
+  // ── Guarda de rango ──────────────────────────────────────────────────────
+  // La tabla NO puede salirse de q_fixed +- amplitude. Se comprueba sobre las
+  // muestras ya generadas, no sobre la aritmetica de los tramos: si una
+  // refactorizacion futura vuelve a romper el encadenado, esto lo para aqui y
+  // no en el robot. Un barrido fuera de rango metio el efector final contra la
+  // mesa antes de existir esta comprobacion.
+  {
+    double q_lo = q_center, q_hi = q_center;
+    for (const auto & ref : table_) {
+      q_lo = std::min(q_lo, ref.q[p.joint]);
+      q_hi = std::max(q_hi, ref.q[p.joint]);
+    }
+    const double tol = 1e-6;
+    if (q_lo < q_center - p.amplitude - tol || q_hi > q_center + p.amplitude + tol) {
+      std::ostringstream oss;
+      oss << "el barrido generado se sale del rango pedido: ["
+          << q_lo << ", " << q_hi << "] rad, pero q_fixed +- amplitude es ["
+          << q_center - p.amplitude << ", " << q_center + p.amplitude
+          << "]. Es un fallo del generador, no de la configuracion.";
+      error_msg = oss.str();
+      table_.clear();
+      labels_.clear();
+      return false;
+    }
   }
 
   error_msg.clear();

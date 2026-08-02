@@ -79,6 +79,15 @@ public:
     double velocity;       ///< velocidad con signo [rad/s]
     double amplitude;      ///< amplitud efectiva de este tramo [rad]
     bool useful;           ///< false para las transiciones de entrada/salida
+    /// Solo transiciones (`useful == false`): posicion de destino [rad].
+    ///
+    /// Antes el destino estaba implicito ("la primera baja a -amp0, la ultima
+    /// vuelve al centro") y eso ROMPIA la simetria en cuanto dos niveles tenian
+    /// amplitudes distintas: cada nivel encadenaba desde donde acabo el
+    /// anterior, no desde q_center - su_amplitud. Con las amplitudes recortadas
+    /// por max_sweep_duration el barrido derivaba +27 grados sobre el limite
+    /// pedido, y en el UR5e real eso metio el efector final contra la mesa.
+    double q_target = 0.0;
   };
 
   explicit JointSweepGenerator(const JointSweepParams & params);

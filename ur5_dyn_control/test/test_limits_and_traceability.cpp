@@ -16,6 +16,7 @@
 
 #include "ur5_dyn_control/common.hpp"
 #include "ur5_dyn_control/csv_logger.hpp"
+#include "ur5_dyn_control/joint_sweep_generator.hpp"
 #include "ur5_dyn_control/torque_command.hpp"
 
 using ur5_dyn_control::CsvLogger;
@@ -186,6 +187,76 @@ TEST(CsvSchema, HeaderKeepsTheLegacyColumnNames)
       << "falta la columna nueva '" << added << "'";
   }
   std::remove(path.c_str());
+}
+
+// ── Rango del barrido de excitación (FASE 2) ────────────────────────────────
+//
+// REGRESIÓN de un fallo que llegó al hardware: `max_sweep_duration` recorta la
+// amplitud de los niveles lentos, y el encadenado de tramos no recentraba cada
+// nivel — cada uno empezaba donde acabó el anterior. Con amplitudes distintas
+// el barrido derivaba: con las velocidades por defecto llegaba a q_fixed + 72°
+// en vez de +45°, y en el UR5e real eso metió el efector final contra la mesa.
+
+namespace
+{
+ur5_dyn_control::JointSweepParams sweepParams(int joint)
+{
+  ur5_dyn_control::JointSweepParams sp;
+  sp.q_fixed << 1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416;
+  sp.joint = joint;
+  sp.amplitude = M_PI / 4;
+  // Estas velocidades son las que disparan el fallo: con max_sweep_duration =
+  // 40 s, v = 0.02 se recorta a 17.6° y v >= 0.10 se queda en los 45° pedidos.
+  sp.velocities = {0.02, 0.05, 0.10, 0.20, 0.35, 0.50, 0.75, 1.00};
+  sp.max_sweep_duration = 40.0;
+  return sp;
+}
+}  // namespace
+
+TEST(JointSweep, StaysWithinRequestedAmplitudeWithMixedLevelAmplitudes)
+{
+  for (int j = 0; j < 6; ++j) {
+    const auto sp = sweepParams(j);
+    ur5_dyn_control::JointSweepGenerator gen(sp);
+    std::string err;
+    ASSERT_TRUE(gen.build(1.0 / 500.0, err)) << "junta " << j << ": " << err;
+
+    const double c = sp.q_fixed[j];
+    double lo = c, hi = c;
+    for (std::size_t k = 0; k < gen.size(); ++k) {
+      lo = std::min(lo, gen.at(k).q[j]);
+      hi = std::max(hi, gen.at(k).q[j]);
+    }
+    EXPECT_GE(lo, c - sp.amplitude - 1e-6) << "junta " << j << " se pasa por abajo";
+    EXPECT_LE(hi, c + sp.amplitude + 1e-6) << "junta " << j << " se pasa por arriba";
+    // Y debe RECORRER el rango pedido: quedarse corto tampoco vale, porque el
+    // nivel mas rapido es el que da el brazo de palanca del ajuste de friccion.
+    EXPECT_NEAR(lo, c - sp.amplitude, 1e-6) << "junta " << j;
+    EXPECT_NEAR(hi, c + sp.amplitude, 1e-6) << "junta " << j;
+  }
+}
+
+TEST(JointSweep, EachVelocityLevelIsCenteredOnQFixed)
+{
+  const auto sp = sweepParams(1);
+  ur5_dyn_control::JointSweepGenerator gen(sp);
+  std::string err;
+  ASSERT_TRUE(gen.build(1.0 / 500.0, err)) << err;
+
+  // Cada tramo util recorre exactamente 2*amplitud y queda simetrico respecto
+  // a q_fixed: si un nivel arrancara descentrado, su meseta mediria la friccion
+  // en un rango de posiciones distinto al de los demas.
+  const double c = sp.q_fixed[1];
+  for (const auto & sg : gen.segments()) {
+    if (!sg.useful) {continue;}
+    EXPECT_LE(std::abs(sg.amplitude), sp.amplitude + 1e-9);
+  }
+  double lo = c, hi = c;
+  for (std::size_t k = 0; k < gen.size(); ++k) {
+    lo = std::min(lo, gen.at(k).q[1]);
+    hi = std::max(hi, gen.at(k).q[1]);
+  }
+  EXPECT_NEAR(0.5 * (lo + hi), c, 1e-6) << "el barrido no esta centrado en q_fixed";
 }
 
 int main(int argc, char ** argv)
