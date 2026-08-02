@@ -520,8 +520,27 @@ ros2 launch ur5_dyn_control ur5e_real.launch.py \
 
 Si la gravedad estuviera mal compensada se ve **aquí**, con el robot quieto.
 
-**7. Campaña de fricción**, una corrida por junta (0..5) y por nivel de
-compensación interna (`0.0`, `default`, `1.0`):
+**7. Campaña de fricción** — 6 juntas × 3 niveles de compensación interna
+(`0.0`, `default`, `1.0`) = **18 corridas**. Usar el runner semiautomático, que
+las encadena pero **no comanda par sin confirmación escrita** en cada una:
+
+```bash
+ros2 run ur5_identification run_friction_campaign_real.py --test-base 900
+# reanudar tras una interrupción (salta las que ya tienen CSV):
+ros2 run ur5_identification run_friction_campaign_real.py --test-base 900 --resume
+```
+
+Antes de **cada** corrida comprueba que llega `/joint_states`, que el robot está
+dentro de la tolerancia de `q_init` (si no, dice qué junta y cuánto se desvía) y
+fija las escalas de fricción por servicio **verificando `success`** — sin esa
+llamada el valor efectivo no queda registrado y la campaña no es reproducible
+(G4). Aborta la campaña entera si el nodo entra en SAFE_HOLD, y deja un YAML de
+sesión con lo que se fijó y lo que se ejecutó.
+
+La confirmación es teclear el **nombre de la junta**, no Enter: Enter se pulsa
+por inercia, un nombre hay que leerlo.
+
+Una corrida suelta, si hace falta repetir solo una:
 
 ```bash
 ros2 launch ur5_dyn_control ur5e_real.launch.py \
