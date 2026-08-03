@@ -63,8 +63,10 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
-JOINT_NAMES = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
-               "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
+from ur5_identification.campaign_levels import (FRICTION_SRV, JOINT_NAMES,
+                                                 LEVELS)
+from ur_msgs.srv import SetFrictionModelParameters
+
 JTC_TOPIC = "/scaled_joint_trajectory_controller/joint_trajectory"
 
 
@@ -118,6 +120,7 @@ class SweepRunner(Node):
         self._pub = self.create_publisher(JointTrajectory, JTC_TOPIC, 1)
         self._switch = self.create_client(
             SwitchController, "/controller_manager/switch_controller")
+        self._fric = self.create_client(SetFrictionModelParameters, FRICTION_SRV)
 
     def _cb(self, msg: JointState):
         idx = {n: i for i, n in enumerate(msg.name)}
@@ -155,6 +158,27 @@ class SweepRunner(Node):
         rclpy.spin_until_future_complete(self, fut, timeout_sec=timeout)
         ok = fut.done() and fut.result() is not None and fut.result().ok
         return bool(ok), "ok" if ok else "rechazado"
+
+    def set_friction(self, level: str, timeout: float = 10.0):
+        """
+        Fija las escalas de compensación interna y VERIFICA la respuesta (G4).
+
+        Sin esta llamada el controlador no impone nada y el valor efectivo no
+        queda registrado, así que la corrida no sería reproducible ni
+        comparable con las demás.
+        """
+        visc, coul = LEVELS[level]
+        if not self._fric.wait_for_service(timeout_sec=timeout):
+            return False, f"servicio {FRICTION_SRV} no disponible"
+        req = SetFrictionModelParameters.Request()
+        req.parameters.viscous_scale = [float(v) for v in visc]
+        req.parameters.coulomb_scale = [float(c) for c in coul]
+        fut = self._fric.call_async(req)
+        rclpy.spin_until_future_complete(self, fut, timeout_sec=timeout)
+        if not fut.done() or fut.result() is None:
+            return False, "sin respuesta del servicio"
+        ok = bool(getattr(fut.result(), "success", True))
+        return ok, "ok" if ok else "rechazado"
 
     def run(self, dt, q_ref, dq_ref, stride: int):
         """
@@ -222,6 +246,13 @@ def main():
     ap.add_argument("--params-file", default=None)
     ap.add_argument("--stride", type=int, default=50,
                     help="submuestreo de la tabla para el JTC (50 -> 10 Hz)")
+    ap.add_argument("--friction-level", choices=list(LEVELS), default=None,
+                    help="nivel de compensación interna a fijar antes de barrer "
+                         "(G4). Sin él NO se toca y el CSV lo anota como "
+                         "'no fijado en esta corrida'")
+    ap.add_argument("--yes", action="store_true",
+                    help="omite la confirmación (para cuando lo invoca el "
+                         "runner de campaña, que ya confirmó)")
     ap.add_argument("--out-dir", default=os.path.expanduser("~/.ros/ur5_dyn_control"))
     args = ap.parse_args()
 
@@ -258,6 +289,16 @@ def main():
                   "Llévelo a q_init antes de lanzar.")
             return 1
 
+        fric_note = "no fijado en esta corrida"
+        if args.friction_level:
+            okf, msgf = node.set_friction(args.friction_level)
+            print(f"  compensación interna «{args.friction_level}»: "
+                  f"{'OK' if okf else 'FALLO'} — {msgf}")
+            if not okf:
+                print("  Sin fijar las escalas la corrida no es reproducible (G4).")
+                return 1
+            fric_note = args.friction_level
+
         ok, msg = node.ensure_jtc()
         print(f"  scaled_joint_trajectory_controller activo: "
               f"{'OK' if ok else 'FALLO'} — {msg}")
@@ -266,14 +307,15 @@ def main():
 
         print(f"  Va a mover {JOINT_NAMES[args.joint]} por CONTROL DE POSICIÓN "
               f"({len(q_ref) * dt:.0f} s).")
-        try:
-            if input(f"  Escriba «{JOINT_NAMES[args.joint]}» para lanzar: "
-                     ).strip() != JOINT_NAMES[args.joint]:
-                print("  Cancelado.")
+        if not args.yes:
+            try:
+                if input(f"  Escriba «{JOINT_NAMES[args.joint]}» para lanzar: "
+                         ).strip() != JOINT_NAMES[args.joint]:
+                    print("  Cancelado.")
+                    return 1
+            except (EOFError, KeyboardInterrupt):
+                print("\n  Cancelado.")
                 return 1
-        except (EOFError, KeyboardInterrupt):
-            print("\n  Cancelado.")
-            return 1
 
         dur = node.run(dt, q_ref, dq_ref, args.stride)
         print(f"  {len(node.samples)} muestras grabadas en {dur:.0f} s")
@@ -284,7 +326,8 @@ def main():
                 "joint": args.joint, "joint_name": JOINT_NAMES[args.joint],
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "effort_units": "motor_current_A (G5: NO es par)",
-                "reference": ref_csv, "stride": args.stride}
+                "reference": ref_csv, "stride": args.stride,
+                "friction_level": fric_note}
         if write_csv(out, node.samples, dt, phase, meta):
             print(f"  CSV: {out}")
         else:

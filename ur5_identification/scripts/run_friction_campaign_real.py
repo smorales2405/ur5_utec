@@ -65,19 +65,9 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from sensor_msgs.msg import JointState
 from ur_msgs.srv import SetFrictionModelParameters
 
-JOINT_NAMES = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
-               "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
+from ur5_identification.campaign_levels import (FRICTION_SRV, JOINT_NAMES,
+                                                 LEVELS)
 
-#: Niveles del barrido de caracterización (docs/00_prereqs.md §G4). El nivel
-#: `default` son los valores de fábrica del driver: se incluye porque es el que
-#: usaría cualquiera que NO llamase al servicio, y hay que poder compararlo.
-LEVELS = {
-    "0.0":     ([0.0] * 6, [0.0] * 6),
-    "default": ([0.9, 0.9, 0.8, 0.9, 0.9, 0.9], [0.8, 0.8, 0.7, 0.8, 0.8, 0.8]),
-    "1.0":     ([1.0] * 6, [1.0] * 6),
-}
-
-FRICTION_SRV = "/friction_model_controller/set_friction_model_parameters"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -310,6 +300,61 @@ def confirm(word: str) -> bool:
     return got == word
 
 
+
+def run_one_position(joint: int, test_num: int, params_file: str, level: str,
+                     log_dir: str, out_dir: str, timeout_s: float = 900.0):
+    """
+    Corrida por CONTROL DE POSICIÓN: barrido + calibración corriente→par.
+
+    Se invoca a los scripts en vez de duplicar su lógica, y con `--yes` porque
+    el operador ya confirmó en el runner: pedir dos veces la misma confirmación
+    entrena a confirmar sin leer, que es lo contrario de lo que se busca.
+    """
+    log_path = os.path.join(log_dir, f"run_{test_num}.log")
+    cur_csv = os.path.join(out_dir, f"cur_{test_num}.csv")
+    tau_csv = os.path.join(out_dir, f"fl_{test_num}.csv")
+    res = {"test_num": test_num, "joint": joint, "method": "position",
+           "joint_name": JOINT_NAMES[joint], "level": level,
+           "csv": tau_csv, "cur_csv": cur_csv, "node_log": log_path}
+
+    sweep = ["ros2", "run", "ur5_identification", "run_current_sweep.py",
+             "--joint", str(joint), "--test-num", str(test_num),
+             "--params-file", params_file, "--friction-level", level,
+             "--out-dir", out_dir, "--yes"]
+    print(f"    $ {' '.join(sweep)}")
+    with open(log_path, "w") as log:
+        rc = subprocess.run(sweep, stdout=log, stderr=subprocess.STDOUT,
+                            timeout=timeout_s).returncode
+    res["sweep_rc"] = rc
+    if rc != 0 or not os.path.exists(cur_csv):
+        print(f"    barrido FALLÓ (rc={rc}); ver {log_path}")
+        res["csv_exists"] = False
+        return res
+
+    cal = ["ros2", "run", "ur5_identification", "calibrate_current.py",
+           "--csv", cur_csv, "--joint", str(joint), "--out", tau_csv]
+    with open(log_path, "a") as log:
+        log.write("\n=== calibracion ===\n")
+        rc = subprocess.run(cal, stdout=log, stderr=subprocess.STDOUT,
+                            timeout=300).returncode
+    res["calib_rc"] = rc
+    res["csv_exists"] = os.path.exists(tau_csv)
+    # `k` y su residuo salen de la cabecera del CSV convertido: son el
+    # indicador de si la conversion corriente->par es fiable en esa junta.
+    if res["csv_exists"]:
+        with open(tau_csv) as fh:
+            for line in fh:
+                if not line.startswith("#"):
+                    break
+                if "k_current_to_torque=" in line:
+                    res["k"] = float(line.split("=")[1])
+                if "k_residuo_relativo=" in line:
+                    res["k_residual"] = float(line.split("=")[1])
+        print(f"    k = {res.get('k', float('nan')):.4f} N·m/A   "
+              f"residuo {100 * res.get('k_residual', float('nan')):.3f} %")
+    return res
+
+
 def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
             log_dir: str, tool_mounted: bool = False, settle_s: float = 8.0,
             timeout_s: float = 900.0):
@@ -390,6 +435,11 @@ def main():
     ap.add_argument("--params-file", default=None)
     ap.add_argument("--tool-mounted", action="store_true",
                     help="el acople del bisturi ESTA montado (por defecto no, §7)")
+    ap.add_argument("--method", choices=["position", "torque"], default="position",
+                    help="position (default): barrido por el JTC leyendo "
+                         "corriente; funciona en las SEIS juntas y salió mas "
+                         "preciso. torque: la via original por control de par, "
+                         "que no puede mover las muñecas")
     ap.add_argument("--home-between-runs", action="store_true",
                     help="tras cada corrida, volver a q_init con el JTC "
                          "(movimiento de POSICION, lento y acotado)")
@@ -438,6 +488,7 @@ def main():
     rclpy.init()
     chk = Checker()
     session = {"started": datetime.now().isoformat(timespec="seconds"),
+               "method": args.method,
                "tool_mounted": bool(args.tool_mounted),
                "tau_scale": args.tau_scale, "params_file": args.params_file,
                "q_init": q_init, "levels": {}, "runs": [],
@@ -495,8 +546,13 @@ def main():
                     print("    Saltada por el operador.")
                     continue
 
-                res = run_one(j, test_num, args.params_file, args.tau_scale,
-                              args.log_dir, args.tool_mounted)
+                if args.method == "position":
+                    res = run_one_position(
+                        j, test_num, args.params_file, level, args.log_dir,
+                        os.path.expanduser("~/.ros/ur5_dyn_control"))
+                else:
+                    res = run_one(j, test_num, args.params_file, args.tau_scale,
+                                  args.log_dir, args.tool_mounted)
                 res["level"] = level
                 # Soltar el mando ANTES de leer nada: si el efector sigue
                 # comandado, la lectura de posicion no vale para nada.

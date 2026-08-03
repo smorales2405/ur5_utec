@@ -576,12 +576,26 @@ llegar a moverse: su fricción estática es mayor.
 El servo interno del robot sí tiene autoridad. La alternativa manda la
 trayectoria al `scaled_joint_trajectory_controller` y registra la corriente:
 
+La campaña entera va por esta vía **por defecto**:
+
 ```bash
-ros2 run ur5_identification run_current_sweep.py --joint 4 --test-num 954
+ros2 run ur5_identification run_friction_campaign_real.py --test-base 950
+# equivale a --method position; --method torque es la vía original
+```
+
+O una junta suelta:
+
+```bash
+ros2 run ur5_identification run_current_sweep.py --joint 4 --test-num 954 \
+    --friction-level 0.0
 ros2 run ur5_identification calibrate_current.py \
     --csv ~/.ros/ur5_dyn_control/cur_954.csv --joint 4 \
     --out ~/.ros/ur5_dyn_control/fl_954.csv
 ```
+
+`--friction-level` fija las escalas por servicio, verifica la respuesta y lo
+anota en la cabecera del CSV (G4). Sin él no se toca nada y el CSV lo registra
+como «no fijado en esta corrida», que es honesto pero no reproducible.
 
 **El campo `effort` es corriente, no par** (G5). La conversión sale del propio
 barrido: en la meseta, a la misma postura y misma rapidez,
@@ -594,7 +608,24 @@ i(−v)·k = g(q) + C·v − f_v·v − f_c
 la **suma** deja `g(q) + C·v`, que el modelo conoce → de ahí `k` por junta; la
 **diferencia** deja la fricción. No hacen falta las constantes de motor de UR.
 
-Validado contra verdad sintética conocida: `k` recuperado exacto (0.8500 frente
+**Contrastado contra el método por par en la misma junta y el mismo nivel**
+(`shoulder_lift`, compensación `0.0`):
+
+| | por par (`fl_901`) | por posición (`fl_951`) |
+|---|---|---|
+| F_v [N·m·s/rad] | 12.47 ± 1.75 | **12.77 ± 0.61** |
+| F_c [N·m] | 6.98 ± 0.86 | **7.21 ± 0.30** |
+| R² | 0.9693 | **0.9965** |
+| CV leave-one-out RMSE | 2.28 | **1.17** |
+
+Concuerdan al 2.5 % y 3.3 %, cada uno dentro del IC95 del otro, y el método por
+posición sale con **la mitad de incertidumbre**: la junta la mueve el servo del
+robot en vez de un controlador peleando contra la fricción. La calibración dio
+`k = 11.8332 N·m/A` con residuo relativo del **0.294 %** y dispersión entre los
+8 niveles de velocidad de 0.0965 N·m/A (0.8 %) — si la relación corriente-par no
+fuese lineal, `k` derivaría entre niveles.
+
+Validado además contra verdad sintética conocida: `k` recuperado exacto (0.8500 frente
 a 0.850) con residuo relativo del 0.000 %, y `F_v = 2.5000`, `F_c = 4.0000`
 frente a los 2.50 / 4.00 verdaderos.
 
