@@ -60,8 +60,33 @@ gz_fl_control_node:
 
     # Ganancias de seguimiento. Altas para que el error de posicion sea pequeno
     # y el torque comandado refleje la dinamica + friccion, no el error.
-    kp: [100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
-    kd: [ 20.0,  20.0,  20.0,  20.0,  20.0,  20.0]
+    # Ganancias ESCALADAS POR INERCIA en las muñecas.
+    #
+    # La ley FL es tau = M(q)(ddq_d + kp*e + kd*de) + nle, así que la
+    # autoridad frente a una perturbación de PAR —la fricción— es
+    # `M_jj * kp_j`, no `kp_j`. Con kp uniforme eso recorre cuatro órdenes
+    # de magnitud: 21.2 N·m por 0.2 rad de error en shoulder_pan frente a
+    # 0.46 en wrist_1 y 0.01 en wrist_3.
+    #
+    # Medido en el robot real: wrist_1 no se movió NADA (0.12 deg frente a
+    # los 66.1 pedidos) ni con la compensación interna en `default`. El par
+    # físico entregado llegó a 2.849 N·m y su fricción estática es mayor,
+    # mientras el techo con kp=100 es M*kp*e_max = 1.79 N·m. No es cuestión
+    # del nivel de compensación: la ganancia era el límite.
+    #
+    # wrist_1 y wrist_2 se suben a la ganancia que da ~8 N·m con 0.2 rad de
+    # error. kd = 2*sqrt(kp) mantiene amortiguamiento crítico: en FL el lazo
+    # de error es `e'' + kd e' + kp e = 0`, independiente de la inercia.
+    #
+    # wrist_3 se queda en 100 A PROPÓSITO: necesitaría kp ~ 155 000, o sea
+    # wn*dt = 0.79, fuera del rango de estabilidad discreta a 500 Hz. No es
+    # barrible con control por par, y se salta con --skip.
+    #
+    #                                    wn [rad/s]   wn*dt
+    #   wrist_1  kp=1700  kd= 82.46         41.2       0.082
+    #   wrist_2  kp=7500  kd=173.21         86.6       0.173
+    kp: [100.0, 100.0, 100.0, 1700.0, 7500.0, 100.0]
+    kd: [ 20.0,  20.0,  20.0,   82.46, 173.21,  20.0]
     tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
 
     trajectory_type: "joint_sweep"
