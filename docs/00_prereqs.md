@@ -540,6 +540,24 @@ sesión con lo que se fijó y lo que se ejecutó.
 La confirmación es teclear el **nombre de la junta**, no Enter: Enter se pulsa
 por inercia, un nombre hay que leerlo.
 
+**Las muñecas no admiten el nivel `0.0`.** La ley FL entrega `M_jj·kp_j·e` de par
+por radián de error, y con `kp` uniforme eso recorre cuatro órdenes de magnitud:
+105.8 N·m/rad en `shoulder_pan` frente a **0.03** en `wrist_3`. Sin la
+compensación interna del robot, la muñeca se queda parada donde el PD iguala su
+fricción estática — medido en `wrist_1`: 44° de error, 1.85 N·m de par, cero
+movimiento. Subir `kp` no lo arregla: `wrist_3` necesitaría ~194 000, o sea
+`ω_n·dt = 0.88`, fuera del rango de estabilidad discreta a 500 Hz.
+
+Es un resultado, no un fallo: es *por qué existe* el `friction_model_controller`
+de UR. Se salta con `--skip` y queda registrado en el YAML de sesión:
+
+```bash
+ros2 run ur5_identification run_friction_campaign_real.py --test-base 900 \
+    --skip 0.0:wrist_1 0.0:wrist_2 0.0:wrist_3
+```
+
+`--skip` admite índice o nombre de junta y `*` como comodín (`0.0:*`, `*:5`).
+
 Una corrida suelta, si hace falta repetir solo una:
 
 ```bash

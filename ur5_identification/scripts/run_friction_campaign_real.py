@@ -205,6 +205,54 @@ def preflight(chk: Checker, q_init, tol: float):
 # Confirmación y ejecución
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+def parse_skip(specs):
+    """
+    `--skip nivel:junta` -> conjunto de pares (nivel, indice_de_junta).
+
+    La junta admite índice (0-5) o nombre (`wrist_1_joint`, o `wrist_1`), y `*`
+    vale como comodín en cualquiera de los dos lados. Ejemplos:
+
+        --skip 0.0:wrist_1 0.0:wrist_2 0.0:wrist_3   las muñecas sin compensar
+        --skip 0.0:*                                 el nivel 0.0 entero
+        --skip *:5                                   wrist_3 en todos los niveles
+
+    Existe porque hay combinaciones que NO son alcanzables, no que no interesen:
+    con la compensación interna a 0.0 la ley FL entrega `M_jj·kp_j·e` de par por
+    error, y en las muñecas eso no llega a vencer la fricción estática — wrist_3
+    da 0.02 N·m con 44° de error. Saltarlas a mano y dejar constancia es más
+    honesto que bajar la tolerancia hasta que "pase".
+    """
+    out = set()
+    for spec in specs or []:
+        if ":" not in spec:
+            raise SystemExit(f"--skip: formato esperado nivel:junta, se dio {spec!r}")
+        lv, jt = spec.split(":", 1)
+        levels = list(LEVELS) if lv.strip() == "*" else [lv.strip()]
+        for level in levels:
+            if level not in LEVELS:
+                raise SystemExit(f"--skip: nivel desconocido {level!r} "
+                                 f"(válidos: {', '.join(LEVELS)})")
+        if jt.strip() == "*":
+            joints = list(range(6))
+        else:
+            key = jt.strip()
+            if key.isdigit():
+                joints = [int(key)]
+            else:
+                cand = [i for i, n in enumerate(JOINT_NAMES)
+                        if n == key or n == key + "_joint"]
+                if not cand:
+                    raise SystemExit(f"--skip: junta desconocida {key!r}")
+                joints = cand
+        for level in levels:
+            for j in joints:
+                if not 0 <= j <= 5:
+                    raise SystemExit(f"--skip: junta fuera de rango: {j}")
+                out.add((level, j))
+    return out
+
+
 def confirm(word: str) -> bool:
     """Confirmación por PALABRA, no por Enter: Enter se pulsa por inercia."""
     try:
@@ -294,11 +342,14 @@ def main():
     ap.add_argument("--params-file", default=None)
     ap.add_argument("--tool-mounted", action="store_true",
                     help="el acople del bisturi ESTA montado (por defecto no, §7)")
+    ap.add_argument("--skip", nargs="+", default=None, metavar="NIVEL:JUNTA",
+                    help="combinaciones a saltar; admite nombre de junta y '*' como comodin. Ej: --skip 0.0:wrist_1 0.0:wrist_2 0.0:wrist_3")
     ap.add_argument("--resume", action="store_true",
                     help="salta las corridas cuyo CSV ya existe")
     ap.add_argument("--log-dir", default=os.path.expanduser("~/.ros/friction_campaign"))
     args = ap.parse_args()
 
+    skip = parse_skip(args.skip)
     os.makedirs(args.log_dir, exist_ok=True)
     if args.params_file is None:
         from ament_index_python.packages import get_package_share_directory
@@ -313,8 +364,10 @@ def main():
 
     print("=" * 74)
     print("  CAMPAÑA DE FRICCIÓN — UR5e REAL")
+    n_total = len(args.joints) * len(args.levels)
+    n_skip = sum(1 for lv in args.levels for j in args.joints if (lv, j) in skip)
     print(f"  {len(args.joints)} juntas x {len(args.levels)} niveles = "
-          f"{len(args.joints) * len(args.levels)} corridas")
+          f"{n_total} corridas" + (f"  ({n_skip} saltadas por --skip)" if n_skip else ""))
     print(f"  tau_scale = {args.tau_scale}  ({100 * args.tau_scale:.0f} % del nominal)")
     print(f"  q_init    = {[round(v, 4) for v in q_init]}  (tol {tol})")
     print("=" * 74)
@@ -336,7 +389,10 @@ def main():
     session = {"started": datetime.now().isoformat(timespec="seconds"),
                "tool_mounted": bool(args.tool_mounted),
                "tau_scale": args.tau_scale, "params_file": args.params_file,
-               "q_init": q_init, "levels": {}, "runs": []}
+               "q_init": q_init, "levels": {}, "runs": [],
+               # Qué se saltó y por orden de quién: sin esto, una campaña
+               # incompleta es indistinguible de una que falló a medias.
+               "skipped": [], "skip_spec": list(args.skip or [])}
     rc = 0
     try:
         for level in args.levels:
@@ -359,6 +415,12 @@ def main():
                 csv = os.path.expanduser(f"~/.ros/ur5_dyn_control/fl_{test_num}.csv")
                 head = f"[nivel {level} · junta {j} · {JOINT_NAMES[j]} · test {test_num}]"
                 print(f"\n  {head}")
+                if (level, j) in skip:
+                    print("    SALTADA por --skip")
+                    session["skipped"].append(
+                        {"level": level, "joint": j,
+                         "joint_name": JOINT_NAMES[j], "test_num": test_num})
+                    continue
                 if args.resume and os.path.exists(csv):
                     print("    ya existe el CSV — se salta (--resume)")
                     continue
