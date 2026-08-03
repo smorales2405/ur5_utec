@@ -566,6 +566,42 @@ ros2 launch ur5_dyn_control ur5e_real.launch.py \
     tau_scale:=0.30 test_num:=901
 ```
 
+### Vía alternativa: barrido por CONTROL DE POSICIÓN
+
+El barrido por par **no puede mover las muñecas**. La ley FL entrega
+`M_jj·kp_j·e` de par por radián de error, y aun subiendo `kp` hasta el límite de
+estabilidad discreta, `wrist_2` saturó en los 8.4 N·m de `tau_scale = 0.30` sin
+llegar a moverse: su fricción estática es mayor.
+
+El servo interno del robot sí tiene autoridad. La alternativa manda la
+trayectoria al `scaled_joint_trajectory_controller` y registra la corriente:
+
+```bash
+ros2 run ur5_identification run_current_sweep.py --joint 4 --test-num 954
+ros2 run ur5_identification calibrate_current.py \
+    --csv ~/.ros/ur5_dyn_control/cur_954.csv --joint 4 \
+    --out ~/.ros/ur5_dyn_control/fl_954.csv
+```
+
+**El campo `effort` es corriente, no par** (G5). La conversión sale del propio
+barrido: en la meseta, a la misma postura y misma rapidez,
+
+```
+i(+v)·k = g(q) + C·v + f_v·v + f_c
+i(−v)·k = g(q) + C·v − f_v·v − f_c
+```
+
+la **suma** deja `g(q) + C·v`, que el modelo conoce → de ahí `k` por junta; la
+**diferencia** deja la fricción. No hacen falta las constantes de motor de UR.
+
+Validado contra verdad sintética conocida: `k` recuperado exacto (0.8500 frente
+a 0.850) con residuo relativo del 0.000 %, y `F_v = 2.5000`, `F_c = 4.0000`
+frente a los 2.50 / 4.00 verdaderos.
+
+`calibrate_current.py` deja el CSV con el esquema del barrido por par, así que
+`run_identification` lo consume sin cambios y **los dos métodos quedan
+comparables sobre las mismas juntas** — validación cruzada limpia para el paper.
+
 **8. Identificación**
 
 ```bash
