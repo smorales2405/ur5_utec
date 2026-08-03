@@ -97,6 +97,10 @@ def main():
     ap.add_argument("--joint", type=int, required=True, choices=range(6))
     ap.add_argument("--urdf", default=None)
     ap.add_argument("--gravity", type=float, default=9.8)
+    ap.add_argument("--k", type=float, default=None,
+                    help="constante corriente->par [N·m/A] conocida, en vez de "
+                         "ajustarla. Necesaria en juntas SIN carga de gravedad "
+                         "(wrist_3), donde no es identificable de sus datos")
     ap.add_argument("--out", default=None, help="CSV convertido a par")
     args = ap.parse_args()
 
@@ -144,19 +148,61 @@ def main():
     # promediar cocientes, que explota cuando la suma se acerca a cero.
     A = np.array(sums_i).reshape(-1, 1)
     b = np.array(sums_m)
-    k, *_ = np.linalg.lstsq(A, b, rcond=None)
-    k = float(k[0])
-    resid = A.flatten() * k - b
+
+    # ¿Tiene esta junta carga de gravedad? Si no, `k` NO es identificable de sus
+    # propios datos: la suma entre sentidos vale cero por construcción y el
+    # ajuste degenera en 0/0.
+    #
+    # Le pasa a wrist_3 SIEMPRE: gira sobre el eje de la herramienta y la masa
+    # que arrastra está centrada en ese eje, así que su par gravitatorio es nulo
+    # en cualquier postura. No es un problema de ruido ni de linealidad, y decir
+    # "la relación corriente-par no es lineal" ahí sería un diagnóstico falso.
+    rms_model = float(np.sqrt((b ** 2).mean()))
+    degenerate = rms_model < 0.05          # [N·m]
+
+    if args.k is not None:
+        k = float(args.k)
+        print(f"\n  k = {k:.4f} N·m/A  (SUMINISTRADA con --k, no ajustada)")
+        resid = A.flatten() * k - b
+    elif degenerate:
+        print(f"\n  El par del modelo es nulo en esta junta "
+              f"(RMS = {rms_model:.5f} N·m): NO tiene carga de gravedad, así que")
+        print("  `k` no es identificable de sus propios datos.")
+        print("\n  La fricción SÍ está medida, en amperios:")
+        print(f"\n{'nivel':>16}{'v [rad/s]':>12}{'friccion [A]':>16}")
+        print("-" * 44)
+        vs, fs = [], []
+        for (lv, m_p, m_n), (_, ip, in_, _, _) in zip(pairs, rows):
+            v = abs(d["dq"][m_p, j].mean())
+            fa = 0.5 * (ip - in_)
+            vs.append(v); fs.append(fa)
+            print(f"{lv:>16}{v:12.4f}{fa:16.5f}")
+        M = np.column_stack([vs, np.ones(len(vs))])
+        coef, *_ = np.linalg.lstsq(M, np.array(fs), rcond=None)
+        r2 = 1.0 - np.var(M @ coef - np.array(fs)) / max(np.var(fs), 1e-30)
+        print(f"\n  f_v = {coef[0]:.5f} A/(rad/s)   f_c = {coef[1]:.5f} A"
+              f"   (R² = {r2:.4f})")
+        print("\n  Para pasarlo a N·m, tome la `k` de una junta del MISMO tamaño")
+        print("  que sí tenga carga —en el UR5e las juntas 4, 5 y 6 comparten")
+        print("  motor y reductora— y vuelva a lanzar con --k:")
+        print(f"      f_v[N·m·s/rad] = {coef[0]:.5f} * k")
+        print(f"      f_c[N·m]       = {coef[1]:.5f} * k")
+        return 2
+    else:
+        k, *_ = np.linalg.lstsq(A, b, rcond=None)
+        k = float(k[0])
+        resid = A.flatten() * k - b
 
     # NO se usa R². El par del modelo es casi el MISMO en todos los niveles —el
     # barrido recorre el mismo rango de posturas y domina la gravedad—, así que
     # `var(b) ~ 0` y `1 - var(resid)/var(b)` da números sin sentido (medido:
     # -3.8e7 sobre datos sintéticos donde k se recuperaba EXACTO). Lo que sí
     # significa algo es el residuo RELATIVO a la magnitud del par.
-    rms_b = float(np.sqrt((b ** 2).mean()))
-    rel = float(np.sqrt((resid ** 2).mean()) / rms_b) if rms_b > 1e-12 else float("inf")
+    rel = (float(np.sqrt((resid ** 2).mean()) / rms_model)
+           if rms_model > 1e-12 else float("inf"))
     spread = float(np.ptp(b / A.flatten())) if len(b) > 1 else 0.0
-    print(f"\n  k = {k:.4f} N·m/A   ({len(pairs)} niveles)")
+    if args.k is None:
+        print(f"\n  k = {k:.4f} N·m/A   ({len(pairs)} niveles)")
     print(f"  residuo relativo = {100 * rel:.3f} %   "
           f"dispersión de k entre niveles = {spread:.4f} N·m/A")
     if rel > 0.05:
