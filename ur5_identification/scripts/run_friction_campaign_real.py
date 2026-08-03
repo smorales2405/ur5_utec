@@ -215,7 +215,8 @@ def confirm(word: str) -> bool:
 
 
 def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
-            log_dir: str, tool_mounted: bool = False, timeout_s: float = 900.0):
+            log_dir: str, tool_mounted: bool = False, settle_s: float = 8.0,
+            timeout_s: float = 900.0):
     """
     Lanza UNA corrida y espera a que la trayectoria acabe.
 
@@ -250,7 +251,15 @@ def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
                     print("    *** SAFE_HOLD: el nodo pidió parada segura ***")
                     break
                 if "HOLD_END" in line:
-                    print("      trayectoria completada")
+                    # NO se mata el nodo aqui. En HOLD_END el controlador regula
+                    # en el ultimo punto de la tabla (= q_center), y matarlo en
+                    # ese instante deja el brazo con el error de seguimiento que
+                    # tuviera: medido, el elbow quedo 0.215 rad fuera y la
+                    # corrida siguiente no pudo arrancar. Se le da tiempo a
+                    # converger, acotado, porque una junta que no puede vencer
+                    # su friccion no convergeria nunca.
+                    print(f"      trayectoria completada; asentando {settle_s:.0f} s")
+                    time.sleep(settle_s)
                     break
                 if time.time() - t0 > timeout_s:
                     print(f"    *** timeout de {timeout_s:.0f} s ***")
