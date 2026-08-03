@@ -57,6 +57,7 @@ import pinocchio as pin
 import rclpy
 import yaml
 from builtin_interfaces.msg import Duration
+from controller_manager_msgs.srv import SwitchController
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -74,6 +75,30 @@ class Mover(Node):
         self._q = None
         self.create_subscription(JointState, "/joint_states", self._cb, 10)
         self._pub = self.create_publisher(JointTrajectory, JTC_TOPIC, 1)
+        self._switch = self.create_client(
+            SwitchController, "/controller_manager/switch_controller")
+
+    def ensure_jtc(self, timeout=10.0):
+        """
+        Asegura que manda el JTC ANTES del primer traslado.
+
+        Sin esto, si se viene de una corrida por par el primer `move_to` publica
+        a un controlador inactivo y se pierde en silencio: medido, la primera
+        postura quedó a 1.5707 rad de su objetivo mientras las demás llegaban
+        exactas, porque `ensure_jtc` vivía dentro del barrido y solo corría a
+        partir del segundo. Y la postura que se pierde es la primera, que suele
+        ser justo la que ancla la ordenada en el origen.
+        """
+        if not self._switch.wait_for_service(timeout_sec=timeout):
+            return False, "servicio switch_controller no disponible"
+        req = SwitchController.Request()
+        req.activate_controllers = ["scaled_joint_trajectory_controller"]
+        req.deactivate_controllers = ["forward_effort_controller"]
+        req.strictness = SwitchController.Request.BEST_EFFORT
+        fut = self._switch.call_async(req)
+        rclpy.spin_until_future_complete(self, fut, timeout_sec=timeout)
+        ok = fut.done() and fut.result() is not None and fut.result().ok
+        return bool(ok), "ok" if ok else "rechazado"
 
     def _cb(self, msg):
         idx = {n: i for i, n in enumerate(msg.name)}
@@ -222,6 +247,9 @@ def main():
     mover = Mover()
     pts = []
     try:
+        okj, msgj = mover.ensure_jtc()
+        print(f"\n  scaled_joint_trajectory_controller activo: "
+              f"{'OK' if okj else 'FALLO'} — {msgj}")
         for i, ang in enumerate(args.angles):
             print(f"\n── postura {i + 1}/{len(args.angles)}: {ang:.1f}° "
                   f"(g = {gs[i]:+.4f} N·m) ──")
