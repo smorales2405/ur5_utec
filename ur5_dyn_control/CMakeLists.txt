@@ -87,7 +87,7 @@ install(TARGETS gz_gravity_comp_node gz_fl_control_node gz_smc_control_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 install(DIRECTORY include/ DESTINATION include)
-install(DIRECTORY urdf config launch worlds DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY urdf config launch worlds meshes DESTINATION share/${PROJECT_NAME})
 
 install(PROGRAMS
   scripts/activate_and_unpause.py

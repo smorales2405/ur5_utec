@@ -65,9 +65,12 @@ profundidad se mantiene constante durante el corte.
 > **no sirve como geometría** para el arco (`du/ds = 1/|p'|` divergería).
 > `ArcLength` lo detecta y lanza excepción en vez de propagar `1/0`.
 
-- **Modelo dinámico**: `ur5_kinematics/share/ur5e.urdf` (brazo solo, sin masa
-  de gripper — coincide con la planta de Gazebo sin Robotiq), gravedad 9.8
-  (la del mundo), frame `gripper_tcp` a 0.141 m de `tool0`.
+- **Modelo dinámico**: `ur5_kinematics/share/ur5e.urdf` (brazo solo) más el
+  **acople porta-bisturí** que añade el hook `ToolInertia` desde
+  `tool_mass`/`tool_com`/`tool_inertia` — así coincide con la planta de Gazebo,
+  que monta el acople vía `urdf/scalpel_tool.xacro`. Gravedad 9.8 (la del
+  mundo), frame `gripper_tcp` = punta de la hoja, a **0.162686 m** de `tool0`.
+  Los dos lados (URDF y YAML) van siempre juntos: ver `docs/00_assumptions.md`.
 - **Comandos**: `Float64MultiArray` en `/forward_effort_controller/commands`
   (`effort_controllers/JointGroupEffortController`) — mismo contrato que el
   `forward_effort_controller` del driver real de UR → los nodos son

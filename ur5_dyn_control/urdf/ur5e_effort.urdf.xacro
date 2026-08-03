@@ -1,9 +1,10 @@
 <?xml version="1.0"?>
 <!--
-  UR5e arm only, con interfaz de comando EFFORT, para control por torque en
-  Gazebo Fortress / ROS 2 Humble. Sin gripper Robotiq, pero manteniendo el
-  frame 'gripper_tcp' a 0.141 m de tool0 (misma cadena que
-  ur5_robotiq_2f85.urdf.xacro — ver ur5_pick_place/urdf/ur5e.urdf.xacro).
+  UR5e con interfaz de comando EFFORT, para control por torque en Gazebo
+  Fortress / ROS 2 Humble. Sin gripper Robotiq: el efector es el ACOPLE
+  PORTA-BISTURI de la campana de incision (scalpel_tool.xacro), y el frame
+  'gripper_tcp' pasa a ser la punta de la hoja, a 0.162686 m de tool0
+  (antes 0.141 m, que era el TCP del gripper Robotiq).
 
   Diferencias respecto a ur5e.urdf.xacro de ur5_pick_place:
    - xacro:ur_robot se instancia con generate_ros2_control_tag="false"
@@ -33,6 +34,8 @@
   <!-- ===== Includes ===== -->
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
   <xacro:include filename="$(find ur5_dyn_control)/urdf/ur5e_effort.ros2_control.xacro"/>
+  <!-- Define la property scalpel_tcp_offset_z y el macro ur5_scalpel_tool. -->
+  <xacro:include filename="$(find ur5_dyn_control)/urdf/scalpel_tool.xacro"/>
 
   <!-- ===== Properties ===== -->
   <xacro:property name="initial_positions_file" value="$(arg initial_positions_file)"/>
@@ -77,15 +80,26 @@
     </plugin>
   </gazebo>
 
+  <!-- ===== Acople porta-bisturi ===== -->
+  <!-- Origen y orientacion IDENTIDAD sobre tool0; el porque esta en la
+       cabecera de scalpel_tool.xacro (la malla apoya por el fondo de su
+       rebaje, que cae exactamente en z = 0 = cara de la brida). -->
+  <xacro:ur5_scalpel_tool parent="$(arg tf_prefix)tool0" prefix="$(arg tf_prefix)"/>
+
   <!-- ===== gripper_tcp frame ===== -->
-  <!-- Frame fijo a 0.141 m de tool0 en Z local (offset combinado adaptador +
-       gripper). Identico al gripper_tcp de ur5_robotiq_2f85.urdf.xacro:
-       mantiene la pose TCP del gripper aunque el modelo no lo lleve. -->
+  <!-- Ahora es la PUNTA DE LA HOJA: scalpel_tcp_offset_z = 0.162686 m de tool0
+       en Z local (antes 0.141 m, el offset del gripper Robotiq que ya no se
+       monta). El nombre se conserva porque es el frame que la IK de
+       ur5_kinematics resuelve POR NOMBRE (JointReferenceGenerator, IKWrapper);
+       renombrarlo obligaria a tocar ur5_kinematics y ur5_pick_place, fuera de
+       alcance.
+       Este valor y el `tcp_offset_z` de config/*.yaml TIENEN que coincidir:
+       es el supuesto A2 (docs/00_assumptions.md). -->
   <link name="gripper_tcp"/>
   <joint name="gripper_tcp_joint" type="fixed">
     <parent link="$(arg tf_prefix)tool0"/>
     <child  link="gripper_tcp"/>
-    <origin xyz="0 0 0.141" rpy="0 0 0"/>
+    <origin xyz="0 0 ${scalpel_tcp_offset_z}" rpy="0 0 0"/>
   </joint>
 
 </robot>

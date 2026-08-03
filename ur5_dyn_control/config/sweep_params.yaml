@@ -34,10 +34,17 @@ gz_fl_control_node:
 
     gravity_in_command: true         # G3 — false en el UR5e real
 
-    tcp_offset_z: 0.141
-    tool_mass: 0.0
-    tool_com: [0.0, 0.0, 0.0]
-    tool_inertia: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    tcp_offset_z: 0.162686               # punta de la hoja (malla del acople)
+    # A1 LEVANTADO: el acople porta-bisturi va montado en la planta
+    # (urdf/scalpel_tool.xacro) y estos valores lo meten en el modelo de
+    # Pinocchio del controlador. Los dos van juntos o el controlador compensa
+    # una gravedad que no es la de la planta.
+    # physical_properites_toolscalpel.png: 0.182 kg, CoG (-2.227, 2.134,
+    # 29.398) mm desde tool0; aqui en el frame TCP (= CoG - [0,0,tcp_offset_z]).
+    tool_mass: 0.182                     # [kg]
+    tool_com: [-0.002227, 0.002134, -0.133288]           # [m] en el frame TCP
+    tool_inertia: [2.39199e-4, 2.54858e-4, 1.19620e-4,   # [kg m^2] resp. al CoM
+                   -8.80e-7, -3.820e-6, -7.570e-6]       # [Ixx,Iyy,Izz,Ixy,Ixz,Iyz]
 
     command_topic: "/forward_effort_controller/commands"
     controller_manager: "/controller_manager"

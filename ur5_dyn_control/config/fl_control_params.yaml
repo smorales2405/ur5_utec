@@ -21,16 +21,25 @@ gz_fl_control_node:
     # -- A2: frame operacional (punta de la hoja == gripper_tcp) --------------
     # Distancia desde tool0 a lo largo de su Z. Unica definicion del offset:
     # la IK de JointReferenceGenerator la toma de aqui via Ur5Dynamics.
-    tcp_offset_z: 0.141
+    # 0.162686 m = vertice de z maximo de la malla del acople (la punta de la
+    # hoja). TIENE que coincidir con scalpel_tcp_offset_z de
+    # urdf/scalpel_tool.xacro, que es lo que se monta en Gazebo.
+    tcp_offset_z: 0.162686
 
-    # -- A1: herramienta montada en el TCP (acople del bisturi) ---------------
-    # mass = 0 -> modelo de brazo solo (supuesto A1 VIGENTE, ver
-    # docs/00_assumptions.md). Rellenar SOLO con valores medidos o de CAD; el
-    # nodo avisa por log cuando mass > 0 porque eso levanta el supuesto.
-    tool_mass: 0.0                        # [kg]        PENDIENTE de medir
-    tool_com: [0.0, 0.0, 0.0]             # [m] en el frame TCP
-    tool_inertia: [0.0, 0.0, 0.0,         # [kg m^2] respecto al CoM:
-                   0.0, 0.0, 0.0]         #   [Ixx, Iyy, Izz, Ixy, Ixz, Iyz]
+    # -- A1 LEVANTADO: acople porta-bisturi montado en el TCP -----------------
+    # Ya no es "brazo solo": urdf/scalpel_tool.xacro anade el acople a la
+    # planta de Gazebo, y estos valores lo anaden al modelo de Pinocchio del
+    # controlador. Si se desactiva uno hay que desactivar el otro, o el
+    # controlador compensara una gravedad que no es la de la planta.
+    # Fuente: physical_properites_toolscalpel.png (Autodesk Inventor), medido
+    # respecto del Work Point del CAD == tool0.
+    #   masa 0.182 kg   CoG (-2.227, 2.134, 29.398) mm desde tool0
+    # `tool_com` va en el frame TCP, asi que se traslada:
+    #   com_TCP = com_tool0 - [0, 0, tcp_offset_z]
+    tool_mass: 0.182                      # [kg]
+    tool_com: [-0.002227, 0.002134, -0.133288]   # [m] en el frame TCP
+    tool_inertia: [2.39199e-4, 2.54858e-4, 1.19620e-4,   # [kg m^2] resp. al CoM:
+                   -8.80e-7, -3.820e-6, -7.570e-6]       #   [Ixx,Iyy,Izz,Ixy,Ixz,Iyz]
 
     # -- Pose inicial (= initial_positions.yaml del bringup) -----------------
     q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]

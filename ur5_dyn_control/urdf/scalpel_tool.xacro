@@ -1,0 +1,139 @@
+<?xml version="1.0"?>
+<!--
+  Acople porta-bisturi del UR5e (herramienta de la campana de incision).
+
+  ============================================================================
+   Marco de referencia
+  ============================================================================
+  El OBJ del CAD tiene su origen EN LA CARA DE LA BRIDA, es decir en `tool0`,
+  con la misma orientacion. Verificado sobre la malla, no supuesto:
+
+    - El acople tiene un rebaje cilindrico de Ø63.4 mm y 7.0 mm de profundidad
+      en su cara trasera (vertices en z = -7.000, radio 31.700..37.500).
+    - El fondo de ese rebaje es una cara plana EXACTAMENTE en z = 0 (anillo de
+      radio 5.550..31.700): es la cara que apoya contra la brida.
+    - El resalte de la brida del UR5e es Ø63 x 6.5 mm (link6_measurements1/2).
+      Como el rebaje (7.0) es MAS profundo que el resalte (6.5), el acople
+      hace tope por el fondo del rebaje, o sea por z = 0 == `tool0`.
+
+  Por eso el montaje es con origen y orientacion identidad respecto de `tool0`.
+
+  ============================================================================
+   Punta de la hoja
+  ============================================================================
+  Vertice de z maximo de la malla:  (0.316, 4.280, 162.686) mm.
+
+    -> ${scalpel_tcp_offset_z} = 0.162686 m desde `tool0`.
+
+  NOTA (discrepancia de 2.5 mm que conviene tener presente): restar los 6.5 mm
+  del resalte a los 171.686 mm de `mounting_measurements.png` da 165.186 mm. Esa
+  cota esta tomada desde un datum que cae 9.0 mm por detras de `tool0` (medido:
+  la punta de flecha queda 2.0 mm por detras de la cara trasera del acople, que
+  esta en z = -7), no 6.5 mm. La distancia brida->punta que da la malla, 162.686
+  mm, es ademas independiente de la altura del resalte, porque el acople siempre
+  hace tope contra la cara de la brida. Si se prefiere la otra cifra, se cambia
+  la property de abajo y los `tcp_offset_z` de config/*.yaml.
+
+  ============================================================================
+   Orientacion de la hoja
+  ============================================================================
+  El filo mira hacia -Y de `tool0`. Trazado sobre la malla (puntos a media
+  altura del espesor de 0.4 mm, o sea sobre el bisel):
+
+      y = -0.92 mm @ z = 137.3      ... y = -1.22 @ z = 151.7  (tramo recto)
+      -> curva de la panza hasta la punta en y = +4.28 @ z = 162.686
+
+  El conector de herramienta del UR5e (la "rosca" del gripper) esta tambien en
+  -Y de `tool0`: la protuberancia de la malla wrist3.dae sale a radio 43.5 mm
+  con azimut -90 grados. Filo y conector coinciden, luego el requisito "el filo
+  apunta hacia la rosca de conexion" se cumple con rotacion IDENTIDAD.
+
+  Consecuencia para la incision: con `tcp_orientation_rpy = [pi, 0, pi]` el eje
+  Y de la herramienta coincide con el +Y de `base_link`, y el trazo recorre Y
+  con `cut_direction = -1`. El filo va POR DELANTE del movimiento y la hoja
+  corta en su propio plano. No hay componente lateral.
+
+  ============================================================================
+   Colisiones
+  ============================================================================
+  Primitivas, NO la malla. Una colision de tipo trimesh con 70 904 caras hunde
+  el RTF (ya medido en este workspace: 0.07 con la mesa de cirugia como
+  trimesh). Las cinco primitivas envuelven la malla por exceso.
+
+  Masa e inercia: `physical_properites_toolscalpel.png` (Autodesk Inventor),
+  respecto del mismo Work Point == `tool0`. Momentos en kg mm^2 -> x1e-6.
+-->
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+
+  <!-- Distancia `tool0` -> punta de la hoja. UNICO sitio donde vive esta cota
+       dentro del URDF; los nodos la reciben por el parametro `tcp_offset_z`. -->
+  <xacro:property name="scalpel_tcp_offset_z" value="0.162686"/>
+
+  <xacro:macro name="ur5_scalpel_tool" params="parent prefix:=''">
+
+    <link name="${prefix}scalpel_tool">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <!-- OBJ en MILIMETROS (unidades del CAD) -> scale 1e-3.
+               El .mtl vive junto al .obj; lo resuelve el cargador. -->
+          <mesh filename="file://$(find ur5_dyn_control)/meshes/scalpel_tool/ur5_scalpel_coupling.obj"
+                scale="0.001 0.001 0.001"/>
+        </geometry>
+      </visual>
+
+      <!-- 1/5 cuerpo cilindrico del acople: z [-7.0, 25.7] mm, Ø75 -->
+      <collision>
+        <origin xyz="0 0 0.00935" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.0375" length="0.0327"/></geometry>
+      </collision>
+      <!-- 2/5 oreja lateral: x [-51.48, -37.64], y [-19.91, 19.91], z [7.2, 25.7] -->
+      <collision>
+        <origin xyz="-0.04456 0 0.01645" rpy="0 0 0"/>
+        <geometry><box size="0.01384 0.03982 0.01850"/></geometry>
+      </collision>
+      <!-- 3/5 nariz troncocónica: x [-35, 35], y [4.0, 35.0], z [25.7, 99.7] -->
+      <collision>
+        <origin xyz="0 0.01950 0.06270" rpy="0 0 0"/>
+        <geometry><box size="0.07000 0.03100 0.07400"/></geometry>
+      </collision>
+      <!-- 4/5 mordazas del mango: x [-12.5, 12.5], y [-11.53, -1.85], z [45.7, 99.7] -->
+      <collision>
+        <origin xyz="0 -0.00669 0.07270" rpy="0 0 0"/>
+        <geometry><box size="0.02500 0.00968 0.05400"/></geometry>
+      </collision>
+      <!-- 5/5 mango + hoja por debajo de la nariz:
+           x [-3.184, 1.016], y [-2.142, 7.008], z [99.7, 162.686] -->
+      <collision>
+        <origin xyz="-0.001084 0.002433 0.131193" rpy="0 0 0"/>
+        <geometry><box size="0.004200 0.009150 0.062986"/></geometry>
+      </collision>
+
+      <inertial>
+        <!-- Centro de gravedad respecto de tool0: (-2.227, 2.134, 29.398) mm -->
+        <origin xyz="-0.002227 0.002134 0.029398" rpy="0 0 0"/>
+        <mass value="0.182"/>
+        <!-- Tensor respecto del CoG, ejes de tool0 [kg m^2].
+             Los productos de inercia son ~1e-3 de los momentos, asi que el
+             convenio de signo del CAD no cambia nada numericamente. -->
+        <inertia ixx="2.39199e-4" ixy="-8.80e-7"  ixz="-3.820e-6"
+                 iyy="2.54858e-4" iyz="-7.570e-6"
+                 izz="1.19620e-4"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}scalpel_tool_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child  link="${prefix}scalpel_tool"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <!-- Sin este material el acople sale gris plano en Gazebo: el plugin de
+         render usa el .mtl para el color difuso, pero SDFormat necesita
+         ademas que el visual no declare uno propio que lo pise. Se deja el
+         <gazebo> vacio a proposito para documentar que es intencionado. -->
+    <gazebo reference="${prefix}scalpel_tool"/>
+
+  </xacro:macro>
+
+</robot>
