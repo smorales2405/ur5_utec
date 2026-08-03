@@ -309,9 +309,16 @@ def main():
     print(f"  sin sesgo : k = {k1:8.4f} N·m/A                      "
           f"residuo {100 * r1:.3f} %")
     print(f"{'=' * 56}")
-    if np.ptp(s) < 0.05:
-        print("  AVISO: la suma sigue variando poco; `k` e `i0` no se separan "
-              "bien. Amplíe el rango de posturas.")
+    # El umbral va en RELATIVO, no en amperios absolutos: lo que condiciona el
+    # ajuste es cuánto varía la suma frente a su propia magnitud, no su valor en
+    # A. Con un umbral absoluto el aviso saltaba en wrist_2 con un rango del
+    # 163 % —perfectamente condicionado— solo porque sus corrientes son
+    # pequeñas.
+    rel_range = float(np.ptp(s) / max(abs(s).mean(), 1e-12))
+    if rel_range < 0.5:
+        print(f"  AVISO: la suma varía solo un {100 * rel_range:.0f} % de su "
+              f"magnitud; `k` e `i0` no se separan bien. Amplíe el rango de "
+              f"posturas.")
     print(f"\n  Para convertir: --k {k:.4f}")
     return 0
 
