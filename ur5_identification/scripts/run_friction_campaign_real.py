@@ -302,7 +302,8 @@ def confirm(word: str) -> bool:
 
 
 def run_one_position(joint: int, test_num: int, params_file: str, level: str,
-                     log_dir: str, out_dir: str, timeout_s: float = 900.0):
+                     log_dir: str, out_dir: str, k_known=None,
+                     timeout_s: float = 900.0):
     """
     Corrida por CONTROL DE POSICIÓN: barrido + calibración corriente→par.
 
@@ -333,6 +334,12 @@ def run_one_position(joint: int, test_num: int, params_file: str, level: str,
 
     cal = ["ros2", "run", "ur5_identification", "calibrate_current.py",
            "--csv", cur_csv, "--joint", str(joint), "--out", tau_csv]
+    # `k` conocida de la calibración multipostura. Sin ella, las juntas SIN par
+    # gravitatorio en q_init —wrist_2 a -90 grados y wrist_3 siempre— no pueden
+    # convertir la corriente a par y la corrida se queda a medias.
+    if k_known is not None:
+        cal += ["--k", f"{k_known:.6f}"]
+        res["k_supplied"] = float(k_known)
     with open(log_path, "a") as log:
         log.write("\n=== calibracion ===\n")
         rc = subprocess.run(cal, stdout=log, stderr=subprocess.STDOUT,
@@ -435,6 +442,11 @@ def main():
     ap.add_argument("--params-file", default=None)
     ap.add_argument("--tool-mounted", action="store_true",
                     help="el acople del bisturi ESTA montado (por defecto no, §7)")
+    ap.add_argument("--k", nargs="+", default=None, metavar="JUNTA:VALOR",
+                    help="constantes corriente->par conocidas, de "
+                         "calibrate_multipose.py. Imprescindible en las juntas "
+                         "sin par gravitatorio en q_init (wrist_2, wrist_3). "
+                         "Ej: --k 3:9.7582 4:11.6792 5:11.6792")
     ap.add_argument("--method", choices=["position", "torque"], default="position",
                     help="position (default): barrido por el JTC leyendo "
                          "corriente; funciona en las SEIS juntas y salió mas "
@@ -451,6 +463,12 @@ def main():
     args = ap.parse_args()
 
     skip = parse_skip(args.skip)
+    k_map = {}
+    for spec in args.k or []:
+        if ":" not in spec:
+            raise SystemExit(f"--k: formato esperado junta:valor, se dio {spec!r}")
+        a, b = spec.split(":", 1)
+        k_map[int(a)] = float(b)
     os.makedirs(args.log_dir, exist_ok=True)
     if args.params_file is None:
         from ament_index_python.packages import get_package_share_directory
@@ -489,6 +507,7 @@ def main():
     chk = Checker()
     session = {"started": datetime.now().isoformat(timespec="seconds"),
                "method": args.method,
+               "k_supplied": {str(a): b for a, b in k_map.items()},
                "tool_mounted": bool(args.tool_mounted),
                "tau_scale": args.tau_scale, "params_file": args.params_file,
                "q_init": q_init, "levels": {}, "runs": [],
@@ -549,7 +568,8 @@ def main():
                 if args.method == "position":
                     res = run_one_position(
                         j, test_num, args.params_file, level, args.log_dir,
-                        os.path.expanduser("~/.ros/ur5_dyn_control"))
+                        os.path.expanduser("~/.ros/ur5_dyn_control"),
+                        k_known=k_map.get(j))
                 else:
                     res = run_one(j, test_num, args.params_file, args.tau_scale,
                                   args.log_dir, args.tool_mounted)
