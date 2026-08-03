@@ -215,7 +215,7 @@ def confirm(word: str) -> bool:
 
 
 def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
-            log_dir: str, timeout_s: float = 900.0):
+            log_dir: str, tool_mounted: bool = False, timeout_s: float = 900.0):
     """
     Lanza UNA corrida y espera a que la trayectoria acabe.
 
@@ -227,6 +227,9 @@ def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
     cmd = ["ros2", "launch", "ur5_dyn_control", "ur5e_real.launch.py",
            "controller:=fl", f"params_file:={params_file}",
            "trajectory_type:=joint_sweep", f"sweep_joint:={joint}",
+           # La campaña se corre con el efector DESCARGADO (§7). Declararlo
+           # aquí evita la herramienta fantasma en el modelo del nodo.
+           f"tool_mounted:={'true' if tool_mounted else 'false'}",
            f"tau_scale:={tau_scale}", f"test_num:={test_num}"]
     log_path = os.path.join(log_dir, f"run_{test_num}.log")
     print(f"    $ {' '.join(cmd)}")
@@ -280,6 +283,8 @@ def main():
     ap.add_argument("--tau-scale", type=float, default=0.30,
                     help="fracción del par nominal (checklist §7: empezar en 0.30)")
     ap.add_argument("--params-file", default=None)
+    ap.add_argument("--tool-mounted", action="store_true",
+                    help="el acople del bisturi ESTA montado (por defecto no, §7)")
     ap.add_argument("--resume", action="store_true",
                     help="salta las corridas cuyo CSV ya existe")
     ap.add_argument("--log-dir", default=os.path.expanduser("~/.ros/friction_campaign"))
@@ -320,6 +325,7 @@ def main():
     rclpy.init()
     chk = Checker()
     session = {"started": datetime.now().isoformat(timespec="seconds"),
+               "tool_mounted": bool(args.tool_mounted),
                "tau_scale": args.tau_scale, "params_file": args.params_file,
                "q_init": q_init, "levels": {}, "runs": []}
     rc = 0
@@ -368,7 +374,7 @@ def main():
                     continue
 
                 res = run_one(j, test_num, args.params_file, args.tau_scale,
-                              args.log_dir)
+                              args.log_dir, args.tool_mounted)
                 res["level"] = level
                 # Soltar el mando ANTES de leer nada: si el efector sigue
                 # comandado, la lectura de posicion no vale para nada.

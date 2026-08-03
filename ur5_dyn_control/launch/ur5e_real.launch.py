@@ -101,6 +101,22 @@ def launch_setup(context, *args, **kwargs):
             raise RuntimeError(f"gains_file no existe: {gains_file}")
         params.append(gains_file)
 
+    # ¿Está el acople del bisturí FÍSICAMENTE montado?
+    #
+    # En Gazebo la planta lleva la herramienta siempre (scalpel_tool.xacro está
+    # en el URDF), así que los YAML declaran sus 0.182 kg. En el robot real es
+    # un hecho del operador, y el checklist §7 manda hacer los primeros ensayos
+    # SIN bisturí — de ahí que el default sea false.
+    #
+    # Desparejar los dos lados es lo que A1 prohíbe expresamente: el nodo
+    # calcula tau_phys = tau_cmd + g(q) con SU modelo, mientras el robot
+    # compensa la gravedad REAL. Con una herramienta fantasma el error va entero
+    # a la columna que usa el identificador de fricción: hasta 1.047 N·m en
+    # shoulder_lift y 0.902 en elbow, del orden de la fricción de Coulomb que se
+    # quiere medir.
+    tool_mounted = LaunchConfiguration("tool_mounted").perform(context)
+    tool_mounted = tool_mounted.strip().lower() in ("1", "true", "yes")
+
     # Overrides que NO son negociables en el robot real.
     real = {
         "use_sim_time": False,
@@ -112,6 +128,10 @@ def launch_setup(context, *args, **kwargs):
         "deactivate_controllers": ["scaled_joint_trajectory_controller"],
         "tau_max": tau_max,
     }
+    if not tool_mounted:
+        real["tool_mass"] = 0.0
+        real["tool_com"] = [0.0, 0.0, 0.0]
+        real["tool_inertia"] = [0.0] * 6
 
     # Overrides opcionales del operador.
     optional = {}
@@ -141,6 +161,7 @@ def launch_setup(context, *args, **kwargs):
     print(f"  tau_max: {['%.1f' % t for t in tau_max]}  "
           f"({100 * scale:.0f} % del nominal)")
     print("  gravity_in_command = FALSE  (G3: el robot compensa g(q) dentro)")
+    print(f"  herramienta: {'MONTADA (0.182 kg en el modelo)' if tool_mounted else 'NO montada -> tool_mass = 0'}")
     print("  switch: +forward_effort_controller  "
           "-scaled_joint_trajectory_controller")
     print("  Paro de emergencia a mano. Nadie dentro del espacio de trabajo.")
@@ -168,6 +189,11 @@ def generate_launch_description():
             description="fraccion del par nominal del UR5e (checklist §7: "
                         "empezar en 0.30 y subir gradualmente)"),
         DeclareLaunchArgument("test_num", default_value=""),
+        DeclareLaunchArgument(
+            "tool_mounted", default_value="false",
+            description="¿está el acople del bisturí montado en el robot? "
+                        "false (default, checklist §7) fuerza tool_mass = 0 para "
+                        "que modelo y planta no queden desparejados"),
         # Sin esto, el ensayo de sostén (skip_trajectory:=true) no termina
         # nunca: `t_sim` es lo que acota su duración. Solo tiene efecto con
         # skip_trajectory; una corrida con trayectoria acaba con la tabla.
