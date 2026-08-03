@@ -59,7 +59,9 @@ from datetime import datetime
 import rclpy
 import yaml
 from rclpy.node import Node
+from builtin_interfaces.msg import Duration
 from controller_manager_msgs.srv import SwitchController
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from sensor_msgs.msg import JointState
 from ur_msgs.srv import SetFrictionModelParameters
 
@@ -98,6 +100,9 @@ class Checker(Node):
         self._fric = self.create_client(SetFrictionModelParameters, FRICTION_SRV)
         self._switch = self.create_client(SwitchController,
                                           "/controller_manager/switch_controller")
+        self._jtc = self.create_publisher(
+            JointTrajectory,
+            "/scaled_joint_trajectory_controller/joint_trajectory", 10)
 
     def _cb(self, msg: JointState):
         idx = {n: i for i, n in enumerate(msg.name)}
@@ -178,6 +183,49 @@ class Checker(Node):
             prev = q
             time.sleep(0.2)
         return False, worst
+
+    def go_home(self, q_init, speed: float = 0.25, settle: float = 2.0):
+        """
+        Lleva el robot a q_init con el JTC (control de POSICION, no de par).
+
+        Hace falta porque las juntas NO barridas se mueven durante el barrido:
+        el par de acoplamiento las arrastra y el FL no puede retenerlas — su
+        autoridad es `M_jj·kp_j` y en las muñecas eso vale 2.32 N·m/rad. Medido
+        barriendo el elbow a 1.0 rad/s, wrist_1 recorrió 15° con la compensación
+        interna a 0.0 y **114°** con la compensación en `default`: el robot le
+        quita a la muñeca la fricción que la sujetaba.
+
+        El resultado es que la corrida siguiente arranca fuera de tolerancia y
+        hay que recolocar a mano. Esto lo automatiza, pero con el JTC y despacio,
+        que es un movimiento acotado y de posición — no control por par.
+        """
+        q = self.joint_state()
+        if q is None:
+            return False, "sin /joint_states"
+        err = max(abs(a - b) for a, b in zip(q, q_init))
+        if err < 1e-3:
+            return True, "ya en q_init"
+        dur = max(3.0, err / max(speed, 1e-6))
+
+        msg = JointTrajectory()
+        msg.joint_names = list(JOINT_NAMES)
+        pt = JointTrajectoryPoint()
+        pt.positions = [float(v) for v in q_init]
+        pt.velocities = [0.0] * 6
+        pt.time_from_start = Duration(sec=int(dur), nanosec=int((dur % 1) * 1e9))
+        msg.points = [pt]
+        self._jtc.publish(msg)
+
+        t0 = time.time()
+        while time.time() - t0 < dur + settle:
+            rclpy.spin_once(self, timeout_sec=0.1)
+        q = self.joint_state()
+        if q is None:
+            return False, "sin /joint_states tras el movimiento"
+        err = max(abs(a - b) for a, b in zip(q, q_init))
+        return err < 0.05, f"error final {err:.4f} rad"
+
+
 
 
 def preflight(chk: Checker, q_init, tol: float):
@@ -342,6 +390,9 @@ def main():
     ap.add_argument("--params-file", default=None)
     ap.add_argument("--tool-mounted", action="store_true",
                     help="el acople del bisturi ESTA montado (por defecto no, §7)")
+    ap.add_argument("--home-between-runs", action="store_true",
+                    help="tras cada corrida, volver a q_init con el JTC "
+                         "(movimiento de POSICION, lento y acotado)")
     ap.add_argument("--skip", nargs="+", default=None, metavar="NIVEL:JUNTA",
                     help="combinaciones a saltar; admite nombre de junta y '*' como comodin. Ej: --skip 0.0:wrist_1 0.0:wrist_2 0.0:wrist_3")
     ap.add_argument("--resume", action="store_true",
@@ -452,6 +503,10 @@ def main():
                 ok_rel, msg_rel = chk.release_effort()
                 res["effort_released"] = ok_rel
                 print(f"    control devuelto al JTC: {'OK' if ok_rel else 'FALLO'} — {msg_rel}")
+                if args.home_between_runs:
+                    ok_home, msg_home = chk.go_home(q_init)
+                    res["homed"] = ok_home
+                    print(f"    vuelta a q_init: {'OK' if ok_home else 'FALLO'} — {msg_home}")
                 still, drift = chk.wait_until_still()
                 res["settled"] = still
                 res["drift_after"] = drift
