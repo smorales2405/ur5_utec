@@ -5,6 +5,7 @@
 #include <pinocchio/spatial/explog.hpp>
 
 #include <chrono>
+#include <thread>
 #include <fstream>
 #include <iomanip>
 #include <cmath>
@@ -464,6 +465,33 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
 
 TorqueControlNodeBase::~TorqueControlNodeBase()
 {
+  // PAR CERO ANTES DE MORIR. No es cortesia: es lo unico que corta un comando
+  // latcheado.
+  //
+  // Al terminar el nodo, `forward_effort_controller` sigue ACTIVO y conserva el
+  // ultimo Float64MultiArray recibido; el driver lo sigue aplicando por
+  // direct_torque hasta que expira RobotReceiveTimeout. En una junta sin carga
+  // de gravedad —shoulder_pan— un par residual de 1-2 N·m la acelera sin nada
+  // que la frene.
+  //
+  // Medido en el UR5e real: entre el fin de una corrida de la campana de
+  // friccion y el arranque de la siguiente, shoulder_pan giro 4.7 rad (~2.6
+  // rad/s) y la corrida siguiente aborto en SAFE_HOLD por posicion inicial
+  // fuera de tolerancia. El brazo estaba girando solo.
+  //
+  // Se publica repetido porque un unico mensaje puede perderse si el proceso
+  // muere antes de que salga por DDS. En el robot real el par cero deja el
+  // brazo flotando compensado por la gravedad interna, que es el estado pasivo
+  // seguro; en Gazebo cae, pero alli no hay nadie delante.
+  if (tau_pub_) {
+    std_msgs::msg::Float64MultiArray stop;
+    stop.data.assign(6, 0.0);
+    for (int i = 0; i < 10; ++i) {
+      tau_pub_->publish(stop);
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    RCLCPP_INFO(get_logger(), "Par cero publicado al terminar.");
+  }
   csv_.close();
 }
 

@@ -59,6 +59,7 @@ from datetime import datetime
 import rclpy
 import yaml
 from rclpy.node import Node
+from controller_manager_msgs.srv import SwitchController
 from sensor_msgs.msg import JointState
 from ur_msgs.srv import SetFrictionModelParameters
 
@@ -95,6 +96,8 @@ class Checker(Node):
         self._t = 0.0
         self.create_subscription(JointState, "/joint_states", self._cb, 10)
         self._fric = self.create_client(SetFrictionModelParameters, FRICTION_SRV)
+        self._switch = self.create_client(SwitchController,
+                                          "/controller_manager/switch_controller")
 
     def _cb(self, msg: JointState):
         idx = {n: i for i, n in enumerate(msg.name)}
@@ -126,6 +129,55 @@ class Checker(Node):
         res = fut.result()
         ok = bool(getattr(res, "success", True))
         return ok, str(getattr(res, "message", "")) or ("ok" if ok else "rechazado")
+
+
+    def release_effort(self, timeout: float = 10.0):
+        """
+        Devuelve el mando al controlador de trayectoria entre corridas.
+
+        Dejar `forward_effort_controller` activo sin nadie publicando es lo que
+        hizo que shoulder_pan girase sola 4.7 rad entre dos corridas: el
+        controlador conserva el ultimo comando y el driver lo sigue aplicando.
+        El nodo ya publica par cero al morir; esto es el cinturon, por si el
+        nodo muere de forma que no ejecute su destructor.
+        """
+        if not self._switch.wait_for_service(timeout_sec=timeout):
+            return False, "servicio switch_controller no disponible"
+        req = SwitchController.Request()
+        req.deactivate_controllers = ["forward_effort_controller"]
+        req.activate_controllers = ["scaled_joint_trajectory_controller"]
+        req.strictness = SwitchController.Request.BEST_EFFORT
+        fut = self._switch.call_async(req)
+        rclpy.spin_until_future_complete(self, fut, timeout_sec=timeout)
+        if not fut.done() or fut.result() is None:
+            return False, "sin respuesta"
+        return bool(fut.result().ok), "ok" if fut.result().ok else "rechazado"
+
+    def wait_until_still(self, tol: float = 0.01, samples: int = 5,
+                         timeout: float = 15.0):
+        """
+        Espera a que el brazo deje de moverse. Devuelve (quieto, desplazamiento).
+
+        Sin esto, el preflight puede leer una posicion que ya no es valida un
+        segundo despues: fue exactamente el modo de fallo (el preflight leyo
+        1.498 y el nodo, 1.8 s despues, 6.204).
+        """
+        t0 = time.time()
+        prev, still = None, 0
+        worst = 0.0
+        while time.time() - t0 < timeout:
+            q = self.joint_state(timeout=2.0)
+            if q is None:
+                return False, float("inf")
+            if prev is not None:
+                d = max(abs(a - b) for a, b in zip(q, prev))
+                worst = max(worst, d)
+                still = still + 1 if d < tol else 0
+                if still >= samples:
+                    return True, d
+            prev = q
+            time.sleep(0.2)
+        return False, worst
 
 
 def preflight(chk: Checker, q_init, tol: float):
@@ -318,6 +370,19 @@ def main():
                 res = run_one(j, test_num, args.params_file, args.tau_scale,
                               args.log_dir)
                 res["level"] = level
+                # Soltar el mando ANTES de leer nada: si el efector sigue
+                # comandado, la lectura de posicion no vale para nada.
+                ok_rel, msg_rel = chk.release_effort()
+                res["effort_released"] = ok_rel
+                print(f"    control devuelto al JTC: {'OK' if ok_rel else 'FALLO'} — {msg_rel}")
+                still, drift = chk.wait_until_still()
+                res["settled"] = still
+                res["drift_after"] = drift
+                if not still:
+                    print(f"    !! el brazo NO se detiene (desplazamiento {drift:.4f} "
+                          f"rad entre lecturas). Revise el robot antes de seguir.")
+                    rc = 1
+                    raise SystemExit
                 session["runs"].append(res)
                 print(f"    CSV: {'OK' if res['csv_exists'] else 'NO SE CREÓ'} "
                       f"{res['csv']}")
