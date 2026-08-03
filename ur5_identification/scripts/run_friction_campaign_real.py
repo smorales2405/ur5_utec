@@ -110,20 +110,45 @@ class Checker(Node):
                 return list(self._q)
         return None
 
-    def set_friction(self, viscous, coulomb, timeout: float = 10.0):
-        """Fija las escalas y devuelve (ok, mensaje). G4: se VERIFICA."""
+    def set_friction(self, viscous, coulomb, timeout: float = 10.0,
+                     attempts: int = 3):
+        """
+        Fija las escalas y devuelve (ok, mensaje). G4: se VERIFICA.
+
+        Se REINTENTA porque `wait_for_service` solo mira el grafo: confirma que
+        el servidor existe, no que el emparejamiento DDS entre este cliente y él
+        haya terminado. En esa ventana la primera petición se pierde sin dejar
+        rastro y el futuro no se completa nunca. Medido en la campaña del
+        3-ago-2026: la llamada del nivel «0.0» —la primera de la sesión— expiró
+        a los 10 s, y la de «default», idéntica en todo salvo los valores y
+        lanzada veinte segundos después, respondió al instante.
+
+        Un rechazo del driver NO se parece a esto: vuelve con success=False y un
+        mensaje. El silencio es siempre transporte, así que reintentar no puede
+        enmascarar unos valores que el robot haya rehusado.
+        """
         if not self._fric.wait_for_service(timeout_sec=timeout):
             return False, f"servicio {FRICTION_SRV} no disponible"
-        req = SetFrictionModelParameters.Request()
-        req.parameters.viscous_scale = [float(v) for v in viscous]
-        req.parameters.coulomb_scale = [float(c) for c in coulomb]
-        fut = self._fric.call_async(req)
-        rclpy.spin_until_future_complete(self, fut, timeout_sec=timeout)
-        if not fut.done() or fut.result() is None:
-            return False, "sin respuesta del servicio"
-        res = fut.result()
-        ok = bool(getattr(res, "success", True))
-        return ok, str(getattr(res, "message", "")) or ("ok" if ok else "rechazado")
+        for n in range(attempts):
+            req = SetFrictionModelParameters.Request()
+            req.parameters.viscous_scale = [float(v) for v in viscous]
+            req.parameters.coulomb_scale = [float(c) for c in coulomb]
+            fut = self._fric.call_async(req)
+            rclpy.spin_until_future_complete(self, fut, timeout_sec=timeout)
+            if fut.done() and fut.result() is not None:
+                res = fut.result()
+                ok = bool(getattr(res, "success", True))
+                msg = (str(getattr(res, "message", ""))
+                       or ("ok" if ok else "rechazado"))
+                return ok, (msg if n == 0 else f"{msg} (al intento {n + 1})")
+            # Sin esto la petición muerta se queda en la cola del cliente y
+            # rclpy avisa por cada una en las llamadas siguientes.
+            self._fric.remove_pending_request(fut)
+            if n + 1 < attempts:
+                print(f"    servicio de fricción sin respuesta en {timeout:.0f} s"
+                      f" — reintento {n + 2}/{attempts}")
+                time.sleep(1.0)
+        return False, f"sin respuesta del servicio tras {attempts} intentos"
 
 
     def release_effort(self, timeout: float = 10.0):
