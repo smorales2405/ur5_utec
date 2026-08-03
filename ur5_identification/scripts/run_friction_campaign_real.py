@@ -316,6 +316,42 @@ def parse_skip(specs):
     return out
 
 
+def gravity_rms(q_init, joint: int, amplitude: float, n: int = 201):
+    """
+    |media| del par gravitatorio de una junta a lo largo de su barrido, en N·m.
+
+    Decide si `calibrate_current.py` podrá convertir corriente a par: el método
+    saca `k` de la SUMA entre sentidos, que vale g(q) + C·v; si la gravedad no
+    carga esa junta la suma es cero y el ajuste degenera en 0/0.
+
+    Se promedia CON SIGNO, no en RMS, porque es lo que el ajuste ve de verdad:
+    compara medias de meseta, y las mesetas a +v y a -v recorren el mismo tramo.
+    La diferencia decide un caso real — wrist_2 arranca a -90 grados, que es
+    justo el cruce por cero de su par gravitatorio, así que barre entre valores
+    opuestos: su RMS sale 0.24 N·m, aparentando carga de sobra, pero la media se
+    cancela a 0.00000 y la calibración degenera. Que es exactamente lo que hizo.
+
+    Devuelve None si no se puede evaluar; el aviso se omite y no se estorba.
+    """
+    try:
+        import numpy as np
+        import pinocchio as pin
+        from ament_index_python.packages import get_package_share_directory
+        urdf = os.path.join(get_package_share_directory("ur5_kinematics"),
+                            "ur5e.urdf")
+        model = pin.buildModelFromUrdf(urdf)
+        model.gravity.linear = np.array([0.0, 0.0, -9.8])
+        data = model.createData()
+        taus = []
+        for a in np.linspace(-amplitude, amplitude, n):
+            q = np.array(q_init, dtype=float)
+            q[joint] += a
+            taus.append(pin.computeGeneralizedGravity(model, data, q)[joint])
+        return abs(float(np.mean(taus)))
+    except Exception:
+        return None
+
+
 def confirm(word: str) -> bool:
     """Confirmación por PALABRA, no por Enter: Enter se pulsa por inercia."""
     try:
@@ -339,8 +375,12 @@ def run_one_position(joint: int, test_num: int, params_file: str, level: str,
     log_path = os.path.join(log_dir, f"run_{test_num}.log")
     cur_csv = os.path.join(out_dir, f"cur_{test_num}.csv")
     tau_csv = os.path.join(out_dir, f"fl_{test_num}.csv")
+    # `safe_hold` es un estado del nodo de PAR, que aquí no interviene: el
+    # barrido lo comanda el JTC. Se declara igualmente porque el bucle de
+    # campaña lo consulta en cada corrida, y sin la clave la campaña entera
+    # revienta despues de mover el robot, que es el peor momento posible.
     res = {"test_num": test_num, "joint": joint, "method": "position",
-           "joint_name": JOINT_NAMES[joint], "level": level,
+           "joint_name": JOINT_NAMES[joint], "level": level, "safe_hold": False,
            "csv": tau_csv, "cur_csv": cur_csv, "node_log": log_path}
 
     sweep = ["ros2", "run", "ur5_identification", "run_current_sweep.py",
@@ -515,6 +555,26 @@ def main():
     print(f"  tau_scale = {args.tau_scale}  ({100 * args.tau_scale:.0f} % del nominal)")
     print(f"  q_init    = {[round(v, 4) for v in q_init]}  (tol {tol})")
     print("=" * 74)
+
+    # Se avisa ANTES de mover nada: sin esto, una junta sin carga de gravedad se
+    # descubre despues de un barrido de cinco minutos, al fallar la conversion.
+    if args.method == "position":
+        sin_k = [(j, g) for j, g in
+                 ((j, gravity_rms(q_init, j, rp["sweep"]["amplitude"]))
+                  for j in args.joints)
+                 if g is not None and g < 0.05 and j not in k_map]
+        if sin_k:
+            print("\n  AVISO — juntas SIN par gravitatorio en su barrido:")
+            for j, g in sin_k:
+                print(f"    junta {j} ({JOINT_NAMES[j]}): |g| medio = {g:.5f} N·m")
+            print("  El barrido saldrá bien y la fricción quedará MEDIDA, pero en")
+            print("  AMPERIOS: `k` no es identificable de sus propios datos, así que")
+            print("  no se generará el CSV en N·m. Para tenerlo, pase --k JUNTA:VALOR.")
+            if 0 in [j for j, _ in sin_k]:
+                print("  shoulder_pan no tiene arreglo por postura: su eje es VERTICAL,")
+                print("  luego su par gravitatorio es nulo en toda configuración. Su `k`")
+                print("  solo sale por otra vía (p.ej. la corrida de par equivalente).")
+
     print("\n  Checklist §7 del plan — confirme ANTES de continuar:")
     for item in ("velocidad reducida activa en el teach pendant",
                  "paro de emergencia al alcance de la mano",
@@ -619,7 +679,7 @@ def main():
                 session["runs"].append(res)
                 print(f"    CSV: {'OK' if res['csv_exists'] else 'NO SE CREÓ'} "
                       f"{res['csv']}")
-                if res["safe_hold"]:
+                if res.get("safe_hold"):
                     print("\n  *** El nodo entró en SAFE_HOLD. Se aborta la campaña. ***")
                     print("  Revise el robot antes de continuar.")
                     rc = 1
