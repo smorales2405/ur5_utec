@@ -220,7 +220,97 @@ Analizador: `ur5_identification/scripts/analyze_reaching.py`.
 
 ---
 
-## 7. Artefactos de paper que habilita esta fase
+## 7. Con la fricción REAL en la planta: el feedforward se bloquea
+
+Tres corridas sobre la trayectoria nueva (`surface_z` = 0.03), **mismas
+ganancias**, cambiando solo la condición de fricción. La fricción inyectada es la
+medida en el robot físico ([`02_friction_real.md`](02_friction_real.md) §3.1).
+
+| corrida | condición | TCP RMSE | TCP max | max\|s\| | \|s\|/φ |
+|---|---|---|---|---|---|
+| `smc_401` | sin fricción | **0.130 mm** | 0.52 mm | 0.411 | 8.2 |
+| `smc_402` | fricción, sin compensar | 258.99 mm | 324.08 mm | 11.533 | 230.7 |
+| `smc_400` | fricción + `tanh` | 170.42 mm | 217.19 mm | 11.475 | 229.5 |
+
+La línea base confirma que **la trayectoria está sana**: 0.130 mm de TCP y
+errores articulares de ~1e-5 rad. Todo el deterioro viene de la fricción.
+
+### 7.1 El feedforward funciona donde la junta se mueve, y no hace nada donde se atasca
+
+RMSE articular [rad], y el factor de mejora que aporta compensar:
+
+| junta | sin fricción | sin compensar | con `tanh` | mejora |
+|---|---|---|---|---|
+| shoulder_lift | 0.00003 | 0.04728 | **0.00030** | **158×** |
+| elbow | 0.00006 | 0.25980 | **0.01623** | **16×** |
+| shoulder_pan | 0.00001 | 0.16004 | 0.15987 | 1.00× |
+| wrist_1 | 0.00049 | 0.40385 | 0.40133 | 1.01× |
+| wrist_3 | 0.00003 | 0.16005 | 0.15987 | 1.00× |
+| wrist_2 | 0.00002 | 0.00000 | 0.00000 | — |
+
+En `shoulder_lift` la compensación devuelve el seguimiento a **la décima parte
+del error de la planta sin fricción** — es decir, funciona casi perfectamente. En
+`shoulder_pan`, `wrist_1` y `wrist_3` no cambia nada.
+
+La causa está en el par comandado:
+
+| junta | sin compensar | con `tanh` | aporta | necesita |
+|---|---|---|---|---|
+| shoulder_lift | 54.04 | 65.65 | **+11.6** | 9.9 |
+| shoulder_pan | 3.74 | 3.83 | **+0.09** | 7.99 |
+
+`frictionFeedforward` usa la velocidad **medida**, y el término de Coulomb es
+`F_c·tanh(q̇/ε)` con ε = 1e-3 rad/s. Si la junta está clavada, `q̇ ≈ 0`,
+`tanh → 0` y la compensación vale cero: **hace falta movimiento para activar lo
+que debería producir el movimiento**. `shoulder_lift` y `elbow` arrancan porque
+sus términos nominales (gravedad, 18 N·m) bastan para romper la adherencia, y
+una vez en marcha la compensación entra y hace su trabajo. `shoulder_pan` no
+tiene gravedad ninguna: su `K = η + α·|nominales|` da 3.8 N·m contra 7.99 que
+necesita, no rompe, y se queda bloqueada para siempre.
+
+`wrist_2` y `wrist_3` no llegan a comandar ni 0.04 N·m.
+
+> La limitación ya estaba escrita en `torque_command.hpp` («cerca de q̇ = 0 la
+> compensación tiende a cero, así que NO cancela la fricción estática») y en
+> `02_friction.md`. Lo nuevo es el precio: **un 34 % de mejora global
+> (259 → 170 mm) cuando en las juntas que sí arrancan vale 158×.**
+
+### 7.2 Qué haría falta
+
+Con las velocidades reales de esta trayectoria, `K = F_c + F_v·|q̇|max`:
+
+| junta | K necesaria | χ resultante | % de τ_max |
+|---|---|---|---|
+| shoulder_pan | 7.99 | 0.3 ✅ | 5.3 % |
+| shoulder_lift | 9.93 | 0.2 ✅ | 6.6 % |
+| elbow | 11.87 | 0.5 ✅ | 7.9 % |
+| wrist_1 | 2.42 | 4.2 ❌ | 8.7 % |
+| wrist_2 | 2.76 | 20.7 ❌ | 9.9 % |
+| wrist_3 | 3.35 | **515** ❌ | 12.0 % |
+
+Las tres juntas grandes se arreglan **subiendo η**, sin acercarse al límite
+discreto ni al del actuador: con un 8 % del par disponible. Es sintonía, y le
+toca a la FASE 7.
+
+En las muñecas no hay sintonía que valga. El par que necesitan es el 9–12 % de su
+actuador —músculo sobra— pero χ se dispara porque su inercia es minúscula. Y el
+feedforward por sí solo tampoco basta: compensando al 95 %, a `wrist_3` le
+quedarían 0.16 N·m de residual, que siguen dando χ ≈ 25.
+
+**Dos vías, y hay que elegir explícitamente:**
+
+1. **Compensar con `q̇_deseada` en vez de `q̇_medida`.** Rompe el bloqueo: al
+   inicio del movimiento `q̇_d ≠ 0`, así que la compensación se activa ANTES de
+   que la junta se mueva. Es un cambio aditivo al nodo (un modo más), no rompe la
+   interfaz. No resuelve χ en las muñecas, pero quita de en medio el bloqueo, que
+   es lo que hoy arruina tres juntas.
+2. **φ por junta.** Para χ ≤ 0.8 haría falta φ ≈ 0.26 / 1.29 / 32.2 rad/s en las
+   tres muñecas. Con φ = 32 rad/s `wrist_3` deja de tener modo deslizante y pasa
+   a ser un lazo lineal de ganancia `K/φ` = 0.10 N·m/(rad/s).
+
+---
+
+## 8. Artefactos de paper que habilita esta fase
 
 - **Figura de 3 paneles** (`s(t)`, `τ(t)`, espectro) para `sign` vs `sat`: los
   datos están en `smc_511.csv` (sign) y `smc_510.csv` (sat).
