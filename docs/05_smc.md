@@ -354,8 +354,96 @@ equilibrio, no la arranca.** Un margen del 5 % (0.16 N·m) bastaría, pero da
 χ ≈ 25 frente al límite de 0.8 — así que `wrist_3` necesita la opción B (φ por
 junta, ≈ 1.5 rad/s), y con ese φ deja de tener modo deslizante.
 
+> **RETIRADO por §7.5.** El razonamiento de arriba es correcto como cálculo,
+> pero la evidencia que lo respaldaba NO lo es: `wrist_3` no estaba clavada por
+> falta de margen, sino **congelada por el integrador** (`b·dt/I` = 11.1). Con el
+> viscoso aislado, arranca y sigue la referencia a 0.14° con 3.21 N·m. Lo que
+> quede de este apartado hay que releerlo a la luz de §7.5.
+
 Que `wrist_2` marque 0.00000 no es un éxito: su referencia apenas se mueve en
 esta trayectoria, así que no llega a ejercitarse.
+
+---
+
+### 7.5 `phi` por junta, y un ARTEFACTO del simulador que invalida a `wrist_3`
+
+Parámetro nuevo `phi_joint` (6 valores; vacío = usar el escalar `phi`, que es lo
+que escriben los ficheros de ganancias de la FASE 7). φ solo significa algo
+**relativo a K**, así que subirlo sin subir η debilita la junta en vez de
+reforzarla: la opción B es necesariamente un cambio conjunto.
+
+Valores ensayados, de imponer `χ ≤ 0.8` con un margen del 20 % de la fricción:
+
+| junta | η | φ | χ | K/φ efectiva |
+|---|---|---|---|---|
+| pan · lift · elbow | sin cambio | 0.05 | 0.04 | — |
+| wrist_1 | 0.0232 → 0.485 | 0.0521 | 0.80 | 9.30 |
+| wrist_2 | 0.0054 → 0.553 | 0.2582 | 0.80 | 2.14 |
+| wrist_3 | 0.00026 → 0.670 | 6.5015 | 0.80 | **0.103** |
+
+`wrist_1` mejora 1.8× (RMSE 0.00099 → 0.00056) y el TCP baja de 0.542 a
+0.516 mm. La columna `K/φ` es un **techo**, no una elección: vale `0.8·M_ii/dt`,
+así que a 500 Hz `wrist_3` no puede tener más autoridad por unidad de error.
+
+#### El artefacto
+
+`wrist_3` marcó `|s|/φ` = 0.59 —cumpliendo `|s| = O(φ)`— con el error
+**intacto** (0.15994 → 0.15995 rad). Criterio satisfecho de forma **vacía**: con
+φ = 6.5 rad/s y `|s|` ≈ 3.8, `s` está dentro de la capa por construcción. No hay
+modo deslizante y el indicador no lo delata.
+
+Al mirar por qué, apareció algo peor. Con η = 8.0 (par de conmutación de
+7.83 N·m, **+146 % sobre la fricción estática**, en el 97 % de los ciclos), la
+junta se movió **0.0000°** exactos. Eso no es física.
+
+Aislando el término:
+
+| | recorrido de q₆ | RMSE | \|τ₆\| máx |
+|---|---|---|---|
+| `b₆ = 2.87` (medido) | **0.0000°** | 0.15995 rad | 7.83 |
+| `b₆ = 0`, Coulomb intacto en 3.18 | **10.8197°** | **0.00246 rad** | 3.21 |
+
+**Es el viscoso, no el Coulomb.** Quitando solo `b₆`, la junta recorre sus
+10.82° (de 10.98 pedidos), sigue a 0.14° y le basta con 3.21 N·m — con los
+3.18 N·m de Coulomb inyectados. El modelo de Coulomb de Gazebo aguanta bien la
+inercia de `wrist_3`; el viscoso no.
+
+```
+número de rigidez   b·dt/I        (dt = 1 ms de física)
+   pan    0.014      wrist_1   0.057
+  lift    0.005      wrist_2   0.346
+ elbow    0.016      wrist_3  11.144   <- unica junta por encima de 1
+```
+
+`I/b` = 90 µs frente a un paso de 1 ms. No es un fallo de modelado: la junta es
+*genuinamente* así de rígida, y el integrador no puede representarla.
+
+#### Alcance del daño
+
+- **Toda medida de `wrist_3` en Gazebo con la fricción inyectada es inválida**
+  (corridas 400, 403, 404, 406). Lo de las otras cinco juntas se sostiene.
+- **La FASE 8 produciría resultados de muñeca inválidos en silencio** si inyecta
+  la fricción medida.
+- **El evaluador de la FASE 7 tiene el mismo problema y peor**: con `dt` = 2 ms,
+  `b·dt/I` = 22.3 y su integrador semi-implícito es EXPLÍCITO en `q̇`, factor de
+  amplificación −21.3. No se congelaría: **divergiría**, y `simulate()` lo
+  marcaría como `diverged` — el NSGA-II descartaría esas ganancias como «no
+  viables» cuando lo que falla es el integrador. Antes de enchufar la fricción al
+  optimizador hay que tratar el viscoso de forma implícita.
+
+Simular las muñecas con la fricción real pide un paso de ~90 µs: **10× más
+lento**. Las alternativas son inyectar solo el Coulomb en `wrist_3` y declarar el
+viscoso como no modelado, o bajar el paso solo en las campañas de muñeca.
+
+#### Y un dato que cuestiona el propio criterio χ
+
+En la corrida que sí se movió, `wrist_3` funcionó con **χ = 3.83** —casi cinco
+veces el límite de 0.8— y **sin chattering**: cero cambios de signo, `|s|/φ` =
+0.05, `TV(τ₆)` = 171 N·m en 30 s. El umbral χ ≤ 0.8 se midió en la FASE 5 sobre
+una planta SIN fricción; con fricción real la disipación amortigua el ciclo
+límite que ese criterio evita. Conviene re-medirlo antes de imponerlo como
+restricción dura en la FASE 7: tal como está, puede estar descartando regiones
+válidas del espacio de ganancias.
 
 ---
 

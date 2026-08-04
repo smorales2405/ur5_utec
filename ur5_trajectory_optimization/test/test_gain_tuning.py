@@ -264,3 +264,36 @@ def test_la_friccion_no_cuenta_como_saturacion_del_actuador():
     assert r_con.n_sat == r_sin.n_sat, (
         f"la friccion se esta contando como saturacion del actuador "
         f"(n_sat={r_con.n_sat} con friccion, {r_sin.n_sat} sin ella)")
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_phi_por_junta_escala_chi_junta_a_junta():
+    """
+    `phi` por junta: `chi_i = (K_i/phi_i)/M_ii` tiene que responder junta a
+    junta, no en bloque.
+
+    Es lo que permite darle a wrist_3 la autoridad que necesita sin arrastrar
+    al resto: con un phi comun, el unico valor que mantiene chi bajo alli deja
+    a las juntas grandes con una capa limite absurdamente ancha.
+    """
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant, n=5)
+    kw = dict(lam=np.full(6, 20.0), eta=np.full(6, 1.0), alpha=0.3)
+
+    ley_esc = SmcLaw(phi=0.05, **kw)
+    ley_vec = SmcLaw(phi=np.full(6, 0.05), **kw)
+    args = (plant.model, plant.data, Q_INIT, np.zeros(6),
+            Q_INIT, np.zeros(6), np.zeros(6))
+    # Un escalar y su difusion a seis tienen que dar exactamente lo mismo:
+    # es lo que garantiza que los ficheros de ganancias ya generados por la
+    # FASE 7, que escriben `phi` escalar, sigan significando lo mismo.
+    assert np.allclose(ley_esc(*args)[2]["chi"], ley_vec(*args)[2]["chi"])
+
+    phi = np.array([0.05, 0.05, 0.05, 0.05, 0.05, 5.0])
+    chi_ref = ley_esc(*args)[2]["chi"]
+    chi_pj = SmcLaw(phi=phi, **kw)(*args)[2]["chi"]
+    assert np.allclose(chi_pj[:5], chi_ref[:5]), "un phi por junta afecto a otras"
+    assert np.isclose(chi_pj[5], chi_ref[5] * 0.05 / 5.0), "chi_6 no escalo con 1/phi_6"
+
+    with pytest.raises(ValueError):
+        SmcLaw(phi=np.array([0.05] * 5 + [0.0]), **kw)

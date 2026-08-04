@@ -64,9 +64,35 @@ public:
     // aplica. Manda el tiempo de alcance y también el chattering.
     eta_ = vec6("eta", {5.0, 5.0, 5.0, 1.0, 1.0, 1.0});
 
-    phi_ = declare_parameter<double>("phi", 0.05);
-    if (!(phi_ > 0.0)) {
+    const double phi_scalar = declare_parameter<double>("phi", 0.05);
+    if (!(phi_scalar > 0.0)) {
       throw std::runtime_error("phi debe ser > 0 (es el ancho de la capa límite)");
+    }
+    // phi POR JUNTA. Vacio = usar el escalar `phi` en las seis, que es el
+    // comportamiento historico y lo que escriben los ficheros de ganancias de
+    // la FASE 7; por eso `phi` sigue siendo escalar y esto es un anadido
+    // opcional, en vez de cambiarle el tipo y romper lo ya generado.
+    //
+    // Hace falta porque el umbral de estabilidad discreta va por junta:
+    // chi_i = (K_i/phi)·dt/M_ii, y la inercia del UR5e abarca cuatro ordenes de
+    // magnitud (2.59 kg m2 en shoulder_lift, 2.6e-4 en wrist_3). Un phi comun
+    // que sea razonable en el hombro deja chi ~ 515 en wrist_3 (docs/05_smc.md
+    // §7.2): la junta no puede recibir la autoridad que necesita para vencer su
+    // friccion sin que el lazo discreto se vuelva inestable.
+    phi_ = Vector6d::Constant(phi_scalar);
+    const auto phi_joint = declare_parameter<std::vector<double>>(
+      "phi_joint", std::vector<double>{});
+    if (!phi_joint.empty()) {
+      if (phi_joint.size() != 6) {
+        throw std::runtime_error(
+                "phi_joint debe tener 6 valores (o estar vacio para usar `phi`)");
+      }
+      for (int i = 0; i < 6; ++i) {
+        if (!(phi_joint[static_cast<size_t>(i)] > 0.0)) {
+          throw std::runtime_error("phi_joint: todos los valores deben ser > 0");
+        }
+        phi_[i] = phi_joint[static_cast<size_t>(i)];
+      }
     }
     // α ∈ (0,1]: fracción de los términos nominales que se asume incierta.
     // El plan barre 0.1 / 0.3 / 0.5 / 1.0 como estudio de sensibilidad.
@@ -87,8 +113,15 @@ public:
 
     // El string se materializa en una variable: pasar .c_str() de un temporal
     // a un printf-like es un uso despues de destruir.
+    const bool phi_uniforme =
+      (phi_.maxCoeff() - phi_.minCoeff()) < 1e-12;
     const std::string phi_txt =
-      use_sat_ ? (" (phi=" + std::to_string(phi_) + ")") : std::string();
+      use_sat_
+      ? (phi_uniforme
+        ? (" (phi=" + std::to_string(phi_[0]) + ")")
+        : (" (phi POR JUNTA=[" + std::to_string(phi_[0]) + " ... " +
+        std::to_string(phi_[5]) + "])"))
+      : std::string();
     RCLCPP_INFO(get_logger(),
                 "SMC rho=%s%s | lambda=[%.1f ...] eta=[%.1f ...] alpha=%.2f",
                 sw.c_str(), phi_txt.c_str(), lambda_[0], eta_[0], alpha_);
@@ -128,7 +161,7 @@ protected:
     Vector6d rho;
     for (int i = 0; i < 6; ++i) {
       rho[i] = use_sat_
-        ? std::clamp(s_[i] / phi_, -1.0, 1.0)
+        ? std::clamp(s_[i] / phi_[i], -1.0, 1.0)
         : ((s_[i] > 0.0) ? 1.0 : ((s_[i] < 0.0) ? -1.0 : 0.0));
     }
 
@@ -142,7 +175,7 @@ protected:
 
 private:
   Vector6d lambda_, eta_;
-  double phi_ = 0.05;
+  Vector6d phi_ = Vector6d::Constant(0.05);
   double alpha_ = 0.3;
   bool use_sat_ = true;
   Vector6d s_ = Vector6d::Zero();

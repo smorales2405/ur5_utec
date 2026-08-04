@@ -74,6 +74,7 @@ def launch_setup(context, *args, **kwargs):
             overrides[arg] = float(raw)
     for arg, key in (("friction_f_v", "friction.f_v"),
                      ("friction_f_c", "friction.f_c"),
+                     ("phi_joint", "phi_joint"),
                      ("initial_offset", "initial_offset")):
         raw = LaunchConfiguration(arg).perform(context).strip()
         if raw:
@@ -161,6 +162,12 @@ def generate_launch_description():
                               description="ancho de la capa limite de sat(s/phi)"),
         DeclareLaunchArgument("alpha", default_value="",
                               description="fraccion de incertidumbre en (0,1]"),
+        DeclareLaunchArgument(
+            "phi_joint", default_value="",
+            description="6 anchos de capa limite [rad/s], uno por junta. "
+                        "'' = usar el escalar `phi` en las seis. El umbral "
+                        "discreto (K/phi)·dt/M_ii va POR JUNTA y la inercia "
+                        "del UR5e abarca 4 ordenes de magnitud"),
         # FASE 5 — ensayo de tiempo de alcance.
         DeclareLaunchArgument(
             "initial_offset", default_value="",

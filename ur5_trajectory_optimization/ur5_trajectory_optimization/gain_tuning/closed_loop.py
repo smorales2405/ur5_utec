@@ -142,7 +142,7 @@ class SmcLaw:
     discreta por junta SIN el `dt` (lo aplica `simulate`, que es quien lo
     conoce):
 
-        chi_i = (K_i / phi) / M_ii        [1/s]  →  ·dt es adimensional
+        chi_i = (K_i / phi_i) / M_ii      [1/s]  →  ·dt es adimensional
 
     Dentro de la capa límite `sat(s/phi)` no conmuta: actúa como una ganancia
     proporcional `K/phi`, así que el polo del lazo es `(K/phi)/M_ii` y el lazo
@@ -150,12 +150,20 @@ class SmcLaw:
     la unidad. La FASE 5 midió que ese umbral, y no el compromiso clásico de
     `phi`, es lo que gobierna el chattering (docs/05_smc.md §4-5), así que
     se instrumenta aquí para poder imponerlo como restricción.
+
+    `phi` admite un escalar o seis valores. El nodo lo expone como el parametro
+    escalar `phi` mas un `phi_joint` opcional de seis; aqui basta un array
+    porque numpy difunde el escalar. Hace falta por junta porque el umbral
+    discreto va por junta y la inercia del UR5e abarca cuatro ordenes de
+    magnitud: un phi comun razonable en el hombro deja chi ~ 515 en wrist_3.
     """
 
     def __init__(self, lam, eta, phi, alpha=0.3, use_sat=True):
         self.lam = np.asarray(lam, float)
         self.eta = np.asarray(eta, float)
-        self.phi = float(phi)
+        self.phi = np.broadcast_to(np.asarray(phi, float), (6,)).copy()
+        if not np.all(self.phi > 0.0):
+            raise ValueError("phi debe ser > 0 en las seis juntas")
         self.alpha = float(alpha)
         self.use_sat = bool(use_sat)
 
