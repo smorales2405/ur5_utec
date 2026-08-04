@@ -224,3 +224,43 @@ def test_base_cubica_tiene_el_numero_de_terminos_correcto():
     cruzados, cúbico con cruzados)."""
     assert _cubic_features(np.zeros((5, 3))).shape == (5, 20)
     assert _cubic_features(np.zeros((2, 2))).shape == (2, 10)
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_la_friccion_no_cuenta_como_saturacion_del_actuador():
+    """
+    `n_sat` mide cuando el CONTROLADOR pide mas par del que el actuador da.
+
+    La friccion es una fuerza de la planta: no la manda nadie y ningun limite
+    de actuador la recorta. Sumarla a `tau_law` antes del `clip` —como se hacia
+    antes— contaba saturaciones inexistentes y, si el mando saturaba, recortaba
+    tambien la friccion. Con friccion nula daba igual; con los ~7 N·m medidos en
+    el UR5e real, no.
+
+    Aqui la ley pide poco par (referencia inmovil en q_init) y se inyectan 40
+    N·m de friccion en wrist_1, cuyo tau_max es 28: con el orden viejo saltaria
+    la cuenta desde el primer ciclo, con el correcto no salta ninguna.
+
+    El horizonte es de 3 pasos A PROPOSITO. Con 40 N·m sobre una inercia de
+    0.023 kg m² la junta se dispara en decenas de milisegundos, y a partir de
+    ahi la ley SI pide par de sobra para recuperarla: esa saturacion es real y
+    enmascararia lo que se quiere medir. La corrida sin friccion sirve de
+    control, para comparar contra el mismo estado y no contra cero absoluto.
+    """
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant, n=3)
+    law = SmcLaw(lam=np.full(6, 1.0), eta=np.full(6, 1e-3), phi=0.1, alpha=0.1)
+
+    f_grande = np.zeros(6)
+    f_grande[3] = -40.0                      # > tau_max[3] = 28 N·m
+    r_sin = simulate(law, ref, plant)
+    r_con = simulate(law, ref, plant, friction=lambda dq: f_grande)
+
+    assert r_sin.n_sat == 0, "la corrida de control ya satura; test invalido"
+    # Sin esto el test pasaria tambien con el gancho de friccion MUERTO, que es
+    # el otro modo de fallo: la friccion tiene que llegar a la planta.
+    assert r_con.rmse_q > 10 * r_sin.rmse_q, (
+        "la friccion no esta afectando a la planta: el gancho no hace nada")
+    assert r_con.n_sat == r_sin.n_sat, (
+        f"la friccion se esta contando como saturacion del actuador "
+        f"(n_sat={r_con.n_sat} con friccion, {r_sin.n_sat} sin ella)")

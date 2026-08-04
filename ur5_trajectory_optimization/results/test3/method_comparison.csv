@@ -1,0 +1,5 @@
+# CU3 — method comparison metrics
+# HV ref_point: [20000.0, 3.0, 0.0]
+method,n_solutions,n_nondominated,hypervolume,spacing,igd_vs_combined,c_vs_other,c_by_other,time_s,n_evals,n_ik_fail,n_clearance_fail,slsqp_converged,slsqp_total,slsqp_avg_iter
+NSGA-II,60,60,586.957122,15.726849,2.137128,0.0323,0.0500,46.4,7200,538,201,-,-,-
+e-constraint,35,31,558.799380,15.753836,90.753410,0.0500,0.0323,46.6,7987,0,196,32,35,12.9

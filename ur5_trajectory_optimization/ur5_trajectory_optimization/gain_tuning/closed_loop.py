@@ -285,11 +285,21 @@ def simulate(law, ref: Reference, plant: Plant,
                                ref.q[k], ref.dq[k], ref.ddq[k])
         if "chi" in info:
             chi_max = max(chi_max, float(np.max(info["chi"])) * dt)
-        if friction is not None:
-            tau_law = tau_law + friction(dq)
+        # La saturacion se evalua sobre la salida del CONTROLADOR, y la friccion
+        # entra despues, en la planta. Antes se sumaba la friccion a `tau_law` y
+        # se recortaba el conjunto, lo que mezcla dos cosas distintas: `n_sat`
+        # contaba ciclos en los que el actuador no estaba pidiendo de mas —era
+        # la friccion la que abultaba la suma— y, si el mando saturaba, el
+        # recorte se comia tambien la friccion, que es una fuerza de la planta y
+        # no puede recortarla ningun limite de actuador. Con friccion nula daba
+        # igual; con los 7 N·m medidos en el robot real, no.
         tau = np.clip(tau_law, -TAU_MAX, TAU_MAX)
         if np.any(np.abs(tau_law) > TAU_MAX):
             n_sat += 1
+        if friction is not None:
+            # `friction(dq)` devuelve el par que la friccion EJERCE sobre la
+            # junta (signo contrario al movimiento), no su magnitud.
+            tau = tau + friction(dq)
 
         # Fuerza externa: se mapea al espacio articular con Jᵀ.
         tau_ext = np.zeros(6)

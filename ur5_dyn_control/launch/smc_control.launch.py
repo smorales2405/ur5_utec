@@ -55,6 +55,13 @@ def launch_setup(context, *args, **kwargs):
     sw = LaunchConfiguration("switching_function").perform(context).strip()
     if sw:
         overrides["switching_function"] = sw
+    # FASE 7: volcado de la tabla de referencia que consume el optimizador. Se
+    # expone como argumento —y no solo como parametro del YAML— porque hay que
+    # regenerarla cada vez que cambia la trayectoria, y editar el YAML a mano
+    # para eso es justo como se acaba optimizando contra una referencia vieja.
+    ref_out = LaunchConfiguration("reference_table_out").perform(context).strip()
+    if ref_out:
+        overrides["reference_table_out"] = os.path.expanduser(ref_out)
     for arg in ("phi", "alpha"):
         raw = LaunchConfiguration(arg).perform(context).strip()
         if raw:
@@ -135,6 +142,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "switching_function", default_value="",
             description="'' = params_file; si no: sign | sat"),
+        DeclareLaunchArgument(
+            "reference_table_out", default_value="",
+            description="ruta donde volcar la tabla {q, dq, ddq} de referencia "
+                        "que consume el optimizador de la FASE 7"),
         DeclareLaunchArgument("phi", default_value="",
                               description="ancho de la capa limite de sat(s/phi)"),
         DeclareLaunchArgument("alpha", default_value="",
