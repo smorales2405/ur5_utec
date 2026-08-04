@@ -336,6 +336,10 @@ retardo de una muestra del lazo, ciclo límite con la velocidad saturando en
 - [`docs/02_friction.md`](../docs/02_friction.md) — identificación de fricción y
   el control negativo: en una planta sin fricción, las juntas cargadas por
   gravedad muestran fricción viscosa **aparente** por el desfase de ~1 ms.
+- [`docs/02_friction_real.md`](../docs/02_friction_real.md) — campaña sobre el
+  UR5e físico: barrido por posición leyendo **corriente** (G5), y la compensación
+  interna del driver, que la corriente **no ve** porque mide el par total y no el
+  reparto que hace el controlador.
 - [`docs/04_lqr_sdre.md`](../docs/04_lqr_sdre.md) — LQR-SDRE: la discrepancia
   del plan entre `τ` y `A` (resuelta a favor de `A`), la síntesis de `Q ∝ M²` y
   por qué la CARE se resuelve por función signo y no por autovectores (con
