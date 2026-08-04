@@ -310,6 +310,55 @@ quedarían 0.16 N·m de residual, que siguen dando χ ≈ 25.
 
 ---
 
+### 7.3 Opción A implementada: `friction.dq_source = desired`
+
+Parámetro nuevo en `TorqueControlNodeBase` (`measured` por defecto). Con
+`desired`, el feedforward se alimenta de `ref.dq` en vez de la velocidad medida,
+así que se activa **antes** de que la junta se mueva.
+
+| corrida | condición | TCP RMSE | max\|s\|/φ | TV(τ) |
+|---|---|---|---|---|
+| `smc_401` | sin fricción | 0.130 mm | 8.2 | 65257 |
+| `smc_402` | fricción, sin compensar | 258.99 mm | 230.7 | 3624 |
+| `smc_400` | compensada con q̇ medida | 170.42 mm | 229.5 | 4300 |
+| `smc_403` | **compensada con q̇ deseada** | **0.542 mm** | 76.6 | 10087 |
+
+**314× mejor que con la velocidad medida**, y a 4× de la planta sin fricción —
+con las MISMAS ganancias. No se tocó ni un η.
+
+| junta | q̇ medida | q̇ deseada | mejora | max\|s\|/φ |
+|---|---|---|---|---|
+| shoulder_pan | 0.15987 | **0.00066** | **242×** | 0.6 ✅ |
+| shoulder_lift | 0.00030 | 0.00014 | 2× | 0.4 ✅ |
+| elbow | 0.01623 | 0.00028 | 58× | 0.9 ✅ |
+| wrist_1 | 0.40133 | **0.00099** | **405×** | 4.6 |
+| wrist_2 | 0.00000 | 0.00000 | — | 0.0 ✅ |
+| wrist_3 | 0.15987 | 0.15994 | **1.00×** | **76.6** ❌ |
+
+Cuatro juntas cumplen ya el criterio `|s| = O(φ)`. `shoulder_pan` pasa a comandar
+8.05 N·m —los 7.99 que pedía el modelo— y `wrist_1` 4.68.
+
+### 7.4 Por qué `wrist_3` sigue clavada: el feedforward no puede dar margen
+
+No es chattering. Medido sobre la meseta: **4 cambios de signo en 14 717
+muestras**, par medio −1.98 N·m, `max|τ|` = 3.30 N·m, y `|q̇|` exactamente 0.
+
+El feedforward vale `F_c·tanh(q̇_d/ε)`, que tiende a `F_c` **por debajo** y nunca
+lo supera. Para arrancar hace falta *exceder* la fricción estática, y ese margen
+solo puede venir del término conmutado `K·sat(s/φ)`. En `wrist_3`,
+η = 0.00026 N·m contra los 3.18 N·m que hay que vencer: cuatro órdenes de
+magnitud por debajo del margen necesario.
+
+Es decir: **compensar al 100 % deja la junta exactamente en el punto de
+equilibrio, no la arranca.** Un margen del 5 % (0.16 N·m) bastaría, pero da
+χ ≈ 25 frente al límite de 0.8 — así que `wrist_3` necesita la opción B (φ por
+junta, ≈ 1.5 rad/s), y con ese φ deja de tener modo deslizante.
+
+Que `wrist_2` marque 0.00000 no es un éxito: su referencia apenas se mueve en
+esta trayectoria, así que no llega a ejercitarse.
+
+---
+
 ## 8. Artefactos de paper que habilita esta fase
 
 - **Figura de 3 paneles** (`s(t)`, `τ(t)`, espectro) para `sign` vs `sat`: los

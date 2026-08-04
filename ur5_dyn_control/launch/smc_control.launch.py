@@ -55,6 +55,12 @@ def launch_setup(context, *args, **kwargs):
     sw = LaunchConfiguration("switching_function").perform(context).strip()
     if sw:
         overrides["switching_function"] = sw
+    # De que velocidad se alimenta el feedforward de friccion (docs/05_smc.md
+    # §7): con la MEDIDA, el Coulomb se anula con la junta clavada y no la
+    # desbloquea nunca.
+    dq_src = LaunchConfiguration("friction_dq_source").perform(context).strip()
+    if dq_src:
+        overrides["friction.dq_source"] = dq_src
     # FASE 7: volcado de la tabla de referencia que consume el optimizador. Se
     # expone como argumento —y no solo como parametro del YAML— porque hay que
     # regenerarla cada vez que cambia la trayectoria, y editar el YAML a mano
@@ -142,6 +148,11 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "switching_function", default_value="",
             description="'' = params_file; si no: sign | sat"),
+        DeclareLaunchArgument(
+            "friction_dq_source", default_value="",
+            description="'' = params_file; measured (default del nodo) | "
+                        "desired. Con 'measured' el termino de Coulomb se anula "
+                        "con la junta clavada y no la desbloquea nunca"),
         DeclareLaunchArgument(
             "reference_table_out", default_value="",
             description="ruta donde volcar la tabla {q, dq, ddq} de referencia "

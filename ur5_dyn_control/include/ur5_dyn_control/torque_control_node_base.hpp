@@ -80,9 +80,15 @@ protected:
    * Torque que se COMANDA al hardware a partir del torque de la ley (G3):
    * politica de gravedad + saturacion. Es la unica ruta hacia publishTau(),
    * y es la que ejercita el test unitario de la compuerta G3.
+   *
+   * `dq_ref` es la velocidad DESEADA, y solo se usa si
+   * `friction.dq_source` = "desired". Es opcional para no romper a ningun
+   * llamante: donde no se pasa (los holds a ciegas) la velocidad deseada es
+   * cero de todos modos, que es lo mismo que ve la ruta por velocidad medida.
    */
   Vector6d commandFromLaw(const Vector6d & tau_law, const Vector6d & q,
-                          const Vector6d & dq);
+                          const Vector6d & dq,
+                          const Vector6d * dq_ref = nullptr);
 
   bool gravityInCommand() const { return gravity_in_command_; }
 
@@ -161,7 +167,8 @@ private:
   JointRef rampReference(double t_ramp) const;
   /// Aplica commandFromLaw() y publica. Devuelve el torque comandado (para el CSV).
   Vector6d publishTau(const Vector6d & tau_law, const Vector6d & q,
-                      const Vector6d & dq);
+                      const Vector6d & dq,
+                      const Vector6d * dq_ref = nullptr);
   void enterState(State s);
   const char * stateName(State s) const;
 
@@ -183,6 +190,9 @@ private:
   Vector6d friction_f_v_ = Vector6d::Zero();
   Vector6d friction_f_c_ = Vector6d::Zero();
   double friction_dq_eps_ = 1e-3;
+  /// `friction.dq_source` = "desired": alimentar el feedforward con la
+  /// velocidad DESEADA en vez de la medida. Ver commandFromLaw().
+  bool friction_use_ref_dq_ = false;
 
   // FASE 3 — limite de tasa del comando y watchdog del lazo.
   Vector6d tau_rate_max_ = Vector6d::Zero();   // 0 = desactivado

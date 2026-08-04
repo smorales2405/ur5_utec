@@ -208,6 +208,17 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
     friction_f_c_ = paramToVec6(declare_parameter<std::vector<double>>(
         "friction.f_c", std::vector<double>(6, 0.0)), "friction.f_c");
     friction_dq_eps_ = declare_parameter<double>("friction.dq_eps", 1e-3);
+    const std::string dq_src =
+      declare_parameter<std::string>("friction.dq_source", "measured");
+    if (dq_src == "measured") {
+      friction_use_ref_dq_ = false;
+    } else if (dq_src == "desired") {
+      friction_use_ref_dq_ = true;
+    } else {
+      throw std::runtime_error(
+              "friction.dq_source desconocido: '" + dq_src +
+              "' (measured | desired)");
+    }
     if (!(friction_dq_eps_ > 0.0)) {
       throw std::runtime_error("friction.dq_eps debe ser > 0");
     }
@@ -221,6 +232,9 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
                   friction_f_c_[0], friction_f_c_[1], friction_f_c_[2],
                   friction_f_c_[3], friction_f_c_[4], friction_f_c_[5],
                   friction_dq_eps_);
+      RCLCPP_INFO(get_logger(), "  alimentada con la velocidad %s",
+                  friction_use_ref_dq_ ? "DESEADA (rompe el bloqueo en q̇=0)"
+                                       : "MEDIDA");
     }
   }
 
@@ -715,13 +729,30 @@ JointRef TorqueControlNodeBase::rampReference(double t_ramp) const
 
 Vector6d TorqueControlNodeBase::commandFromLaw(const Vector6d & tau_law,
                                                const Vector6d & q,
-                                               const Vector6d & dq)
+                                               const Vector6d & dq,
+                                               const Vector6d * dq_ref)
 {
   // FASE 2: la friccion se SUMA al comando (se opone al movimiento en la
   // planta), antes de la politica de gravedad y de la saturacion, porque es un
   // termino mas del par fisico que la articulacion debe entregar.
+  //
+  // De QUE velocidad se alimenta no es un detalle (docs/05_smc.md §7). Con la
+  // MEDIDA, el termino de Coulomb `F_c·tanh(q̇/eps)` se anula justo cuando la
+  // junta esta clavada: hace falta movimiento para activar lo que deberia
+  // producirlo, y una junta sin gravedad que la arranque —shoulder_pan— se
+  // queda bloqueada indefinidamente. Medido en Gazebo con la friccion real:
+  // sobre shoulder_lift, que si arranca, compensar mejora el seguimiento 158x;
+  // sobre shoulder_pan, que no, no lo mejora NADA (1.00x).
+  //
+  // Con la DESEADA el feedforward es puro adelanto: se activa antes de que la
+  // junta se mueva y rompe ese bloqueo. A cambio deja de ser una funcion del
+  // estado real, asi que si el seguimiento es malo compensa una friccion que no
+  // se corresponde con el movimiento en curso. Por eso el default sigue siendo
+  // "measured" y esto se elige a proposito.
+  const Vector6d & dq_fric =
+    (friction_use_ref_dq_ && dq_ref != nullptr) ? *dq_ref : dq;
   const Vector6d tau_total = tau_law + frictionFeedforward(
-    dq, friction_f_v_, friction_f_c_, friction_mode_, friction_dq_eps_);
+    dq_fric, friction_f_v_, friction_f_c_, friction_mode_, friction_dq_eps_);
   // g(q) solo se evalua cuando hace falta restarla (ahorra una RNEA por tick
   // en el caso de Gazebo, que es el default).
   const Vector6d g_q = gravity_in_command_ ? Vector6d::Zero().eval() : dyn_->gravity(q);
@@ -744,9 +775,10 @@ Vector6d TorqueControlNodeBase::commandFromLaw(const Vector6d & tau_law,
 
 Vector6d TorqueControlNodeBase::publishTau(const Vector6d & tau_law,
                                            const Vector6d & q,
-                                           const Vector6d & dq)
+                                           const Vector6d & dq,
+                                           const Vector6d * dq_ref)
 {
-  const Vector6d tau_cmd = commandFromLaw(tau_law, q, dq);
+  const Vector6d tau_cmd = commandFromLaw(tau_law, q, dq, dq_ref);
   tau_prev_cmd_ = tau_cmd;
   // FASE 3 — dry-run: se calcula todo (referencias, ley, limites) pero NO se
   // publica. Sirve para validar una configuracion contra el robot real sin
@@ -912,7 +944,7 @@ void TorqueControlNodeBase::tick()
         // estado terminal.
         const Vector6d tau_law = computeTau(q, dq, ref, dt);
         if (state_ == State::SAFE_HOLD) {break;}
-        const Vector6d tau = publishTau(tau_law, q, dq);
+        const Vector6d tau = publishTau(tau_law, q, dq, &ref.dq);
         if (++hold_log_counter_ % csv_hold_decimation_ == 0) {
           logRow(t_sim, q, dq, ref, tau, "HOLD_START");
         }
@@ -935,7 +967,7 @@ void TorqueControlNodeBase::tick()
         const JointRef ref = rampReference(t_sim - t_state_start_);
         const Vector6d tau_law = computeTau(q, dq, ref, dt);
         if (state_ == State::SAFE_HOLD) {break;}
-        const Vector6d tau = publishTau(tau_law, q, dq);
+        const Vector6d tau = publishTau(tau_law, q, dq, &ref.dq);
         logRow(t_sim, q, dq, ref, tau, "RAMP");
         if (t_sim - t_state_start_ >= transition_duration_) {
           track_index_ = 0;
@@ -951,7 +983,7 @@ void TorqueControlNodeBase::tick()
         const JointRef & ref = ref_gen_->at(track_index_);
         const Vector6d tau_law = computeTau(q, dq, ref, dt);
         if (state_ == State::SAFE_HOLD) {break;}
-        const Vector6d tau = publishTau(tau_law, q, dq);
+        const Vector6d tau = publishTau(tau_law, q, dq, &ref.dq);
         // La etiqueta la puede refinar el generador: el barrido de excitacion
         // marca la MESETA de velocidad constante, que es la ventana util para
         // identificar friccion (alli ddq = 0 y el residuo es friccion pura).
@@ -976,7 +1008,7 @@ void TorqueControlNodeBase::tick()
         ref.q = ref_gen_->at(ref_gen_->size() - 1).q;
         const Vector6d tau_law = computeTau(q, dq, ref, dt);
         if (state_ == State::SAFE_HOLD) {break;}
-        const Vector6d tau = publishTau(tau_law, q, dq);
+        const Vector6d tau = publishTau(tau_law, q, dq, &ref.dq);
         if (++hold_log_counter_ % csv_hold_decimation_ == 0) {
           logRow(t_sim, q, dq, ref, tau, "HOLD_END");
         }
