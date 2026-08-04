@@ -10,10 +10,10 @@
 #      z
 #    0.35 ┤ ●  start_pose = FK(q_init)
 #         │  \
-#    0.05 ┤   ●───────────────●          z_above    = surface_z + approach_height
+#    0.06 ┤   ●───────────────●          z_above    = surface_z + approach_height
 #         │   │               ↑
-#    0.02 ┤   ●━━━━━━━━━━━━━━━┿━━━━━━━    superficie del tejido (surface_z)
-#    0.015┤   ●───────────────●           z_cut = surface_z - cut_depth
+#    0.03 ┤   ●━━━━━━━━━━━━━━━┿━━━━━━━    plano de corte nominal (surface_z)
+#    0.025┤   ●───────────────●           z_cut = surface_z - cut_depth
 #         └───┴───────────────┴──────→ world_x  (= base_y)
 #          0.80  0.79       0.71  0.70   (sentido -1: decreciente)
 #          approach → contact → penetration → cut → withdraw
@@ -150,7 +150,13 @@ gz_lqr_sdre_control_node:
       # Pose de partida: FK(q_init), para que la rampa inicial sea minima.
       start_pose: [-0.1333, 0.4919, 0.3469]
 
-      surface_z: 0.02             # [m] cara superior del tejido
+      surface_z: 0.03             # [m] plano de corte nominal.
+      # NO hay muestra de tejido en el mundo: el trazo se hace en aire y este
+      # valor solo fija la ALTURA. Se subio de 0.02 a 0.03 para dejar 25 mm de
+      # holgura entre la punta de la hoja y la mesa (antes 15 mm), que es el
+      # margen con el que se valida en el robot real. Si algun dia se apoya una
+      # muestra, este valor pasa a ser su espesor y hay que anadir el modelo al
+      # mundo, porque hoy la simulacion NO tiene fuerza de contacto.
       # OJO con los nombres: NO siguen al eje. En incision_trajectory.cpp,
       #   cut_axis "y" -> punto = (cut_x, cut_center_y + offset)   -> cut_x FIJO
       #   cut_axis "x" -> punto = (cut_x + offset, cut_center_y)   -> cut_x CENTRO
