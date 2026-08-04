@@ -303,7 +303,54 @@ de la fricción entera.
 
 ---
 
-## 8. Uso
+## 8. Validación de la inyección en Gazebo
+
+Antes de optimizar ganancias contra una planta con fricción hay que comprobar
+que la planta tiene la fricción que uno cree. Se inyectaron los seis pares de
+valores del §3.1 y se repitió el barrido por control de par sobre
+`shoulder_lift`, en `empty_test_world.sdf`:
+
+```bash
+ros2 launch ur5_dyn_control fl_control.launch.py gazebo_gui:=false \
+    params_file:=<share>/config/sweep_params.yaml \
+    world:=<share>/worlds/empty_test_world.sdf \
+    test_num:=300 sweep_joint:=1 \
+    joint_damping:="14.55 12.30 14.53 1.33 1.85 2.87" \
+    joint_friction:="7.31 7.20 7.89 1.85 2.68 3.18"
+```
+
+| | inyectado | recuperado | error |
+|---|---|---|---|
+| F_v | 12.30 | 12.2020 ± 0.0032 | **−0.80 %** |
+| F_c | 7.20 | 7.2316 ± 0.0016 | **+0.44 %** |
+
+R² = 1.0000, RMSE 0.0026 N·m por diferenciación; el ajuste RNEA coincide con
+ella en 0.003 N·m·s/rad, lo que dice que el URDF describe bien esta postura.
+
+El déficit de F_v es en su mayor parte el **artefacto ya documentado** en
+`02_friction.md` §«control negativo»: en una planta SIN fricción, `shoulder_lift`
+(dg/dq = −36.7) arroja un F_v aparente de −0.0401 por el desfase de ~1 ms entre
+el par publicado y el estado leído. Corrigiéndolo, el error baja a **−0.47 %**.
+
+**Lo que esto NO valida: las muñecas.** Con 1.85–3.18 N·m de Coulomb inyectados y
+`kp` de 100 en `wrist_3`, la autoridad `M_jj·kp_j` vale 0.026 N·m/rad — el
+barrido por par no puede moverla, exactamente igual que en el robot físico
+(§1). Que Gazebo reproduzca ahora ese fallo es en sí un resultado: la
+simulación pasa a predecir la limitación real en vez de ocultarla. Pero implica
+que la inyección en las muñecas queda sin comprobar por esta vía.
+
+**Trampa operativa.** El primer intento falló con `The plugin failed to load...
+ur_robot_driver/URPositionHardwareInterface ... does not exist`. La causa no
+estaba en el parcheo del URDF: el **driver del robot real seguía vivo** y su
+`robot_state_publisher` publicaba la descripción del robot físico, que
+`gz_ros2_control` tomó en lugar de la de Gazebo. Hay que parar
+`ur_control.launch.py` antes de lanzar Gazebo. Y ojo con comprobarlo mediante
+`pgrep -f "ruby.*ign gazebo"` dentro del propio comando: el patrón se encuentra a
+sí mismo en la línea de órdenes y da un falso positivo.
+
+---
+
+## 9. Uso
 
 ```bash
 # Campaña completa (18 corridas, ~90 min). Pide confirmación por junta.
@@ -327,7 +374,7 @@ ros2 run ur5_identification run_identification \
 
 ---
 
-## 9. Trazabilidad
+## 10. Trazabilidad
 
 | nivel | test | juntas | `fl_*` generado |
 |---|---|---|---|
@@ -344,7 +391,7 @@ Corridas por control de par usadas en §3.3 y §4: `fl_900`–`fl_902` (nivel 0.
 
 ---
 
-## 10. Pendiente
+## 11. Pendiente
 
 - [ ] Comprobación física de la brida (§6).
 - [ ] Residual tras compensación en las muñecas — requiere una vía distinta al
@@ -357,7 +404,7 @@ Corridas por control de par usadas en §3.3 y §4: `fl_900`–`fl_902` (nivel 0.
 
 ---
 
-## 11. Archivos
+## 12. Archivos
 
 ```
 ur5_identification/scripts/run_friction_campaign_real.py   runner semiautomático
