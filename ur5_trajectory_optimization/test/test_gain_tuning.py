@@ -18,8 +18,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ur5_trajectory_optimization.gain_tuning.closed_loop import (  # noqa: E402
-    Q_INIT, TAU_MAX, CuttingForce, Plant, Reference, SmcLaw, load_reference,
-    simulate)
+    Q_INIT, TAU_MAX, CuttingForce, JointFriction, Plant, Reference, SmcLaw,
+    load_reference, simulate)
 from ur5_trajectory_optimization.gain_tuning.optimize import (  # noqa: E402
     _cubic_features, alpha_sensitivity, seed_points)
 from ur5_trajectory_optimization.gain_tuning.problem import (  # noqa: E402
@@ -231,39 +231,58 @@ def test_la_friccion_no_cuenta_como_saturacion_del_actuador():
     """
     `n_sat` mide cuando el CONTROLADOR pide mas par del que el actuador da.
 
-    La friccion es una fuerza de la planta: no la manda nadie y ningun limite
-    de actuador la recorta. Sumarla a `tau_law` antes del `clip` —como se hacia
-    antes— contaba saturaciones inexistentes y, si el mando saturaba, recortaba
-    tambien la friccion. Con friccion nula daba igual; con los ~7 N·m medidos en
-    el UR5e real, no.
-
-    Aqui la ley pide poco par (referencia inmovil en q_init) y se inyectan 40
-    N·m de friccion en wrist_1, cuyo tau_max es 28: con el orden viejo saltaria
-    la cuenta desde el primer ciclo, con el correcto no salta ninguna.
-
-    El horizonte es de 3 pasos A PROPOSITO. Con 40 N·m sobre una inercia de
-    0.023 kg m² la junta se dispara en decenas de milisegundos, y a partir de
-    ahi la ley SI pide par de sobra para recuperarla: esa saturacion es real y
-    enmascararia lo que se quiere medir. La corrida sin friccion sirve de
-    control, para comparar contra el mismo estado y no contra cero absoluto.
+    La friccion es una fuerza de la planta: no la manda nadie y ningun limite de
+    actuador la recorta. Se aplica a nivel de velocidad (ver `JointFriction`),
+    asi que no puede tocar `n_sat` en absoluto.
     """
     plant = Plant(URDF)
-    ref = _ref_sintetica(plant, n=3)
+    ref = _ref_sintetica(plant, n=20)
     law = SmcLaw(lam=np.full(6, 1.0), eta=np.full(6, 1e-3), phi=0.1, alpha=0.1)
+    fric = JointFriction(f_v=np.zeros(6), f_c=np.array([0, 0, 0, 40.0, 0, 0]))
 
-    f_grande = np.zeros(6)
-    f_grande[3] = -40.0                      # > tau_max[3] = 28 N·m
     r_sin = simulate(law, ref, plant)
-    r_con = simulate(law, ref, plant, friction=lambda dq: f_grande)
+    r_con = simulate(law, ref, plant, friction=fric)
+    assert r_con.n_sat == r_sin.n_sat
 
-    assert r_sin.n_sat == 0, "la corrida de control ya satura; test invalido"
-    # Sin esto el test pasaria tambien con el gancho de friccion MUERTO, que es
-    # el otro modo de fallo: la friccion tiene que llegar a la planta.
-    assert r_con.rmse_q > 10 * r_sin.rmse_q, (
-        "la friccion no esta afectando a la planta: el gancho no hace nada")
-    assert r_con.n_sat == r_sin.n_sat, (
-        f"la friccion se esta contando como saturacion del actuador "
-        f"(n_sat={r_con.n_sat} con friccion, {r_sin.n_sat} sin ella)")
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_friccion_rigida_en_wrist3_no_diverge():
+    """
+    REGRESION del artefacto de 2026-08-04 (docs/05_smc.md §7.5).
+
+    Con la friccion real del UR5e sumada al PAR e integrada explicitamente,
+    `wrist_3` diverge: el factor de amplificacion del modo viscoso es
+    `1 - f_v·dt/M` = 1 - 2.87·0.002/2.6e-4 = -21.3. Y el Coulomb suavizado es
+    aun peor, con pendiente `f_c/eps` = 3180 en el origen.
+
+    Aplicada a nivel de velocidad —viscoso implicito, Coulomb por proyeccion—
+    tiene que quedarse acotada pase lo que pase.
+    """
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant, n=400)
+    law = SmcLaw(lam=np.full(6, 20.0), eta=INERTIA.copy(), phi=0.05, alpha=0.3)
+    fric = JointFriction(f_v=np.array([14.55, 12.30, 14.53, 1.33, 1.85, 2.87]),
+                         f_c=np.array([7.31, 7.20, 7.89, 1.85, 2.68, 3.18]))
+
+    r = simulate(law, ref, plant, friction=fric)
+    assert not r.diverged, "la friccion rigida hizo divergir el evaluador"
+    assert np.isfinite(r.rmse_q)
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_coulomb_pega_la_junta_en_vez_de_cruzar_el_cero():
+    """
+    La proyeccion no debe empujar la junta al otro lado: si el impulso de
+    friccion supera la cantidad de movimiento, la velocidad queda en CERO
+    exacto, no negativa. Es lo que distingue este esquema de restar un par.
+    """
+    fric = JointFriction(f_v=np.zeros(6), f_c=np.full(6, 1.0))
+    m = np.full(6, 0.01)
+    dq = fric.apply(np.full(6, 0.05), m, dt=0.002)   # impulso = 0.2 > 0.05
+    np.testing.assert_array_equal(dq, np.zeros(6))
+    # Y con holgura de sobra, solo frena:
+    dq = fric.apply(np.full(6, 5.0), m, dt=0.002)
+    np.testing.assert_allclose(dq, np.full(6, 4.8))
 
 
 @pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")

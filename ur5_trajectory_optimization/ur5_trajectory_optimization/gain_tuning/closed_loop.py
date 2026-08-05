@@ -25,7 +25,12 @@ Lo que este evaluador SÍ aproxima, y hay que declararlo:
     está dominado por ese ruido, así que `max|s|` offline saldrá mejor que el
     medido.
   - **Fricción** según lo que se pase en `friction`; con `None`, planta sin
-    fricción como el Gazebo actual.
+    fricción. Cuando se pasa, se aplica a nivel de VELOCIDAD y no de par (ver
+    `JointFriction`): sumarla al par e integrarla explícitamente diverge en
+    `wrist_3` a los 7 pasos. El modelo discreto que resulta —viscoso implícito,
+    Coulomb por proyección— es de primer orden en `dt`, igual que el integrador,
+    pero NO es el mismo esquema que usa Gazebo, así que la comparación
+    evaluador↔Gazebo hay que hacerla sobre las juntas donde ambos son válidos.
 Por eso el evaluador se VALIDA contra una corrida de Gazebo antes de usarlo
 (criterio del plan), y las ganancias que salgan se re-verifican en simulación.
 """
@@ -130,6 +135,56 @@ class CuttingForce:
         return w
 
 
+@dataclass
+class JointFriction:
+    """
+    Fricción articular aplicada a nivel de VELOCIDAD, no de par.
+
+    Por qué no como par
+    -------------------
+    Sumar `−f_v·q̇ − f_c·tanh(q̇/ε)` al par e integrar explícitamente es
+    inestable en este robot, y por dos vías distintas (medido 2026-08-04,
+    docs/05_smc.md §7.5):
+
+      - **Viscoso**: el factor de amplificación de ese modo es `1 − f_v·dt/M_ii`.
+        En `wrist_3` (M = 2.6e-4, f_v = 2.87) con dt = 2 ms vale **−21.3**:
+        diverge. Gazebo, con dt = 1 ms y tratamiento implícito, no diverge pero
+        CONGELA la junta, que es el mismo problema con otra cara.
+      - **Coulomb suavizado**: `f_c·tanh(q̇/ε)` tiene pendiente `f_c/ε` en el
+        origen — 3180 N·m·s/rad con ε = 1e-3 — o sea un número de rigidez de
+        **24 693**. Cuatro órdenes peor que el viscoso. No hay ε utilizable: para
+        domarlo haría falta ε ≈ 24.7 rad/s, más que cualquier velocidad de
+        trabajo.
+
+    Qué se hace en su lugar
+    -----------------------
+    El viscoso, implícito (incondicionalmente estable, sin coste: es una
+    división). El Coulomb, como PROYECCIÓN de velocidad: se resta el impulso
+    `f_c·dt/M` y se satura en cero, de modo que la junta nunca cruza el cero
+    empujada por su propia fricción. Eso es exactamente la regla física —se pega
+    si su cantidad de movimiento no supera el impulso de fricción— y es la misma
+    familia de esquemas que usan los motores de física para el contacto.
+
+    Ambos son de primer orden en `dt`, igual que el integrador que los rodea, así
+    que no degradan el orden del método.
+    """
+
+    f_v: np.ndarray          # [N·m·s/rad]
+    f_c: np.ndarray          # [N·m]
+
+    def __post_init__(self):
+        self.f_v = np.broadcast_to(np.asarray(self.f_v, float), (6,)).copy()
+        self.f_c = np.broadcast_to(np.asarray(self.f_c, float), (6,)).copy()
+        if np.any(self.f_v < 0.0) or np.any(self.f_c < 0.0):
+            raise ValueError("f_v y f_c son magnitudes: no pueden ser negativas")
+
+    def apply(self, dq: np.ndarray, m_diag: np.ndarray, dt: float) -> np.ndarray:
+        """Velocidad tras un paso `dt`, partiendo de la libre de fricción."""
+        dq = dq / (1.0 + self.f_v * dt / m_diag)
+        salto = self.f_c * dt / m_diag
+        return np.sign(dq) * np.maximum(np.abs(dq) - salto, 0.0)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Leyes de control (espejo exacto de los nodos C++)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -183,7 +238,10 @@ class SmcLaw:
                               (1.0 - self.alpha) * (dM @ dq_r))
         rho = np.clip(s / self.phi, -1.0, 1.0) if self.use_sat else np.sign(s)
         tau = b + M @ ddq_r - K * rho
-        return tau, s, {"chi": (K / self.phi) / np.diag(M)}
+        # `M_diag` lo consume `simulate` para el paso implicito de friccion.
+        # Se devuelve aqui porque la ley YA calculo M: recalcularla en el
+        # integrador duplicaria una crba por ciclo sin necesidad.
+        return tau, s, {"chi": (K / self.phi) / np.diag(M), "M_diag": np.diag(M)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -258,7 +316,8 @@ PIPELINE_DELAY_STEPS = 1
 
 
 def simulate(law, ref: Reference, plant: Plant,
-             force: CuttingForce | None = None, friction=None,
+             force: CuttingForce | None = None,
+             friction: "JointFriction | None" = None,
              dq_noise_std: float = DQ_NOISE_STD_GAZEBO,
              delay_steps: int = PIPELINE_DELAY_STEPS,
              seed: int = 0) -> EvalResult:
@@ -293,21 +352,14 @@ def simulate(law, ref: Reference, plant: Plant,
                                ref.q[k], ref.dq[k], ref.ddq[k])
         if "chi" in info:
             chi_max = max(chi_max, float(np.max(info["chi"])) * dt)
-        # La saturacion se evalua sobre la salida del CONTROLADOR, y la friccion
-        # entra despues, en la planta. Antes se sumaba la friccion a `tau_law` y
-        # se recortaba el conjunto, lo que mezcla dos cosas distintas: `n_sat`
-        # contaba ciclos en los que el actuador no estaba pidiendo de mas —era
-        # la friccion la que abultaba la suma— y, si el mando saturaba, el
-        # recorte se comia tambien la friccion, que es una fuerza de la planta y
-        # no puede recortarla ningun limite de actuador. Con friccion nula daba
-        # igual; con los 7 N·m medidos en el robot real, no.
+        # `n_sat` mide cuando el CONTROLADOR pide mas par del que el actuador
+        # entrega, asi que se evalua sobre la salida de la ley y nada mas. La
+        # friccion no interviene aqui: no la manda nadie y ningun limite de
+        # actuador la recorta. Ver `JointFriction`, que la aplica a nivel de
+        # velocidad despues de integrar.
         tau = np.clip(tau_law, -TAU_MAX, TAU_MAX)
         if np.any(np.abs(tau_law) > TAU_MAX):
             n_sat += 1
-        if friction is not None:
-            # `friction(dq)` devuelve el par que la friccion EJERCE sobre la
-            # junta (signo contrario al movimiento), no su magnitud.
-            tau = tau + friction(dq)
 
         # Fuerza externa: se mapea al espacio articular con Jᵀ.
         tau_ext = np.zeros(6)
@@ -323,6 +375,11 @@ def simulate(law, ref: Reference, plant: Plant,
         # Semi-implícito (simpléctico): mismo esquema que un integrador de
         # física, más estable que Euler explícito al mismo dt.
         dq = dq + ddq * dt
+        if friction is not None:
+            m_diag = info.get("M_diag")
+            if m_diag is None:
+                m_diag = np.diag(pin.crba(model, data, q))
+            dq = friction.apply(dq, m_diag, dt)
         q = q + dq * dt
 
         pin.forwardKinematics(model, data, q)
