@@ -167,6 +167,34 @@ class JointFriction:
 
     Ambos son de primer orden en `dt`, igual que el integrador que los rodea, así
     que no degradan el orden del método.
+
+    ESTADO: SIN VALIDAR — no usar para optimizar
+    --------------------------------------------
+    Contra la corrida `smc_403` de Gazebo, con la MISMA configuración (mismas
+    ganancias, misma referencia, misma fricción inyectada, feedforward por
+    velocidad deseada), el error articular sale así:
+
+        junta          evaluador   Gazebo 403     razón
+        shoulder_pan     0.39900      0.00066    604.55
+        shoulder_lift    0.01917      0.00014    136.90
+        elbow            0.09118      0.00028    325.64
+        wrist_1          1.19845      0.00099   1210.56
+        wrist_3          0.01092      0.15994      0.07
+
+    `wrist_3` está frozen en Gazebo por un artefacto propio (docs/05_smc.md
+    §7.5), así que ahí el que miente es Gazebo. En las otras cuatro miente esto.
+
+    La causa está identificada pero no resuelta: casar un integrador propio con
+    un motor de física basado en LCP sobre fricción rígida no es un ajuste, es
+    un problema de método. La versión desacoplada anterior era peor (hasta
+    2195×); pasar a la métrica de M arregló el codo 7× y empeoró `wrist_1`.
+
+    Alternativa que probablemente sea la correcta, y que está sin decidir: el
+    optimizador NO necesita simular stick-slip. Necesita dimensionar `K` contra
+    la INCERTIDUMBRE que queda tras compensar, que es el error de
+    identificación (~5 %) y es una perturbación ACOTADA y bien condicionada —
+    justo lo que la teoría de SMC pide y lo que ya hace `disturbance_bound` con
+    la fuerza de corte. El stick-slip completo es cosa de Gazebo (FASE 8).
     """
 
     f_v: np.ndarray          # [N·m·s/rad]
@@ -178,11 +206,45 @@ class JointFriction:
         if np.any(self.f_v < 0.0) or np.any(self.f_c < 0.0):
             raise ValueError("f_v y f_c son magnitudes: no pueden ser negativas")
 
-    def apply(self, dq: np.ndarray, m_diag: np.ndarray, dt: float) -> np.ndarray:
-        """Velocidad tras un paso `dt`, partiendo de la libre de fricción."""
-        dq = dq / (1.0 + self.f_v * dt / m_diag)
-        salto = self.f_c * dt / m_diag
-        return np.sign(dq) * np.maximum(np.abs(dq) - salto, 0.0)
+    def feedforward(self, dq_ref: np.ndarray, eps: float = 1e-3) -> np.ndarray:
+        """
+        Par de COMPENSACIÓN que el nodo suma al mando, espejo de
+        `frictionFeedforward` en `torque_command.hpp`.
+
+        Se evalúa sobre la velocidad DESEADA, no la medida, igual que el nodo
+        con `friction.dq_source = desired`: con la medida, `tanh(q̇/ε)` se anula
+        justo cuando la junta está clavada y no la desbloquea nunca
+        (docs/05_smc.md §7.1 — 314× de diferencia medidos en Gazebo).
+
+        Aquí sí es un PAR y no una operación sobre la velocidad, y el `tanh` no
+        da problemas de rigidez porque `dq_ref` viene de la tabla de referencia:
+        es una entrada conocida, no realimentación.
+        """
+        return self.f_v * dq_ref + self.f_c * np.tanh(dq_ref / eps)
+
+    def apply(self, dq_free: np.ndarray, M: np.ndarray, dt: float) -> np.ndarray:
+        """
+        Velocidad tras un paso `dt`, partiendo de la libre de fricción.
+
+        Se resuelve en la MÉTRICA DE M, no junta a junta. La versión desacoplada
+        —dividir por `1 + f_v·dt/M_ii` y restar `f_c·dt/M_ii`— parece razonable y
+        está mal: el par de compensación que manda el controlador entra en la
+        planta por `M⁻¹`, que está acoplada, mientras que una fricción diagonal
+        sale por `M_ii`. Las dos no pueden cancelarse. Medido en `q_init`: en
+        `shoulder_pan` el feedforward aporta −0.0096 rad/s por paso y la
+        proyección diagonal quitaba 0.0138, un frenado espurio de 0.023 rad/s
+        que en 14 717 pasos da 0.4 rad de error — con Gazebo dando 0.0007 sobre
+        la misma configuración.
+
+        Viscoso, implícito y exacto:  `(M + dt·F_v) q̇⁺ = M q̇_libre`.
+        Coulomb, como impulso acotado en esa misma métrica, con pegado si
+        invertiría el signo: la junta no cruza el cero empujada por su fricción.
+        """
+        A = M + dt * np.diag(self.f_v)
+        dq = np.linalg.solve(A, M @ dq_free)
+        salto = np.linalg.solve(A, self.f_c * dt)
+        dq_frenada = dq - np.sign(dq) * np.abs(salto)
+        return np.where(np.sign(dq_frenada) != np.sign(dq), 0.0, dq_frenada)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -241,7 +303,12 @@ class SmcLaw:
         # `M_diag` lo consume `simulate` para el paso implicito de friccion.
         # Se devuelve aqui porque la ley YA calculo M: recalcularla en el
         # integrador duplicaria una crba por ciclo sin necesidad.
-        return tau, s, {"chi": (K / self.phi) / np.diag(M), "M_diag": np.diag(M)}
+        # `M` la consume `simulate` para el paso implicito de friccion. Se
+        # devuelve aqui porque la ley YA la calculo: recalcularla en el
+        # integrador duplicaria una crba por ciclo. Esta evaluada en el estado
+        # RETARDADO que ve la ley, un paso por detras del de la planta; a 2 ms
+        # la diferencia en M es despreciable frente a lo que cuesta repetirla.
+        return tau, s, {"chi": (K / self.phi) / np.diag(M), "M": M}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -318,6 +385,7 @@ PIPELINE_DELAY_STEPS = 1
 def simulate(law, ref: Reference, plant: Plant,
              force: CuttingForce | None = None,
              friction: "JointFriction | None" = None,
+             friction_ff: "JointFriction | None" = None,
              dq_noise_std: float = DQ_NOISE_STD_GAZEBO,
              delay_steps: int = PIPELINE_DELAY_STEPS,
              seed: int = 0) -> EvalResult:
@@ -357,6 +425,13 @@ def simulate(law, ref: Reference, plant: Plant,
         # friccion no interviene aqui: no la manda nadie y ningun limite de
         # actuador la recorta. Ver `JointFriction`, que la aplica a nivel de
         # velocidad despues de integrar.
+        # La COMPENSACION de friccion si es par de mando: la pide el controlador
+        # y el actuador tiene que entregarla, asi que entra antes del recorte y
+        # cuenta para `n_sat`. Es lo contrario de la friccion de la PLANTA, que
+        # no la manda nadie y se aplica sobre la velocidad. Confundirlas es el
+        # error que hay que evitar aqui.
+        if friction_ff is not None:
+            tau_law = tau_law + friction_ff.feedforward(ref.dq[k])
         tau = np.clip(tau_law, -TAU_MAX, TAU_MAX)
         if np.any(np.abs(tau_law) > TAU_MAX):
             n_sat += 1
@@ -376,10 +451,11 @@ def simulate(law, ref: Reference, plant: Plant,
         # física, más estable que Euler explícito al mismo dt.
         dq = dq + ddq * dt
         if friction is not None:
-            m_diag = info.get("M_diag")
-            if m_diag is None:
-                m_diag = np.diag(pin.crba(model, data, q))
-            dq = friction.apply(dq, m_diag, dt)
+            M_pl = info.get("M")
+            if M_pl is None:
+                M_pl = pin.crba(model, data, q)
+                M_pl = np.triu(M_pl) + np.triu(M_pl, 1).T
+            dq = friction.apply(dq, M_pl, dt)
         q = q + dq * dt
 
         pin.forwardKinematics(model, data, q)

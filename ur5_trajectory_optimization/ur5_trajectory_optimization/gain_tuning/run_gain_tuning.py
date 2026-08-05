@@ -160,10 +160,11 @@ def main(argv=None):
     ap.add_argument("-j", "--jobs", type=int, default=1)
     ap.add_argument("--test", type=int, default=None)
     ap.add_argument("--no-baseline", action="store_true")
-    ap.add_argument("--no-friction", action="store_true",
-                    help="planta SIN friccion (la de Gazebo hasta la FASE 5). "
-                         "Por defecto se usa la real medida con G4 = 0.0, que "
-                         "es lo que el mando debe vencer en el robot fisico")
+    ap.add_argument("--friction", action="store_true",
+                    help="planta CON la friccion real medida (G4 = 0.0). AVISO: "
+                         "el modelo discreto NO esta validado contra Gazebo "
+                         "todavia — ver closed_loop.JointFriction. Por defecto, "
+                         "planta ideal")
     ap.add_argument("--reselect", action="store_true",
                     help="rehace selección/KKT/α desde el pareto.csv existente, "
                          "sin repetir NSGA-II ni la ε-restricción")
@@ -181,11 +182,11 @@ def main(argv=None):
 
     ref = load_reference(args.ref)
     plant = Plant(urdf)
-    # Sin friccion, el optimizador busca ganancias contra una planta que el
-    # robot real no es: la FASE 5 midio que las juntas se quedan CLAVADAS con la
-    # friccion medida si K no la cubre (docs/05_smc.md §7). Por defecto se usa la
-    # real con G4 = 0.0.
-    friction = None if args.no_friction else FRICTION_REAL_G4_0
+    # La friccion es OPT-IN mientras su modelo no este validado: contra la
+    # corrida 403 de Gazebo, sobre la misma configuracion, el evaluador da
+    # errores articulares 100-1200x mayores. No se puede optimizar contra eso.
+    # Ver el docstring de closed_loop.JointFriction.
+    friction = FRICTION_REAL_G4_0 if args.friction else None
     ev = make_evaluator(ref, plant, mode=args.mode, alpha=args.alpha,
                         f_cut=args.f_cut, chi_limit=args.chi_limit,
                         tcp_tol_mm=args.tcp_tol_mm, friction=friction)
@@ -198,6 +199,9 @@ def main(argv=None):
           f" · fuerza de corte = {args.f_cut} N")
     if friction is None:
         print("fricción   : NINGUNA — planta ideal, NO predice el robot real")
+    elif True:
+        print("fricción   : *** MODELO SIN VALIDAR (100-1200x de error frente a "
+              "Gazebo) ***")
     else:
         print(f"fricción   : real, G4 = 0.0 (docs/02_friction_real.md §3.1)\n"
               f"             F_v = {np.array2string(friction.f_v, precision=2)}\n"

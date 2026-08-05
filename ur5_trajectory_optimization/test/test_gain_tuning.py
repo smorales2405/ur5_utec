@@ -277,11 +277,11 @@ def test_coulomb_pega_la_junta_en_vez_de_cruzar_el_cero():
     exacto, no negativa. Es lo que distingue este esquema de restar un par.
     """
     fric = JointFriction(f_v=np.zeros(6), f_c=np.full(6, 1.0))
-    m = np.full(6, 0.01)
-    dq = fric.apply(np.full(6, 0.05), m, dt=0.002)   # impulso = 0.2 > 0.05
+    M = np.diag(np.full(6, 0.01))          # `apply` trabaja en la metrica de M
+    dq = fric.apply(np.full(6, 0.05), M, dt=0.002)   # impulso = 0.2 > 0.05
     np.testing.assert_array_equal(dq, np.zeros(6))
     # Y con holgura de sobra, solo frena:
-    dq = fric.apply(np.full(6, 5.0), m, dt=0.002)
+    dq = fric.apply(np.full(6, 5.0), M, dt=0.002)
     np.testing.assert_allclose(dq, np.full(6, 4.8))
 
 
