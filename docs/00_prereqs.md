@@ -338,6 +338,35 @@ fijado explícitamente por servicio en cada sesión.
 > `default` no muestra, se reconsidera el ajuste de operación **con datos**, y
 > el cambio se reporta. Hasta entonces, 1.0/1.0 queda como valor de campaña.
 
+#### ACTUALIZADO 2026-08-05 — el ajuste de operación pasa a `0.0 / 0.0`
+
+Cambio decidido con los datos de la campaña real
+([`02_friction_real.md`](02_friction_real.md)), y por un motivo distinto del que
+se anticipaba arriba: no fue el stick-slip, fue que **el residual no es medible
+en las muñecas**.
+
+1. Lo que un controlador por par debe vencer es la fricción **residual** tras la
+   compensación interna. Medirla exige control de par, y el control de par **no
+   puede mover las muñecas** (§1 de `02_friction_real.md`). Así que a nivel
+   `default` el residual solo se conoce en `shoulder_pan`, `shoulder_lift` y
+   `elbow`; a nivel `1.0` no se conoce en ninguna.
+2. Extrapolarlo no es defendible: la compensación interna del driver va del
+   **38 % al 97 %** según la junta, y el codo —el mejor compensado— es el que
+   tiene las escalas *más bajas*. No hay patrón que prestar.
+3. Con `0.0` el residual **es** la fricción física, medida en las seis juntas y
+   por dos vías independientes que concuerdan al 6.4 % (§3.3).
+
+Hay además un argumento metodológico que pesa más que la conveniencia: con la
+compensación activa, la comparación de los cuatro controladores queda
+contaminada por un compensador propietario y no documentado que ayuda de forma
+**desigual** a cada junta. Apagándolo, el paper compara los cuatro controladores
+y no el firmware de UR filtrando a tres de ellos.
+
+**Coste declarado:** el mando debe vencer la fricción entera (7.31 N·m de
+Coulomb en `shoulder_pan` frente a 1.08 con `default`). Es viable con el
+feedforward alimentado por la velocidad deseada (`docs/05_smc.md` §7.3), que
+llevó el error de TCP de 170 mm a 0.54 mm.
+
 ### Hechos verificados (tag 2.13.2, confirmados sobre el sistema instalado)
 
 1. `friction_model_controller` **arranca activo por defecto**
@@ -462,7 +491,7 @@ razón; aquí queda además como requisito de seguridad firmado.
 |---|---|---|---|
 | 1 | Registrar versión de PolyScope, número de serie e IP | G1 | ✅ 5.25.2 / 20245500119 / 192.168.0.102 |
 | 2 | `sudo apt install ros-humble-ur` y verificar | G2 | ✅ 2.13.2, verificado sobre los ficheros instalados |
-| 3 | Fijar el ajuste de fricción de operación | G4 | ✅ `1.0 / 1.0` (con barrido a 3 niveles en la FASE 2) |
+| 3 | Fijar el ajuste de fricción de operación | G4 | ✅ **`0.0 / 0.0`** desde 2026-08-05 (antes `1.0/1.0`; ver G4) |
 | 4 | Firmar el §7 | G6 | ⚠️ Firmado salvo el watchdog (FASE 3) |
 
 **FASE 0 CERRADA. Habilitadas las FASES 1–8.** La FASE 9 queda bloqueada

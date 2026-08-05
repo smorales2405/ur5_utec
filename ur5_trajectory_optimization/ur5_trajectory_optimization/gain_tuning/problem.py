@@ -70,8 +70,8 @@ from dataclasses import dataclass
 import numpy as np
 from pymoo.core.problem import ElementwiseProblem
 
-from .closed_loop import (TAU_MAX, CuttingForce, EvalResult, Plant, Q_INIT,
-                          Reference, SmcLaw, simulate)
+from .closed_loop import (TAU_MAX, CuttingForce, EvalResult, JointFriction,
+                          Plant, Q_INIT, Reference, SmcLaw, simulate)
 
 #: Umbral de χ. Ver el encabezado del módulo para la calibración.
 CHI_LIMIT_DEFAULT = 0.8
@@ -179,11 +179,13 @@ class GainEvaluator:
     def __init__(self, param: SmcParameterization, ref: Reference, plant: Plant,
                  force: CuttingForce | None = None, alpha: float = 0.3,
                  chi_limit: float = CHI_LIMIT_DEFAULT,
-                 tcp_tol_mm: float = TCP_TOL_MM_DEFAULT, cache_size: int = 4096):
+                 tcp_tol_mm: float = TCP_TOL_MM_DEFAULT, cache_size: int = 4096,
+                 friction: JointFriction | None = None):
         self.param = param
         self.ref = ref
         self.plant = plant
         self.force = force
+        self.friction = friction
         self.alpha = float(alpha)
         self.chi_limit = float(chi_limit)
         self.tcp_tol_mm = float(tcp_tol_mm)
@@ -208,7 +210,8 @@ class GainEvaluator:
         lam, eta, phi = self.param.gains(x)
         law = SmcLaw(lam=lam, eta=eta, phi=phi, alpha=self.alpha, use_sat=True)
         try:
-            res = simulate(law, self.ref, self.plant, force=self.force)
+            res = simulate(law, self.ref, self.plant, force=self.force,
+                           friction=self.friction)
         except Exception:
             # Una ley absurda puede reventar la dinámica; para el optimizador
             # eso es simplemente un punto infactible, no un fallo de la corrida.
@@ -269,17 +272,36 @@ class GainTuningProblem(ElementwiseProblem):
         out["G"] = G
 
 
+#: Fricción articular del UR5e REAL, medida (docs/02_friction_real.md §3.1).
+#:
+#: Son los valores FÍSICOS, que es lo que el mando debe vencer con la
+#: compensación interna del driver APAGADA (G4 = 0.0). Al nivel `default` el
+#: robot aporta parte y el residual es otro —mucho menor y muy desigual entre
+#: juntas—, así que estos números solo valen si la campaña real corre a 0.0.
+#: Ver `docs/02_friction_real.md` §4: las dos vías miden magnitudes distintas y
+#: solo coinciden en el nivel 0.0.
+#:
+#: `wrist_3` se convirtió con `k` = 11.7 N·m/A, que es una HIPÓTESIS declarada y
+#: no una medida: su `k` no es identificable. Sus dos números escalan
+#: linealmente con ella.
+FRICTION_REAL_G4_0 = JointFriction(
+    f_v=np.array([14.55, 12.30, 14.53, 1.33, 1.85, 2.87]),
+    f_c=np.array([7.31, 7.20, 7.89, 1.85, 2.68, 3.18]))
+
+
 def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
                    alpha: float = 0.3, f_cut: float = 5.0,
                    chi_limit: float = CHI_LIMIT_DEFAULT,
                    tcp_tol_mm: float = TCP_TOL_MM_DEFAULT,
-                   q_ref: np.ndarray | None = None) -> GainEvaluator:
+                   q_ref: np.ndarray | None = None,
+                   friction: JointFriction | None = None) -> GainEvaluator:
     """Atajo: construye parametrización + evaluador con los valores del plan."""
     inertia = plant.inertia_diag(Q_INIT if q_ref is None else q_ref)
     param = SmcParameterization(inertia=inertia, mode=mode)
     force = CuttingForce(f_cut=f_cut) if f_cut > 0 else None
     return GainEvaluator(param, ref, plant, force=force, alpha=alpha,
-                         chi_limit=chi_limit, tcp_tol_mm=tcp_tol_mm)
+                         chi_limit=chi_limit, tcp_tol_mm=tcp_tol_mm,
+                         friction=friction)
 
 
 def disturbance_bound(plant: Plant, ref: Reference, force: CuttingForce,

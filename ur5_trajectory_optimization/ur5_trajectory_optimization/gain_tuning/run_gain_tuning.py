@@ -34,8 +34,8 @@ from .closed_loop import Plant, load_reference
 from .optimize import (alpha_sensitivity, certify_kkt, hv_reference_point,
                        run_epsilon_constraint, run_nsga2,
                        run_weighted_sum_baseline, seed_points)
-from .problem import (CHI_LIMIT_DEFAULT, PENALTY, TCP_TOL_MM_DEFAULT,
-                      disturbance_bound, make_evaluator)
+from .problem import (CHI_LIMIT_DEFAULT, FRICTION_REAL_G4_0, PENALTY,
+                      TCP_TOL_MM_DEFAULT, disturbance_bound, make_evaluator)
 
 DEFAULT_REF = os.path.expanduser("~/.ros/ur5_dyn_control/incision_ref.csv")
 OBJ_NAMES = ["f1_iae_m_s", "f2_effort_N2m2s", "f3_tv_Nm"]
@@ -160,6 +160,10 @@ def main(argv=None):
     ap.add_argument("-j", "--jobs", type=int, default=1)
     ap.add_argument("--test", type=int, default=None)
     ap.add_argument("--no-baseline", action="store_true")
+    ap.add_argument("--no-friction", action="store_true",
+                    help="planta SIN friccion (la de Gazebo hasta la FASE 5). "
+                         "Por defecto se usa la real medida con G4 = 0.0, que "
+                         "es lo que el mando debe vencer en el robot fisico")
     ap.add_argument("--reselect", action="store_true",
                     help="rehace selección/KKT/α desde el pareto.csv existente, "
                          "sin repetir NSGA-II ni la ε-restricción")
@@ -177,9 +181,14 @@ def main(argv=None):
 
     ref = load_reference(args.ref)
     plant = Plant(urdf)
+    # Sin friccion, el optimizador busca ganancias contra una planta que el
+    # robot real no es: la FASE 5 midio que las juntas se quedan CLAVADAS con la
+    # friccion medida si K no la cubre (docs/05_smc.md §7). Por defecto se usa la
+    # real con G4 = 0.0.
+    friction = None if args.no_friction else FRICTION_REAL_G4_0
     ev = make_evaluator(ref, plant, mode=args.mode, alpha=args.alpha,
                         f_cut=args.f_cut, chi_limit=args.chi_limit,
-                        tcp_tol_mm=args.tcp_tol_mm)
+                        tcp_tol_mm=args.tcp_tol_mm, friction=friction)
     param = ev.param
 
     print(f"referencia : {ref.n} muestras · dt={ref.dt:.4f} s · {ref.n * ref.dt:.1f} s")
@@ -187,6 +196,12 @@ def main(argv=None):
     print(f"variables  : {param.n_var}  {param.names}")
     print(f"restricción: χ ≤ {args.chi_limit} · RMSE TCP ≤ {args.tcp_tol_mm} mm"
           f" · fuerza de corte = {args.f_cut} N")
+    if friction is None:
+        print("fricción   : NINGUNA — planta ideal, NO predice el robot real")
+    else:
+        print(f"fricción   : real, G4 = 0.0 (docs/02_friction_real.md §3.1)\n"
+              f"             F_v = {np.array2string(friction.f_v, precision=2)}\n"
+              f"             F_c = {np.array2string(friction.f_c, precision=2)}")
 
     # ── Punto de partida: las ganancias de la FASE 5 ─────────────────────────
     x_f5 = param.encode(np.full(6, 20.0), param.inertia * 1.0, 0.05)
