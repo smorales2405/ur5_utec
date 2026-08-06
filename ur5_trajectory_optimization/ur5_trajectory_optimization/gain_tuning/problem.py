@@ -304,6 +304,69 @@ def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
                          friction=friction)
 
 
+#: Dispersión relativa de la identificación entre las TRES campañas reales
+#: independientes (docs/02_friction_real.md §3.2). Es el error de los parámetros,
+#: no una incertidumbre inventada.
+FRICTION_REL_ERR_F_V = np.array([0.081, 0.050, 0.042, 0.052, 0.051, 0.044])
+FRICTION_REL_ERR_F_C = np.array([0.023, 0.006, 0.044, 0.007, 0.005, 0.009])
+
+#: `wrist_3` arrastra ADEMÁS la incertidumbre de su `k`, que no es identificable
+#: y se declaró en el rango [9.8, 11.7] N·m/A: ±8.8 % sobre la media. Sus dos
+#: coeficientes escalan linealmente con ella, así que el error relativo se suma
+#: en cuadratura al de la campaña.
+FRICTION_REL_ERR_K_W3 = 0.088
+
+
+def friction_residual_bound(ref: Reference, friction: JointFriction,
+                            dq_eps: float = 1e-3) -> np.ndarray:
+    """
+    Cota por junta del par de fricción que el feedforward NO cancela.
+
+    Es lo que `η` tiene que cubrir de verdad, y sustituye a simular el stick-slip
+    dentro del evaluador: una perturbación ACOTADA está bien condicionada, es lo
+    que pide la teoría de SMC, y no depende de casar un integrador propio con un
+    motor de física (ver `closed_loop.JointFriction`, que quedó sin validar).
+
+    Dos regímenes, y el que manda no es el que uno esperaría:
+
+    - **En movimiento**: el feedforward acierta salvo el error de los parámetros,
+      `δf_v·|q̇| + δf_c`. Son décimas de N·m.
+    - **Cerca de una inversión de sentido**: `f_c·tanh(q̇_d/ε)` tiende a cero, así
+      que la compensación se apaga y queda la fricción estática **ENTERA**. Y no
+      es un caso de borde: sobre la trayectoria de incisión cada junta invierte
+      1–3 veces y pasa el 15–40 % del tiempo por debajo de `ε`.
+
+    Domina el segundo, así que la cota es esencialmente `f_c`. Eso NO es un
+    defecto de esta función: es el mismo hecho que docs/05_smc.md §7.4 midió en
+    Gazebo —el feedforward tiende a `f_c` por debajo y nunca lo supera, así que
+    el margen de arranque solo puede darlo el término conmutado—, aquí expresado
+    de forma analítica y sin depender del simulador.
+    """
+    rel_v = FRICTION_REL_ERR_F_V.copy()
+    rel_c = FRICTION_REL_ERR_F_C.copy()
+    rel_v[5] = np.hypot(rel_v[5], FRICTION_REL_ERR_K_W3)
+    rel_c[5] = np.hypot(rel_c[5], FRICTION_REL_ERR_K_W3)
+
+    dq_max = np.abs(ref.dq).max(axis=0)
+    en_marcha = rel_v * friction.f_v * dq_max + rel_c * friction.f_c
+    # La fricción estática entera solo cuenta donde la junta tiene que ARRANCAR:
+    # pasa por debajo de `dq_eps` y ADEMÁS se mueve en algún otro tramo. Una
+    # junta que no se mueve en toda la trayectoria —`wrist_2` en la incisión
+    # recta— no necesita romper nada: allí la fricción la ayuda a sostenerse, y
+    # cargarle `f_c` de perturbación le pediría al optimizador una `η` para un
+    # problema que no tiene.
+    # El criterio primario es el CAMBIO DE SIGNO, no «hay una muestra pequeña»:
+    # una junta puede cruzar el cero ENTRE muestras y entonces la segunda prueba
+    # no lo ve. Con el trazo de incisión y dt = 2 ms pasa de verdad — una rampa
+    # de −0.5 a 0.5 rad/s en 100 muestras no deja ninguna por debajo de 1e-3.
+    sg = np.sign(ref.dq)
+    invierte = np.array([
+        bool(np.any(np.diff(sg[sg[:, j] != 0, j]) != 0)) for j in range(6)])
+    lenta = (np.abs(ref.dq) < dq_eps).any(axis=0)
+    arranca = (invierte | lenta) & (dq_max > dq_eps)
+    return np.where(arranca, np.maximum(en_marcha, friction.f_c), en_marcha)
+
+
 def disturbance_bound(plant: Plant, ref: Reference, force: CuttingForce,
                       sigma: float = 3.0, stride: int = 10) -> np.ndarray:
     """

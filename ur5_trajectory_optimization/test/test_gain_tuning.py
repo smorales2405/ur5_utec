@@ -23,7 +23,8 @@ from ur5_trajectory_optimization.gain_tuning.closed_loop import (  # noqa: E402
 from ur5_trajectory_optimization.gain_tuning.optimize import (  # noqa: E402
     _cubic_features, alpha_sensitivity, seed_points)
 from ur5_trajectory_optimization.gain_tuning.problem import (  # noqa: E402
-    GainEvaluator, SmcParameterization, disturbance_bound)
+    GainEvaluator, SmcParameterization, disturbance_bound,
+    friction_residual_bound)
 
 URDF = "/home/utec/ur5_ws/install/ur5_kinematics/share/ur5_kinematics/ur5e.urdf"
 INERTIA = np.array([1.05823, 2.59146, 0.881455, 0.0232406, 0.00535152, 0.00025756])
@@ -316,3 +317,25 @@ def test_phi_por_junta_escala_chi_junta_a_junta():
 
     with pytest.raises(ValueError):
         SmcLaw(phi=np.array([0.05] * 5 + [0.0]), **kw)
+
+
+def test_cota_de_friccion_residual_distingue_arrancar_de_estar_quieta():
+    """
+    La friccion estatica ENTERA solo es perturbacion donde la junta tiene que
+    arrancar. Una junta que no se mueve en toda la trayectoria no necesita
+    romper nada —la friccion la ayuda a sostenerse— y cargarle `f_c` le pediria
+    al optimizador una `eta` para un problema que no tiene.
+    """
+    n = 100
+    dq = np.zeros((n, 6))
+    dq[:, 0] = np.linspace(-0.5, 0.5, n)      # invierte: SI arranca
+    dq[:, 1] = 0.5                            # nunca se para: no arranca
+    # la junta 2 se queda en cero todo el rato: tampoco arranca
+    ref = Reference(dt=0.002, q=np.zeros((n, 6)), dq=dq, ddq=np.zeros((n, 6)),
+                    phase=np.array(["TRACK"] * n))
+    fr = JointFriction(f_v=np.full(6, 1.0), f_c=np.full(6, 5.0))
+    d = friction_residual_bound(ref, fr)
+
+    assert d[0] == pytest.approx(5.0), "la junta que invierte necesita todo f_c"
+    assert d[1] < 1.0, "la junta que nunca se para solo arrastra error de parametros"
+    assert d[2] < 1.0, "la junta inmovil no necesita margen de arranque"
