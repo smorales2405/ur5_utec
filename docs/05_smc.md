@@ -447,6 +447,68 @@ válidas del espacio de ganancias.
 
 ---
 
+### 7.6 El umbral de chattering MEDIDO con fricción: χ no es universal
+
+El límite `χ ≤ 0.8` se heredó de la FASE 5, medido sobre una planta **sin
+fricción** y como `χ_max` agregado. Barrido de φ en Gazebo con la fricción real
+inyectada y compensada, sobre las cuatro juntas donde el simulador es fiable
+(`wrist_2` no se mueve, `wrist_3` está congelada por §7.5). Energía de `τ` por
+encima de 20 Hz en la meseta del corte, misma definición que `analyze_smc.py`:
+
+| φ | pan χ / >20 Hz | lift χ / >20 Hz | elbow χ / >20 Hz | wrist_1 χ / >20 Hz |
+|---|---|---|---|---|
+| 0.20 | 0.01 · 0.0 % | 0.05 · 0.0 % | 0.08 · 0.0 % | 0.25 · 0.0 % |
+| 0.10 | 0.02 · 0.0 % | 0.11 · 0.0 % | 0.16 · 0.0 % | 0.50 · 0.0 % |
+| 0.05 | 0.04 · 0.0 % | 0.22 · 0.5 % | 0.32 · 1.1 % | 0.99 · 1.3 % |
+| 0.03 | 0.07 · 0.1 % | **0.36 · 93.7 %** | **0.53 · 92.9 %** | **1.67 · 58.8 %** |
+| 0.02 | 0.10 · 0.0 % | 0.55 · 67.5 % | 0.79 · 73.0 % | 2.52 · 59.7 % |
+| 0.01 | 0.20 · 2.4 % | 1.10 · 98.2 % | 1.59 · 95.9 % | 5.06 · 73.3 % |
+
+**El umbral no es el mismo en todas las juntas:**
+
+| junta | umbral medido | vs. el límite 0.8 |
+|---|---|---|
+| shoulder_lift | **0.22 – 0.36** | el límite es 2–4× DEMASIADO PERMISIVO |
+| elbow | **0.32 – 0.53** | 1.5–2.5× demasiado permisivo |
+| wrist_1 | **0.99 – 1.67** | el límite es 1.2–2× demasiado RESTRICTIVO |
+| shoulder_pan | sin cruzar hasta χ = 0.20 | no alcanzado en el barrido |
+
+Un factor de 5 entre `shoulder_lift` y `wrist_1`. El argumento de estabilidad
+discreta predice un umbral **universal** cercano a 1, y los datos no lo
+respaldan.
+
+#### Por qué baja en las juntas grandes
+
+La predicción de partida era que la fricción **subiría** el umbral, porque
+disipa y amortigua el ciclo límite. Eso se cumple en `wrist_1` (0.99–1.67 frente
+al ~1 teórico) y **falla en las dos juntas grandes**, donde baja a ~0.3.
+
+La explicación que encaja: la fricción de Coulomb no solo disipa, también es una
+fuerza **discontinua** en el cruce por cero de la velocidad. El pegado-deslizado
+que produce es un mecanismo de ciclo límite por derecho propio, y se acopla con
+el término conmutado a ganancias `K/φ` más bajas de las que el análisis lineal
+—que trata la fricción como amortiguamiento puro— predice. `shoulder_lift` y
+`elbow` son las que más Coulomb tienen (7.20 y 7.89 N·m) y las que antes cruzan.
+
+No es un artefacto de la compensación: `f_c·tanh(q̇_d/ε)` no depende de φ, y la
+transición entre φ = 0.05 y φ = 0.03 es de dos órdenes de magnitud en energía de
+alta frecuencia.
+
+#### Qué hacer con esto
+
+- **Un `chi_limit` único no sirve.** Con 0.8, la FASE 7 aceptaría ganancias que
+  hacen chatear `shoulder_lift` y `elbow`, y rechazaría ganancias válidas en
+  `wrist_1`. La restricción debería ser **por junta**, con los umbrales de la
+  tabla y margen.
+- **Si hay que dejar un escalar**, el conservador es **0.2**, no 0.8: por debajo
+  del cruce de `shoulder_lift`.
+- **No cierra la brecha de las muñecas.** La cota analítica pide χ = 3.2 en
+  `wrist_1` (§ `friction_residual_bound`) y el umbral medido está en 0.99–1.67:
+  sigue habiendo un factor ~2. Menos que el 4× que suponía el límite 0.8, pero
+  incompatible igual.
+
+---
+
 ## 8. Artefactos de paper que habilita esta fase
 
 - **Figura de 3 paneles** (`s(t)`, `τ(t)`, espectro) para `sign` vs `sat`: los
