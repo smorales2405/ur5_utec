@@ -89,12 +89,59 @@ gz_smc_control_node:
     # con tau_max: phi vive en el espacio de la superficie deslizante, tau_max
     # en el del actuador. Confundirlos es el error que el plan avisa de evitar.
     phi: 0.05
+    # phi_joint: phi POR JUNTA (vacio = usar el escalar de arriba en las seis).
+    #
+    # wrist_1 sube a 0.07 por el umbral de chattering MEDIDO con friccion
+    # (docs/05_smc.md 7.6): a phi = 0.05 su chi vale 0.99, justo el borde
+    # inferior de su banda de transicion (0.99-1.67). 0.07 deja chi = 0.71,
+    # un factor 1.4 de margen.
+    #
+    # 0.07 y no 0.10, MEDIDO sobre la trayectoria completa (7.7):
+    #
+    #     phi_w1    TCP RMSE   TV(tau)   w1 RMSE   w1 >20Hz
+    #      0.05      0.542 mm    10087   0.00099     7.15 %
+    #      0.07      0.289 mm     7874   0.00131     0.63 %
+    #      0.10      0.437 mm     5262   0.00187     0.00 %
+    #
+    # Subir a 0.10 apaga el resto del chattering, pero `e_ss` crece con phi y el
+    # error articular que anade pesa MAS en el TCP que lo que gana. 0.07 es el
+    # optimo del compromiso, no un punto intermedio elegido a ojo.
+    #
+    # OJO: la misma medida dice que shoulder_lift y elbow estan IGUAL de al
+    # borde a phi = 0.05 (chi 0.22 y 0.32 frente a bandas 0.22-0.36 y
+    # 0.32-0.53). No se tocan aqui porque no se ha pedido, pero es la misma
+    # decision pendiente y con el mismo compromiso que resolver.
+    phi_joint: [0.05, 0.05, 0.05, 0.07, 0.05, 0.05]
     # alpha en (0,1]: fraccion de los terminos nominales que se asume incierta.
     # Estudio de sensibilidad del plan: 0.1 / 0.3 / 0.5 / 1.0.
     alpha: 0.3
     # sign -> chattering maximo, s -> 0 exacto en tiempo finito
     # sat  -> chattering suprimido, |s| acotada por O(phi)
     switching_function: "sat"
+
+    # -- Compensacion de friccion (FASE 2 real) --------------------------------
+    # Solo se activa pasando `friction_compensation` y los coeficientes; aqui se
+    # fija dq_source y dq_eps, que son las dos decisiones de diseno.
+    friction:
+      # `desired`: el feedforward se alimenta de la velocidad de REFERENCIA. Con
+      # la medida, F_c*tanh(dq/eps) se anula justo cuando la junta esta clavada
+      # y no la desbloquea nunca (docs/05_smc.md 7.1: 314x de diferencia).
+      dq_source: "desired"
+      # eps existia para no conmutar sobre el RUIDO de la velocidad medida. Con
+      # `desired` la senal es la referencia, que no tiene ruido, asi que ese
+      # papel desaparece — y eps pasa a ser lo UNICO que crea la banda sin
+      # compensar: el hueco es exactamente |dq_ref| < eps. Medido en wrist_1
+      # (docs/05_smc.md 7.7):
+      #
+      #     |dq_ref| > 1e-4  ->  friccion sin compensar 1.68 N.m,  chi 2.89
+      #     |dq_ref| > 1e-3  ->                         0.45 N.m,  chi 0.78
+      #     |dq_ref| > 2e-3  ->                         0.08 N.m,  chi 0.14
+      #
+      # Con eps = 1e-5 la banda se encoge dos ordenes y la friccion sin
+      # compensar de wrist_1 cae a 0.021 N.m (chi 0.04).
+      #
+      # NO bajar esto con dq_source = "measured": ahi conmutaria sobre el ruido.
+      dq_eps: 1.0e-5
 
     tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
 

@@ -222,10 +222,25 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
     if (!(friction_dq_eps_ > 0.0)) {
       throw std::runtime_error("friction.dq_eps debe ser > 0");
     }
+    // `eps` existe para no conmutar sobre el RUIDO de la velocidad medida. Con
+    // `desired` la senal es la referencia y no lo tiene, asi que alli eps puede
+    // —y conviene que— sea pequeno: es lo unico que crea la banda sin compensar
+    // (docs/05_smc.md 7.7). Con `measured` es justo al reves, y bajarlo hace
+    // que el termino de Coulomb conmute con el ruido. Se avisa en vez de
+    // abortar porque hay ensayos legitimos ahi.
+    if (!friction_use_ref_dq_ && friction_dq_eps_ < 1e-4 &&
+        friction_mode_ == FrictionCompensation::VISCOUS_COULOMB)
+    {
+      RCLCPP_WARN(get_logger(),
+                  "friction.dq_eps=%.1e con dq_source='measured': el termino de "
+                  "Coulomb conmutara sobre el ruido de velocidad. eps pequeno "
+                  "solo tiene sentido con dq_source='desired'.",
+                  friction_dq_eps_);
+    }
     if (friction_mode_ != FrictionCompensation::NONE) {
       RCLCPP_INFO(get_logger(),
                   "Compensacion de friccion '%s': F_v=[%.3f %.3f %.3f %.3f %.3f %.3f] "
-                  "F_c=[%.3f %.3f %.3f %.3f %.3f %.3f] (tanh eps=%.4f rad/s)",
+                  "F_c=[%.3f %.3f %.3f %.3f %.3f %.3f] (tanh eps=%.2e rad/s)",
                   mode.c_str(),
                   friction_f_v_[0], friction_f_v_[1], friction_f_v_[2],
                   friction_f_v_[3], friction_f_v_[4], friction_f_v_[5],

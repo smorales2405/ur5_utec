@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <string>
 
 #include "ur5_dyn_control/torque_control_node_base.hpp"
@@ -115,12 +116,20 @@ public:
     // a un printf-like es un uso despues de destruir.
     const bool phi_uniforme =
       (phi_.maxCoeff() - phi_.minCoeff()) < 1e-12;
+    // Se imprimen las SEIS. Con "[phi_0 ... phi_5]" el mensaje decia
+    // "[0.05 ... 0.05]" mientras wrist_1 valia 0.10: la unica junta distinta era
+    // justo una de las que no se veian.
+    std::string phi_lista;
+    for (int i = 0; i < 6; ++i) {
+      char b[24];
+      std::snprintf(b, sizeof(b), "%s%.4g", i ? " " : "", phi_[i]);
+      phi_lista += b;
+    }
     const std::string phi_txt =
       use_sat_
       ? (phi_uniforme
-        ? (" (phi=" + std::to_string(phi_[0]) + ")")
-        : (" (phi POR JUNTA=[" + std::to_string(phi_[0]) + " ... " +
-        std::to_string(phi_[5]) + "])"))
+        ? (" (phi=" + phi_lista.substr(0, phi_lista.find(' ')) + ")")
+        : (" (phi POR JUNTA=[" + phi_lista + "])"))
       : std::string();
     RCLCPP_INFO(get_logger(),
                 "SMC rho=%s%s | lambda=[%.1f ...] eta=[%.1f ...] alpha=%.2f",

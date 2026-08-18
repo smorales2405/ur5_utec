@@ -509,6 +509,63 @@ alta frecuencia.
 
 ---
 
+### 7.7 La brecha de `wrist_1` era `ε`, no el control
+
+La cota analítica pedía χ = 3.2 en `wrist_1` frente a un umbral medido de
+0.99–1.67. Al desglosarla, el requisito depende por completo de **cuán despacio**
+se le pida moverse:
+
+| `\|q̇_ref\|` > | fricción sin compensar | χ a φ = 0.05 | |
+|---|---|---|---|
+| 0 (todas las muestras) | 1.86 N·m | 3.21 | ❌ |
+| 5e-4 | 1.01 | 1.73 | ❌ |
+| **1e-3 (= ε)** | **0.454** | **0.781** | ✅ |
+| 2e-3 | 0.080 | 0.137 | ✅ |
+| 5e-3 | 0.021 | 0.037 | ✅ |
+
+La banda donde la compensación se hunde es **exactamente** `|q̇_ref| < ε`. Y ε
+existía para no conmutar sobre el **ruido de la velocidad medida**: con
+`dq_source = desired` la señal es la referencia, que no lo tiene, así que ese
+papel desapareció y ε pasó a ser lo único que creaba la brecha.
+
+Con ε = 1e-5 la fricción sin compensar de `wrist_1` cae a **0.021 N·m** (χ =
+0.04). La brecha no se estrecha: desaparece.
+
+> Las ventanas lentas NO son transitorios que se puedan despreciar: las tres
+> inversiones de `wrist_1` duran 106 ms, 786 ms y 1380 ms, frente a los 50 ms de
+> `1/λ`. Se comprobó antes de descartarlas.
+
+#### Medido en Gazebo
+
+| config | TCP RMSE | TV(τ) | `wrist_1` RMSE | `wrist_1` >20 Hz |
+|---|---|---|---|---|
+| ε = 1e-3, φ = 0.05 | 0.542 mm | 10 087 | 0.00099 | 7.15 % |
+| ε = 1e-5, **φ_w1 = 0.07** | **0.289 mm** | 7 874 | 0.00131 | 0.63 % |
+| ε = 1e-5, φ_w1 = 0.10 | 0.437 mm | 5 262 | 0.00187 | 0.00 % |
+
+Bajar ε mejora las tres juntas grandes (`shoulder_pan` 5.3×) y reduce el
+chattering global a la mitad. Sobre φ de `wrist_1`, **0.07 gana a 0.10**: subir
+más apaga el resto del chattering, pero `e_ss ∝ φ` y el error articular que añade
+pesa más en el TCP que lo que gana.
+
+#### `wrist_3` sigue fuera, y su cuello de botella NO es de control
+
+Bajar ε le ayuda mucho —de χ = 494 a **45.5**— y aún así necesitaría φ = 1.71
+rad/s, con 4.9° de error permanente en el giro del filo. Pero su cota está
+dominada por la incertidumbre de su `k`, que no es identificable y se declaró en
+[9.8, 11.7] N·m/A:
+
+```
+la k sin determinar aporta el 96 % de su cota
+con k medida al 1 %:  d = 0.048 N·m (frente a 0.293),  phi = 0.28,  e_ss = 0.81°
+```
+
+**El camino de `wrist_3` pasa por medir su `k`**, no por sintonizar: ahora mismo
+se paga en ancho de capa límite una incertidumbre de identificación. Enlaza con
+el pendiente de la brida en [`02_friction_real.md`](02_friction_real.md) §6.
+
+---
+
 ## 8. Artefactos de paper que habilita esta fase
 
 - **Figura de 3 paneles** (`s(t)`, `τ(t)`, espectro) para `sign` vs `sat`: los
