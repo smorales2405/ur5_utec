@@ -107,11 +107,28 @@ gz_smc_control_node:
     # error articular que anade pesa MAS en el TCP que lo que gana. 0.07 es el
     # optimo del compromiso, no un punto intermedio elegido a ojo.
     #
-    # OJO: la misma medida dice que shoulder_lift y elbow estan IGUAL de al
-    # borde a phi = 0.05 (chi 0.22 y 0.32 frente a bandas 0.22-0.36 y
-    # 0.32-0.53). No se tocan aqui porque no se ha pedido, pero es la misma
-    # decision pendiente y con el mismo compromiso que resolver.
-    phi_joint: [0.05, 0.05, 0.05, 0.07, 0.05, 0.05]
+    # shoulder_lift y elbow suben tambien a 0.07, por el MISMO criterio de
+    # margen: a phi = 0.05 sus chi valen 0.22 y 0.32, el borde inferior de sus
+    # bandas medidas (0.22-0.36 y 0.32-0.53); 0.07 deja el mismo factor 1.4.
+    #
+    # NO se sube mas, y el motivo importa. El barrido parecia pedir 0.10:
+    #
+    #     phi lift/elbow   TCP RMSE   elbow RMSE
+    #          0.05         0.289 mm    0.00023
+    #          0.07         0.239 mm    0.00031
+    #          0.10         0.210 mm    0.00044
+    #          0.15         0.212 mm    0.00065
+    #
+    # Pero el desglose por junta dice que NADA mejora: pan, lift, w1, w2 y w3
+    # son constantes y el codo solo empeora. La ganancia de TCP es CANCELACION
+    # en el mapa cinematico —el error medio con signo del codo crece en negativo
+    # (-0.000112 -> -0.000321) mientras el de pan sigue en +0.000112—, no mejor
+    # seguimiento. Optimizar phi contra el TCP aqui seria ajustar un artefacto
+    # que depende de esta trayectoria y de estas ganancias.
+    #
+    # Y a phi = 0.05 ninguna de las dos chatea de hecho (0.40 % y 1.12 % de
+    # energia > 20 Hz), asi que lo que se compra es margen, no una cura.
+    phi_joint: [0.05, 0.07, 0.07, 0.07, 0.05, 0.05]
     # alpha en (0,1]: fraccion de los terminos nominales que se asume incierta.
     # Estudio de sensibilidad del plan: 0.1 / 0.3 / 0.5 / 1.0.
     alpha: 0.3

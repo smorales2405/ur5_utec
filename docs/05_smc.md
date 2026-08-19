@@ -548,6 +548,37 @@ chattering global a la mitad. Sobre φ de `wrist_1`, **0.07 gana a 0.10**: subir
 más apaga el resto del chattering, pero `e_ss ∝ φ` y el error articular que añade
 pesa más en el TCP que lo que gana.
 
+#### Extensión a `shoulder_lift` y `elbow`, y una trampa de medida
+
+Las dos están en el borde inferior de su banda a φ = 0.05 (χ = 0.22 y 0.32
+frente a 0.22–0.36 y 0.32–0.53), así que suben a 0.07 por el mismo factor 1.4 de
+margen. El barrido parecía pedir más:
+
+| φ lift/elbow | TCP RMSE | TV(τ) | elbow RMSE |
+|---|---|---|---|
+| 0.05 | 0.289 mm | 7 874 | 0.00023 |
+| 0.07 | 0.239 mm | 6 767 | 0.00031 |
+| 0.10 | 0.210 mm | 5 892 | 0.00044 |
+| 0.15 | 0.212 mm | 1 325 | 0.00065 |
+
+**Y es una trampa.** El desglose por junta dice que **nada mejora**: `pan`,
+`lift`, `wrist_1`, `wrist_2` y `wrist_3` son constantes en las cuatro corridas y
+el codo solo empeora. La caída del TCP es **cancelación en el mapa cinemático**
+—el error medio CON SIGNO del codo crece en negativo (−0.000112 → −0.000321)
+mientras el de `pan` se queda en +0.000112—, no mejor seguimiento. Optimizar φ
+contra el TCP aquí sería ajustar un artefacto que depende de esta trayectoria y
+de estas ganancias.
+
+Además, a φ = 0.05 ninguna de las dos chatea de hecho: 0.40 % y 1.12 % de
+energía por encima de 20 Hz. Lo que se compra con 0.07 es **margen**, no una
+cura, y por eso no se paga más de un 35 % de degradación en el codo.
+
+> **`TV(τ)` no discrimina a este nivel.** Repitiendo el MISMO config (φ = 0.10)
+> dos veces: TCP 0.210 vs 0.220 mm (4.7 % de dispersión) pero TV 5 892 vs 2 174
+> — **63 %**. Cualquier lectura de TV entre configuraciones que difieran menos
+> de un factor ~2 es ruido, incluida la caída a 1 325 de la fila φ = 0.15. El
+> RMSE articular, en cambio, se repitió exacto (0.00044 en las dos).
+
 #### `wrist_3` sigue fuera, y su cuello de botella NO es de control
 
 Bajar ε le ayuda mucho —de χ = 494 a **45.5**— y aún así necesitaría φ = 1.71
