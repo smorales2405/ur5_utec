@@ -79,6 +79,9 @@ bool CsvLogger::open(const std::string & output_dir,
   for (int i = 1; i <= 6; ++i) {csv_ << ",s" << i;}
   csv_ << ",x,y,z,x_des,y_des,z_des,theta_err";
   for (int i = 1; i <= 6; ++i) {csv_ << ",wrench" << i;}
+  // `cur` es CORRIENTE [A] en el robot real y esfuerzo [N·m] en Gazebo:
+  // el campo `effort` de /joint_states tal cual (G5). Ver csv_logger.hpp.
+  for (int i = 1; i <= 6; ++i) {csv_ << ",cur" << i;}
   csv_ << ",state\n";
   return true;
 }
@@ -103,6 +106,7 @@ void CsvLogger::log(const LogSample & d)
        << ',' << d.xyz_des.x() << ',' << d.xyz_des.y() << ',' << d.xyz_des.z()
        << ',' << d.theta_err;
   for (int i = 0; i < 6; ++i) {csv_ << ',' << d.wrench[i];}
+  for (int i = 0; i < 6; ++i) {csv_ << ',' << d.cur[i];}
   csv_ << ',' << d.state << '\n';
 }
 

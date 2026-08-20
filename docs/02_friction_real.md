@@ -249,6 +249,12 @@ Pendiente: **comprobación física de la brida.** Si aparece masa no modelada,
 afecta también a la compensación de gravedad de los cuatro controladores, no
 sólo a esta campaña.
 
+> **Ya no hace falta esperar a esa comprobación para zanjarlo.** El método de
+> gravedad no puede distinguir una `k` distinta de un error de masas del URDF,
+> porque un error de masas se va ENTERO a `k`. La vía `k = tau_phys/cur` (§8.1)
+> no usa el URDF, así que separa las dos hipótesis: si da 11.7, el modelo
+> subestima la masa distal; si da 9.0, la `k` de `wrist_1` es realmente distinta.
+
 Mientras tanto se adopta la `k` propia de `wrist_1`: con la de multipostura
 (9.7582) el residuo relativo era del 8.5 %, con la suya baja a 1.5 %.
 
@@ -350,6 +356,39 @@ sí mismo en la línea de órdenes y da un falso positivo.
 
 ---
 
+### 8.1 `k` sin gravedad y sin URDF: `k = tau_phys / cur`
+
+El método de §1.1 saca `k` de la SUMA entre sentidos, que vale `g(q) + C·v`, así
+que **exige que la gravedad cargue la junta**. En `wrist_3` eso no pasa en
+ninguna postura (§1.2) y no hay multipostura que lo arregle.
+
+Bajo control de par hay otra vía, y no depende de la gravedad. Con G4 = 0.0 y
+`gravity_in_command:=false`, el par físico de la junta es el comandado más la
+gravedad que pone el robot — que es lo que ya registra la columna `tau_phys`—, y
+`cur` trae la corriente de la misma fila:
+
+```
+k_i = media(tau_phys_i) / media(cur_i)      [N·m/A]
+```
+
+Sin modelo, sin URDF y sin gravedad. Vale para las seis juntas.
+
+**Lo que lo desbloqueó** fue el feedforward alimentado por la velocidad deseada
+(`docs/05_smc.md` §7.3): el control de par no podía mover las muñecas, y ahora
+sí. Y un detalle que lo hace utilizable: **la `k` supuesta para calcular ese
+feedforward NO sesga el resultado.** Solo sirve para que la junta arranque; la
+medida usa el par realmente comandado y la corriente realmente leída.
+
+**Autovalidación.** En Gazebo `cur` es el esfuerzo articular en N·m, la misma
+magnitud que `tau_phys`, así que `k` tiene que dar 1.0. Medido: **0.9886**, un
+1.1 % — el desfase de un ciclo entre comando y estado publicado. Eso valida la
+cadena y fija además el suelo de precisión del método, por debajo del 2–3 % que
+hace falta para que `wrist_3` deje de ser el caso duro (`05_smc.md` §7.7).
+
+Script: `ur5_identification/scripts/calibrate_k_from_torque.py`.
+
+---
+
 ## 9. Uso
 
 ```bash
@@ -393,6 +432,8 @@ Corridas por control de par usadas en §3.3 y §4: `fl_900`–`fl_902` (nivel 0.
 
 ## 11. Pendiente
 
+- [ ] Medir `k` por `tau_phys/cur` (§8.1) en las seis juntas: cierra `wrist_3`
+      y separa las dos hipótesis de la anomalía de `wrist_1`.
 - [ ] Comprobación física de la brida (§6).
 - [ ] Residual tras compensación en las muñecas — requiere una vía distinta al
       control de par, que no puede moverlas.

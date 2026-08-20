@@ -3,6 +3,7 @@
 
 #include <array>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <string>
 
@@ -70,6 +71,27 @@ struct LogSample
 
   /// Wrench del TCP medido (ft_data del robot real); 0 en simulacion.
   Vector6d wrench = Vector6d::Zero();
+
+  /**
+   * Campo `effort` de /joint_states, TAL CUAL. NaN si el driver no lo publica.
+   *
+   * OJO CON LAS UNIDADES, que NO son las mismas en los dos sitios (compuerta
+   * G5): en el UR5e real esto es CORRIENTE DE MOTOR en amperios —el campo RTDE
+   * `actual_current`, no par—, y en Gazebo es el esfuerzo articular en N·m que
+   * publica gz_ros2_control. Por eso la columna se llama `cur` y no `tau`: leerla
+   * como par en el robot real es exactamente el error que G5 documenta.
+   *
+   * Para que sirve: con `tau_phys` en la misma fila, cada meseta a velocidad
+   * constante da la constante corriente->par de esa junta,
+   *
+   *     k_i = media(tau_phys_i) / media(cur_i)      [N·m/A]
+   *
+   * sin URDF, sin gravedad y sin modelo. Es la unica via para `wrist_3`, cuya
+   * `k` no es identificable por gravedad en ninguna postura, y de paso zanja la
+   * anomalia de `wrist_1` (docs/02_friction_real.md §6), donde hoy no se puede
+   * distinguir una `k` distinta de un error de masas del URDF.
+   */
+  Vector6d cur = Vector6d::Constant(std::numeric_limits<double>::quiet_NaN());
 
   std::string state;
 };

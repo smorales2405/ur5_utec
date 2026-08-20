@@ -1,6 +1,7 @@
 #ifndef UR5_DYN_CONTROL_TORQUE_CONTROL_NODE_BASE_HPP
 #define UR5_DYN_CONTROL_TORQUE_CONTROL_NODE_BASE_HPP
 
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -193,6 +194,9 @@ private:
   /// `friction.dq_source` = "desired": alimentar el feedforward con la
   /// velocidad DESEADA en vez de la medida. Ver commandFromLaw().
   bool friction_use_ref_dq_ = false;
+  /// Ultimo `effort` de /joint_states: CORRIENTE [A] en el UR5e real,
+  /// esfuerzo [N·m] en Gazebo (G5). NaN si el driver no lo publica.
+  Vector6d cur_ = Vector6d::Constant(std::numeric_limits<double>::quiet_NaN());
 
   // FASE 3 — limite de tasa del comando y watchdog del lazo.
   Vector6d tau_rate_max_ = Vector6d::Zero();   // 0 = desactivado

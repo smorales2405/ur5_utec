@@ -8,6 +8,7 @@
 #include <thread>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <cmath>
 #include <map>
 
@@ -582,6 +583,13 @@ bool TorqueControlNodeBase::readJointStates(Vector6d & q, Vector6d & dq)
           dq[j] = js.velocity[i];
           ++found;
         }
+        // `effort` es OPCIONAL en sensor_msgs/JointState y hay drivers que lo
+        // dejan vacio: si falta, la columna queda NaN en vez de un cero que
+        // pareceria una medida. No cuenta para `found` — el lazo de control no
+        // depende de el.
+        cur_[j] = (i < js.effort.size())
+          ? js.effort[i]
+          : std::numeric_limits<double>::quiet_NaN();
         break;
       }
     }
@@ -646,6 +654,9 @@ void TorqueControlNodeBase::logRow(double t_sim, const Vector6d & q,
     Eigen::Matrix3d(T_des.rotation().transpose() * T.rotation())).norm();
 
   d.wrench = last_wrench_;   // 0 en simulacion; ft_data en el robot real
+  // Corriente de motor [A] en el real, esfuerzo [N·m] en Gazebo (G5).
+  // Con `tau_phys` en la misma fila da k = tau_phys/cur por meseta.
+  d.cur = cur_;
   d.state = state;
   csv_.log(d);
 }
