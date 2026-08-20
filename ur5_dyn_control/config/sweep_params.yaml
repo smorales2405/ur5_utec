@@ -89,6 +89,19 @@ gz_fl_control_node:
     kd: [ 20.0,  20.0,  20.0,   82.46, 173.21,  20.0]
     tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
 
+    # -- Compensacion de friccion ---------------------------------------------
+    # Solo actua si se pasa `friction_compensation`; aqui se fijan las dos
+    # decisiones de diseno, para no repetirlas en cada lanzamiento.
+    friction:
+      # Con la velocidad MEDIDA, F_c*tanh(dq/eps) se anula justo cuando la junta
+      # esta clavada y no la desbloquea nunca — que es lo que impedia barrer las
+      # muñecas por control de par (docs/02_friction_real.md 1).
+      dq_source: "desired"
+      # Pequeno porque la referencia no tiene ruido del que protegerse; eps es
+      # lo unico que crea la banda sin compensar (docs/05_smc.md 7.7).
+      dq_eps: 1.0e-5
+
+
     trajectory_type: "joint_sweep"
 
     sweep:

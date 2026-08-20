@@ -379,11 +379,72 @@ sí. Y un detalle que lo hace utilizable: **la `k` supuesta para calcular ese
 feedforward NO sesga el resultado.** Solo sirve para que la junta arranque; la
 medida usa el par realmente comandado y la corriente realmente leída.
 
-**Autovalidación.** En Gazebo `cur` es el esfuerzo articular en N·m, la misma
-magnitud que `tau_phys`, así que `k` tiene que dar 1.0. Medido: **0.9886**, un
-1.1 % — el desfase de un ciclo entre comando y estado publicado. Eso valida la
-cadena y fija además el suelo de precisión del método, por debajo del 2–3 % que
-hace falta para que `wrist_3` deje de ser el caso duro (`05_smc.md` §7.7).
+**Se RESTA entre sentidos**, y no es cosmético:
+
+```
+tau_phys = tau_cmd + g_NUESTRO(q)     <- lo que registra la columna
+par real = tau_cmd + g_UR(q)          <- lo que el robot entrega
+```
+
+El nodo calcula `tau_phys` con su modelo (G3) mientras el robot compensa la
+gravedad con el suyo, que no publican. El cociente crudo saldría sesgado por el
+cociente de las dos gravedades. La gravedad es PAR en la velocidad, así que
+restando los dos sentidos se cancela arriba y abajo a la vez, y con ella toda
+dependencia del modelo: el numerador pasa a ser par que **nosotros comandamos**.
+
+> **NO se puede ensayar en Gazebo.** Lo intenté y la validación que primero di
+> por buena era falsa. En la corrida de incisión `k` salió 0.9886 ≈ 1.0, pero eso
+> solo demostraba que ambas columnas ven la misma GRAVEDAD (−44.45 y −44.96):
+> las dos estaban dominadas por ella. Al mirar la diferencia entre sentidos, que
+> es la parte que importa, aparece que **el `effort` de Gazebo no incluye la
+> fuerza de fricción**, que el motor de física resuelve como restricción aparte:
+>
+> ```
+> SWEEP_1.000_POS   tau_phys  -0.6121   cur  -20.0747
+> SWEEP_1.000_NEG   tau_phys -39.5396   cur  -20.0719
+> ```
+>
+> `tau_phys` cambia 19.5 N·m —exactamente la fricción inyectada— y `cur` no se
+> mueve. En el robot real `cur` es corriente de motor y el motor SÍ tiene que
+> producir ese par, así que allí funciona; pero **la primera medida real es
+> también su primera prueba**. Por eso se valida sobre una junta cuya `k` ya se
+> conoce por otra vía antes de usarlo en `wrist_3`.
+
+### 8.2 Validado en el robot real, y discrepa un 6.1 % con la gravedad
+
+Medido sobre `shoulder_lift`, cuya `k` por gravedad es 11.850:
+
+| nivel | dif τ [N·m] | dif i [A] | k |
+|---|---|---|---|
+| 0.020 | 6.4222 | 0.5768 | 11.1346 |
+| 0.100 | 8.4915 | 0.7638 | 11.1172 |
+| 0.350 | 13.1951 | 1.1875 | 11.1120 |
+| 1.000 | 19.9004 | 1.7864 | 11.1399 |
+
+**k = 11.1240, dispersión 0.10 % sobre 50× de rango de velocidad.** Que `k` no
+derive con la velocidad era el criterio de aceptación: confirma que
+`direct_torque` entrega el par comandado, que es la suposición de fondo.
+
+Y hay una validación no circular mejor que la de §3.3: ajustando `dif τ` y
+`dif i` por separado contra la velocidad, los términos **viscoso y de Coulomb**
+—independientes entre sí— dan `k` = 11.141 y 11.112, que **coinciden al 0.26 %**
+(en §3.3 la misma comprobación daba 6.4 %). Aquí `τ` y `cur` salen de la misma
+fila del mismo instante, no de dos corridas separadas en el tiempo.
+
+**Pero discrepa un 6.1 % con la `k` por gravedad**, y la nueva tiene 0.10 % de
+dispersión, así que no es ruido. La asimetría decide la lectura: `Δτ/Δi` es libre
+de modelo, `g_modelo/i_suma` no. Como `k_gravedad/k_nueva` = 1.065, lo que dice
+el dato es que **el URDF sobreestima la gravedad de `shoulder_lift` en un 6.5 %**.
+
+Si se confirma en otra junta, **todas las `k` de §3.1 llevan ese sesgo**, y con
+ellas todos los valores de fricción en N·m que hoy están en `smc_params.yaml` y
+en el optimizador. No cambia ninguna conclusión cualitativa, pero sí los números
+que van al paper. Y da una explicación alternativa para la anomalía de `wrist_1`
+(§6): si cada junta tiene su propio error de gravedad en el URDF, su `k` = 9.00
+puede ser sesgo del modelo y no una `k` realmente distinta.
+
+**PENDIENTE**: repetir sobre `elbow` (`k` por gravedad = 11.63) como
+discriminante. Si también sale ~6 % baja, es sistemático del método de gravedad.
 
 Script: `ur5_identification/scripts/calibrate_k_from_torque.py`.
 

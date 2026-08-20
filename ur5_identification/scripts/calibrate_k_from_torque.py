@@ -2,12 +2,22 @@
 """
 Constante corriente->par `k` a partir de una corrida de CONTROL DE PAR.
 
-    k_i = media(tau_phys_i) / media(cur_i)      [N·m/A]
+    k_i = [tau_phys(+v) - tau_phys(-v)] / [cur(+v) - cur(-v)]      [N·m/A]
 
-Sin URDF, sin gravedad y sin modelo: `tau_phys` es el par que la junta entrega
-de verdad (comandado mas la gravedad que pone el robot, G3) y `cur` es el campo
-`effort` de /joint_states, que en el UR5e es CORRIENTE de motor (G5). Los dos
-estan en la misma fila del CSV unificado.
+Se RESTA entre sentidos, no se divide sin mas, y el motivo no es cosmetico:
+
+    tau_phys = tau_cmd + g_NUESTRO(q)     <- lo que registra la columna
+    par real = tau_cmd + g_UR(q)          <- lo que el robot entrega de verdad
+
+El nodo calcula `tau_phys` con SU modelo (G3) mientras el robot compensa la
+gravedad con el suyo, que no publican. El cociente crudo sale sesgado por el
+cociente de las dos gravedades, asi que NO seria una medida independiente del
+URDF. La gravedad es PAR en la velocidad, asi que restando los dos sentidos se
+cancela en el numerador y en el denominador a la vez, y con ella toda dependencia
+del modelo. Lo mismo hace `calibrate_current.py` con la SUMA para la gravedad.
+
+`cur` es el campo `effort` de /joint_states, que en el UR5e es CORRIENTE de
+motor (G5). Los dos estan en la misma fila del CSV unificado.
 
 Por que hace falta otra via
 ---------------------------
@@ -55,18 +65,23 @@ def load(path):
                          invalid_raise=False)
 
 
-def plateaus(d):
-    """Mesetas de velocidad constante que etiqueta el generador de barrido."""
+def plateau_pairs(d):
+    """
+    Pares (+v, -v) del MISMO nivel de velocidad.
+
+    Se exige el par COMPLETO: una meseta suelta no sirve, porque todo el metodo
+    se apoya en cancelar la gravedad comparando los dos sentidos.
+    """
     st = np.asarray(d["state"], dtype=str)
     niveles = sorted({s.rsplit("_", 1)[0] for s in st
                       if s.startswith("SWEEP_") and
                       s.rsplit("_", 1)[-1] in ("POS", "NEG")})
     out = []
     for lv in niveles:
-        for signo in ("POS", "NEG"):
-            m = st == f"{lv}_{signo}"
-            if m.sum() >= 20:
-                out.append((f"{lv}_{signo}", m))
+        m_p = st == f"{lv}_POS"
+        m_n = st == f"{lv}_NEG"
+        if m_p.sum() >= 20 and m_n.sum() >= 20:
+            out.append((lv, m_p, m_n))
     return out
 
 
@@ -90,49 +105,60 @@ def main():
         print("La columna de corriente es NaN: el driver no publica `effort`.")
         return 1
 
-    ventanas = plateaus(d)
-    if not ventanas:
-        # Sin barrido etiquetado se cae a la fase de seguimiento entera.
-        st = np.asarray(d["state"], dtype=str)
-        ventanas = [("TRACK", st == "TRACK")]
-
-    print(f"Junta {j} — k = media(tau_phys)/media(cur) sobre {len(ventanas)} ventanas\n")
-    print(f"{'ventana':>18}{'n':>7}{'tau_phys':>11}{'cur':>10}{'k':>10}")
-    print("-" * 56)
-    ks, pesos = [], []
-    for nombre, m in ventanas:
-        t = d[f"tau{j+1}_phys"][m]
-        c = cur[m]
-        ok = np.isfinite(t) & np.isfinite(c)
-        if ok.sum() < 20:
-            continue
-        tm, cm = t[ok].mean(), c[ok].mean()
-        if abs(cm) < args.min_cur:
-            print(f"{nombre:>18}{ok.sum():7d}{tm:11.4f}{cm:10.4f}"
-                  f"{'—':>10}   (|cur| < {args.min_cur})")
-            continue
-        k = tm / cm
-        ks.append(k)
-        pesos.append(abs(cm))
-        print(f"{nombre:>18}{ok.sum():7d}{tm:11.4f}{cm:10.4f}{k:10.4f}")
-
-    if not ks:
-        print("\nNinguna ventana con corriente suficiente. Suba la velocidad del "
-              "barrido o baje --min-cur asumiendo mas ruido.")
+    pares = plateau_pairs(d)
+    if not pares:
+        print("No hay pares de mesetas (+v, -v). Este metodo los NECESITA: sin\n"
+              "los dos sentidos no se puede cancelar la gravedad, y el cociente\n"
+              "crudo quedaria sesgado por el desacuerdo entre nuestro URDF y el\n"
+              "modelo interno de UR. Use trajectory_type:=joint_sweep.")
         return 2
 
-    ks = np.asarray(ks)
-    pesos = np.asarray(pesos)
-    # Ponderada por |cur|: las mesetas lentas tienen mucho peor relacion
+    print(f"Junta {j} — k = dif(tau_phys) / dif(cur) sobre {len(pares)} niveles\n")
+    print(f"{'nivel':>16}{'dif tau':>11}{'dif cur':>10}{'k':>10}{'|v|':>9}")
+    print("-" * 58)
+    ks, pesos = [], []
+    for lv, m_p, m_n in pares:
+        t_p = d[f"tau{j+1}_phys"][m_p]; t_n = d[f"tau{j+1}_phys"][m_n]
+        c_p = cur[m_p]; c_n = cur[m_n]
+        if not (np.isfinite(t_p).any() and np.isfinite(c_p).any() and
+                np.isfinite(t_n).any() and np.isfinite(c_n).any()):
+            continue
+        dt_ = 0.5 * (np.nanmean(t_p) - np.nanmean(t_n))
+        dc_ = 0.5 * (np.nanmean(c_p) - np.nanmean(c_n))
+        v = 0.5 * (abs(np.nanmean(d[f"dq{j+1}"][m_p])) +
+                   abs(np.nanmean(d[f"dq{j+1}"][m_n])))
+        if abs(dc_) < args.min_cur:
+            print(f"{lv:>16}{dt_:11.4f}{dc_:10.4f}{'—':>10}{v:9.4f}"
+                  f"   (|dif cur| < {args.min_cur})")
+            continue
+        k = dt_ / dc_
+        ks.append(k); pesos.append(abs(dc_))
+        print(f"{lv:>16}{dt_:11.4f}{dc_:10.4f}{k:10.4f}{v:9.4f}")
+
+    if not ks:
+        print("\nNingun nivel con diferencia de corriente suficiente. Suba la\n"
+              "velocidad del barrido o baje --min-cur asumiendo mas ruido.")
+        return 2
+
+    ks = np.asarray(ks); pesos = np.asarray(pesos)
+    # Ponderada por |dif cur|: las mesetas lentas tienen mucho peor relacion
     # senal/ruido y no deben pesar igual que las rapidas.
     k_med = float(np.average(ks, weights=pesos))
     disp = float(ks.std(ddof=1)) if len(ks) > 1 else float("nan")
-    print(f"\n  k = {k_med:.4f} N·m/A   (ponderada por |cur|)")
-    print(f"  dispersion entre ventanas = {disp:.4f}  ({100 * disp / abs(k_med):.2f} %)")
-    if abs(k_med - 1.0) < 0.05 and disp < 0.05:
-        print("\n  k ~ 1.0: esto es una corrida de GAZEBO, donde `cur` ya esta en")
-        print("  N·m. Confirma que la cadena tau_phys/cur funciona; la `k` de")
-        print("  verdad solo sale del robot real.")
+    rel = 100 * disp / abs(k_med) if len(ks) > 1 else float("nan")
+    print(f"\n  k = {k_med:.4f} N·m/A   ({len(ks)} niveles, ponderada por |dif cur|)")
+    print(f"  dispersion entre niveles = {disp:.4f}  ({rel:.2f} %)")
+    # La DISPERSION es el criterio, no el valor: si `k` deriva con la velocidad,
+    # la suposicion de fondo —que direct_torque entrega el par comandado— no se
+    # sostiene, y el numero no vale aunque parezca razonable.
+    if rel > 5.0:
+        print("\n  AVISO: mas del 5 % de dispersion. Mire la columna |v|: si `k`\n"
+              "  deriva con la velocidad, el par comandado no se esta entregando\n"
+              "  tal cual y esta medida no es utilizable.")
+    if abs(k_med - 1.0) < 0.05 and rel < 5.0:
+        print("\n  k ~ 1.0: esto es una corrida de GAZEBO, donde `cur` ya esta en\n"
+              "  N·m. Confirma que la cadena funciona; la `k` de verdad solo sale\n"
+              "  del robot real.")
     return 0
 
 
