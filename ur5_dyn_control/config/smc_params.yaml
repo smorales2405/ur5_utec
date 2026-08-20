@@ -128,7 +128,17 @@ gz_smc_control_node:
     #
     # Y a phi = 0.05 ninguna de las dos chatea de hecho (0.40 % y 1.12 % de
     # energia > 20 Hz), asi que lo que se compra es margen, no una cura.
-    phi_joint: [0.05, 0.07, 0.07, 0.07, 0.05, 0.05]
+    #
+    # wrist_3 sube a 0.20 con la friccion RECALCULADA (02_friction_real.md 8.3):
+    # su cota residual pide phi >= 0.197 para mantener chi bajo umbral. Antes
+    # pedia 1.71 —con 4.9 grados de error de filo— porque su `k` era una
+    # hipotesis con +-8.8 %; medida de verdad, la friccion cae un 26 % y la
+    # incertidumbre casi desaparece. e_ss queda en 0.56 grados.
+    #
+    # OJO: el umbral de chattering de wrist_3 NO esta medido (Gazebo la congela,
+    # 05_smc.md 7.5). Se le supone el de wrist_1 (1.33). Es el unico phi de la
+    # lista apoyado en una suposicion y no en una medida.
+    phi_joint: [0.05, 0.07, 0.07, 0.07, 0.05, 0.20]
     # alpha en (0,1]: fraccion de los terminos nominales que se asume incierta.
     # Estudio de sensibilidad del plan: 0.1 / 0.3 / 0.5 / 1.0.
     alpha: 0.3

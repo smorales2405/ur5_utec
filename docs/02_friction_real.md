@@ -509,6 +509,84 @@ Script: `ur5_identification/scripts/calibrate_k_from_torque.py`.
 
 ---
 
+### 8.4 Las seis `k` medidas, y la fricción recalculada
+
+| junta | `k` gravedad | `k` diferencia | dispersión | familia |
+|---|---|---|---|---|
+| shoulder_pan | 11.881 † | **11.139** | 0.08 % | grande |
+| shoulder_lift | 11.850 | **11.124** | 0.10 % | grande |
+| elbow | 11.630 | **11.001** | 0.18 % | grande |
+| wrist_1 | 9.000 | **8.666** | 0.15 % | muñeca |
+| wrist_2 | 11.679 | **8.542** | 0.24 % | muñeca |
+| wrist_3 | — | **8.644** | 0.05 % | muñeca |
+
+† por cruce de métodos (§3.3), nunca por gravedad: su eje es vertical.
+
+Dispersión **dentro** de cada familia: 1.3 % en las grandes, 1.4 % en las
+muñecas. `wrist_2` es el caso extremo: su multipostura daba 11.679 frente a
+8.542 reales, un **37 % de error** — no el sesgo del 6 % del resto, sino una
+medida sencillamente mala. Era la que hacía parecer contradictoria a `wrist_1`.
+
+Fricción recalculada (corriente de la campaña × `k` nueva):
+
+| junta | F_v antes | F_v ahora | F_c antes | F_c ahora | |
+|---|---|---|---|---|---|
+| shoulder_pan | 14.55 | **13.64** | 7.31 | **6.85** | −6.2 % |
+| shoulder_lift | 12.30 | **11.55** | 7.20 | **6.76** | −6.1 % |
+| elbow | 14.53 | **13.74** | 7.89 | **7.46** | −5.4 % |
+| wrist_1 | 1.33 | **1.28** | 1.85 | **1.78** | −3.8 % |
+| wrist_2 | 1.85 | **1.35** | 2.68 | **1.96** | **−26.9 %** |
+| wrist_3 | 2.87 | **2.12** | 3.18 | **2.35** | **−26.1 %** |
+
+### 8.5 `F_v` depende del estado TÉRMICO — declararlo
+
+Repitiendo `shoulder_lift` al final de la sesión, tras seis barridos:
+
+| | 1ª corrida (frío) | 7ª corrida (rodado) | variación |
+|---|---|---|---|
+| `k` | 11.1240 | 11.1189 | **0.05 %** |
+| F_c | 7.294 | 7.239 | 0.76 % |
+| **F_v** | 13.711 | **12.437** | **9.3 %** |
+
+`k` repite a la quinta cifra y `F_c` apenas se mueve; **el viscoso baja un
+9.3 % con el robot caliente**, que es lo que se espera al afinarse el
+lubricante. El Coulomb es contacto seco y no se entera.
+
+Eso explica un desacuerdo que parecía preocupante: la primera corrida daba F_v =
+13.71 frente a los 12.30 de la campaña de agosto, un +11.5 %. La séptima da
+12.44, a **1.1 %** de la campaña. **No era deriva entre sesiones ni una campaña
+equivocada: era el robot frío.**
+
+> **Para el paper.** Un `F_v` sin declarar el estado térmico arrastra un ±10 %
+> que no aparece en ninguna barra de error. Los valores de §8.4 son los de
+> RÉGIMEN, que es la condición en la que ocurre la incisión. El protocolo es
+> descartar los primeros barridos, que es lo que la campaña de agosto hizo sin
+> pretenderlo. `k` y `F_c` no necesitan esa salvedad.
+
+### 8.6 Efecto en las ganancias
+
+Con la fricción nueva y la incertidumbre de `k` bajando de ±8.8 % a ±0.5 %:
+
+| junta | φ mínima | φ configurada | e_ss |
+|---|---|---|---|
+| shoulder_pan | 0.0004 | 0.05 | 0.14° |
+| shoulder_lift | 0.0008 | 0.07 | 0.20° |
+| elbow | 0.0030 | 0.07 | 0.20° |
+| wrist_1 | 0.0021 | 0.07 | 0.20° |
+| wrist_2 | 0.0052 | 0.05 | 0.14° |
+| **wrist_3** | **0.1972** | **0.20** | **0.56°** |
+
+Cinco juntas tienen margen de sobra. **`wrist_3` es la única que cambia**: pasa
+de 0.05 a 0.20. Antes pedía 1.71 con 4.9° de error de filo, porque su `k` era una
+hipótesis con ±8.8 %; medida de verdad, la fricción cae un 26 % y la
+incertidumbre casi desaparece.
+
+> El umbral de chattering de `wrist_3` **no está medido** — Gazebo la congela
+> (`05_smc.md` §7.5) — así que se le supone el de `wrist_1` (1.33). Es el único
+> φ de la lista apoyado en una suposición y no en una medida.
+
+---
+
 ## 9. Uso
 
 ```bash

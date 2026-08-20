@@ -281,12 +281,21 @@ class GainTuningProblem(ElementwiseProblem):
 #: Ver `docs/02_friction_real.md` §4: las dos vías miden magnitudes distintas y
 #: solo coinciden en el nivel 0.0.
 #:
-#: `wrist_3` se convirtió con `k` = 11.7 N·m/A, que es una HIPÓTESIS declarada y
-#: no una medida: su `k` no es identificable. Sus dos números escalan
-#: linealmente con ella.
+#: ACTUALIZADO 2026-08-20 con las `k` medidas por `tau_phys/cur`
+#: (`02_friction_real.md` §8.3), que ya NO dependen del modelo. Las anteriores
+#: venían del método de gravedad y llevaban un sesgo sistemático del ~6 %; en
+#: `wrist_2` el error era del 37 %, y en `wrist_3` su `k` era directamente una
+#: hipótesis. Cambios: −5/−6 % en las cuatro primeras juntas, −27 % en
+#: `wrist_2` y `wrist_3`.
+#:
+#: INCERTIDUMBRE que hay que arrastrar: `F_v` depende del estado TÉRMICO. Medido
+#: el 2026-08-20 sobre `shoulder_lift`, primera corrida del día contra la
+#: séptima: 13.71 -> 12.44, un **9.3 %**, mientras `F_c` solo se movió 0.76 % y
+#: `k` 0.05 %. Estos valores son los de RÉGIMEN (robot rodado), que es la
+#: condición en la que ocurre la incisión.
 FRICTION_REAL_G4_0 = JointFriction(
-    f_v=np.array([14.55, 12.30, 14.53, 1.33, 1.85, 2.87]),
-    f_c=np.array([7.31, 7.20, 7.89, 1.85, 2.68, 3.18]))
+    f_v=np.array([13.64, 11.55, 13.74, 1.28, 1.35, 2.12]),
+    f_c=np.array([6.85, 6.76, 7.46, 1.78, 1.96, 2.35]))
 
 
 def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
