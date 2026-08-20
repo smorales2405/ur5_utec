@@ -443,8 +443,67 @@ que van al paper. Y da una explicación alternativa para la anomalía de `wrist_
 (§6): si cada junta tiene su propio error de gravedad en el URDF, su `k` = 9.00
 puede ser sesgo del modelo y no una `k` realmente distinta.
 
-**PENDIENTE**: repetir sobre `elbow` (`k` por gravedad = 11.63) como
-discriminante. Si también sale ~6 % baja, es sistemático del método de gravedad.
+### 8.3 Cuatro juntas medidas: dos familias, y la anomalía era otra
+
+| junta | `k` gravedad | `k` diferencia | dispersión | familia |
+|---|---|---|---|---|
+| shoulder_lift | 11.850 | **11.1240** | 0.10 % | grande |
+| elbow | 11.630 | **11.0012** | 0.18 % | grande |
+| wrist_1 | 9.000 | **8.6660** | 0.15 % | muñeca |
+| wrist_3 | *no identificable* | **8.6437** | 0.05 % † | muñeca |
+| wrist_2 | 11.679 | — | | **sospechosa** |
+
+† `wrist_3` excluyendo su nivel más lento, que es un atípico (9.30 frente a
+8.64). Mirando `|v|`: pidió 0.020 rad/s y la junta fue a 0.1695 — 8.5× más. Con
+`kp` = 100 la realimentación es nula y manda el feedforward solo, así que la
+velocidad no se controla y el nivel lento no se asienta. No invalida la medida
+—`k = Δτ/Δi` no depende de la velocidad real— pero el nivel se descarta.
+
+**El sesgo de la gravedad es sistemático** (+6.5 % y +5.7 %), y hay una
+explicación más económica que un error del URDF: **un offset en la corriente**.
+Un `i0` único de ≈ −0.095 A explica las dos juntas a la vez, mientras que la
+hipótesis del URDF necesita dos errores independientes que casualmente salen
+parecidos. Ya había evidencia: la multipostura de `wrist_1` midió `i0` = −0.0133 A.
+
+Lo que decide es que el método de gravedad usa la **suma** entre sentidos, donde
+un offset **no se cancela**, y el de diferencias lo cancela igual que cancela la
+gravedad. **El método nuevo es inmune a las dos explicaciones**, así que es el
+fiable con independencia de cuál sea la correcta.
+
+#### La anomalía de `wrist_1` queda cerrada — y apuntaba al sitio equivocado
+
+`wrist_1` (8.6660) y `wrist_3` (8.6437) coinciden al **0.26 %**: dos juntas de
+muñeca con la misma `k`, medidas por separado y sin modelo. Es lo que se espera
+si comparten actuador.
+
+Así que la lectura de §6 estaba invertida. `wrist_1` valía ~8.67 y **estaba
+bien**; la que se sale es `wrist_2` con 11.68, que vino de la multipostura — un
+método basado en gravedad, con el mismo sesgo, y con un condicionamiento que ya
+se vio flojo. **La comprobación física de la brida deja de estar indicada**: no
+hay masa no modelada que explicar. Lo que hay que rehacer es la `k` de `wrist_2`.
+
+#### `wrist_3` deja de ser el caso duro
+
+Con su `k` por fin medida, y no supuesta:
+
+| | antes (`k` = 11.7 hipotética, ±8.8 %) | ahora (`k` = 8.644 medida) |
+|---|---|---|
+| F_v | 2.87 N·m·s/rad | **2.12** |
+| F_c | 3.18 N·m | **2.35** |
+| cota residual `d` | 0.293 N·m | **0.0281** |
+| φ mínima | 1.710 rad/s | **0.164** |
+| error de filo | 4.90° | **0.47°** |
+
+**Un factor 10**, mejor que el 6× estimado en `05_smc.md` §7.7, porque no solo
+cae la incertidumbre de `k` sino la fricción misma (−26 %). Con φ = 0.164
+`wrist_3` recupera modo deslizante de verdad, en vez del lazo lineal degenerado
+que se temía.
+
+**Consecuencia para los números publicados:** las `k` de §3.1 llevan ~6 % de
+sesgo y con ellas todos los valores de fricción en N·m que hoy están en
+`smc_params.yaml` y en el optimizador. No cambia ninguna conclusión cualitativa
+—ni el umbral de chattering, ni la incompatibilidad de las muñecas— pero sí las
+cifras del paper.
 
 Script: `ur5_identification/scripts/calibrate_k_from_torque.py`.
 
@@ -493,9 +552,15 @@ Corridas por control de par usadas en §3.3 y §4: `fl_900`–`fl_902` (nivel 0.
 
 ## 11. Pendiente
 
-- [ ] Medir `k` por `tau_phys/cur` (§8.1) en las seis juntas: cierra `wrist_3`
-      y separa las dos hipótesis de la anomalía de `wrist_1`.
-- [ ] Comprobación física de la brida (§6).
+- [x] Medir `k` por `tau_phys/cur` (§8.1). Hechas 4 de 6 (§8.3): `wrist_3`
+      cerrada y la anomalía de `wrist_1` resuelta.
+- [ ] Medir `k` de `wrist_2` y `shoulder_pan` por la misma vía. `wrist_2` es
+      ahora la sospechosa: 11.679 la sitúa con las grandes cuando debería estar
+      con las muñecas (~8.65).
+- [ ] Recalcular la fricción en N·m de las seis juntas con las `k` nuevas, y
+      propagarlo a `smc_params.yaml` y a `FRICTION_REAL_G4_0`.
+- [ ] ~~Comprobación física de la brida~~ — ya NO indicada (§8.3): `wrist_1` no
+      tenía masa sin modelar, su `k` es genuinamente la de una muñeca.
 - [ ] Residual tras compensación en las muñecas — requiere una vía distinta al
       control de par, que no puede moverlas.
 - [ ] Campaña a baja velocidad (< 0.02 rad/s) si se quiere modelar stiction.
