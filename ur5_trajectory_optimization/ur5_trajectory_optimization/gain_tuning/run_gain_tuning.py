@@ -36,7 +36,8 @@ from .optimize import (alpha_sensitivity, certify_kkt, hv_reference_point,
                        run_weighted_sum_baseline, seed_points)
 from .problem import (CHI_SAFETY_DEFAULT, CHI_THRESHOLD,
                       FRICTION_REAL_G4_0, PENALTY,
-                      TCP_TOL_MM_DEFAULT, disturbance_bound, make_evaluator)
+                      TCP_TOL_MM_DEFAULT, disturbance_bound,
+                      friction_residual_bound, make_evaluator)
 
 DEFAULT_REF = os.path.expanduser("~/.ros/ur5_dyn_control/incision_ref.csv")
 OBJ_NAMES = ["f1_iae_m_s", "f2_effort_N2m2s", "f3_tv_Nm"]
@@ -51,10 +52,23 @@ def _default_urdf() -> str:
         return "/home/utec/ur5_ws/install/ur5_kinematics/share/ur5_kinematics/ur5e.urdf"
 
 
-def _results_dir(controller: str, test: int | None) -> str:
-    here = os.path.dirname(os.path.abspath(__file__))
-    base = os.path.abspath(os.path.join(here, "..", "..", "results", "gain_tuning"))
-    path = os.path.join(base, controller if test is None else f"{controller}/test{test}")
+def _results_dir(controller: str, test: int | None,
+                 out: str | None = None) -> str:
+    """
+    Directorio de salida.
+
+    Por defecto va junto al modulo, y eso tiene una trampa: lanzado como
+    `python3 -m ...` tras hacer source del workspace, Python coge la copia
+    INSTALADA y los resultados acaban en `install/`, donde el siguiente
+    `colcon build` los borra. `--out` lo hace explicito.
+    """
+    if out:
+        path = os.path.abspath(os.path.expanduser(out))
+    else:
+        here = os.path.dirname(os.path.abspath(__file__))
+        base = os.path.abspath(os.path.join(here, "..", "..", "results", "gain_tuning"))
+        path = os.path.join(base,
+                            controller if test is None else f"{controller}/test{test}")
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -164,6 +178,11 @@ def main(argv=None):
     ap.add_argument("-j", "--jobs", type=int, default=1)
     ap.add_argument("--test", type=int, default=None)
     ap.add_argument("--no-baseline", action="store_true")
+    ap.add_argument("--out", default=None,
+                    help="directorio de salida. Sin esto va junto al "
+                         "modulo, que lanzado como `python3 -m` tras "
+                         "source acaba siendo install/ y lo borra el "
+                         "siguiente build")
     ap.add_argument("--friction", action="store_true",
                     help="planta CON la friccion real medida (G4 = 0.0). AVISO: "
                          "el modelo discreto NO esta validado contra Gazebo "
@@ -173,10 +192,19 @@ def main(argv=None):
                     help="rehace selección/KKT/α desde el pareto.csv existente, "
                          "sin repetir NSGA-II ni la ε-restricción")
     ap.add_argument("--weights", type=float, nargs=3, default=[1.0, 1.0, 1.0])
-    args, _ = ap.parse_known_args(argv)
+    args, sobrantes = ap.parse_known_args(argv)
+    # `parse_known_args` es necesario porque ros2 inyecta sus propios argumentos,
+    # pero tragarse en SILENCIO un argumento mal escrito es un desastre en una
+    # corrida de una hora: se descubre al final, con los resultados en otro
+    # sitio o con la configuracion equivocada. Se avisa de lo que no es de ROS.
+    ajenos = [a for a in sobrantes
+              if a.startswith("--") and not a.startswith("--ros-args")]
+    if ajenos:
+        print(f"\n  AVISO: argumentos no reconocidos, se IGNORAN: {' '.join(ajenos)}")
+        print("         (si era un typo, cancele ahora: la corrida es larga)\n")
 
     urdf = args.urdf or _default_urdf()
-    outdir = _results_dir(args.controller, args.test)
+    outdir = _results_dir(args.controller, args.test, args.out)
     t_start = time.time()
 
     print("=" * 72)
@@ -229,11 +257,24 @@ def main(argv=None):
     print(f"coste por evaluación: {time.time() - t0:.2f} s")
 
     # ── Siembra derivada del análisis ────────────────────────────────────────
-    d_bound = (disturbance_bound(plant, ref, ev.force)
+    # La perturbacion que `eta` tiene que cubrir son DOS cosas: la fuerza de
+    # corte y la friccion que el feedforward no cancela. Sin el segundo termino
+    # se siembran ganancias que dejan juntas CLAVADAS —medido en la FASE 5, el
+    # feedforward tiende a f_c por debajo y nunca lo supera, asi que el margen
+    # de arranque solo puede darlo el termino conmutado (docs/05_smc.md §7.4)—.
+    #
+    # Se usa la cota ANALITICA y no el stick-slip simulado: el modelo de
+    # friccion del evaluador no valida contra Gazebo (ver JointFriction), y una
+    # perturbacion acotada es lo que pide la teoria de SMC de todos modos.
+    d_force = (disturbance_bound(plant, ref, ev.force)
                if ev.force is not None else np.zeros(6))
+    d_fric = friction_residual_bound(ref, FRICTION_REAL_G4_0)
+    d_bound = d_force + d_fric
     seeds = seed_points(ev, d_bound)
-    print(f"\ncota de perturbación |Jᵀw| = "
-          f"{np.array2string(d_bound, precision=4)}")
+    print(f"\ncota de perturbación:")
+    print(f"  fuerza de corte |Jᵀw| = {np.array2string(d_force, precision=4)}")
+    print(f"  friccion residual     = {np.array2string(d_fric, precision=4)}")
+    print(f"  TOTAL                 = {np.array2string(d_bound, precision=4)}")
     print(f"población inicial: {len(seeds)} semillas derivadas + LHS")
 
     pareto_csv = os.path.join(outdir, "pareto.csv")
@@ -490,6 +531,8 @@ def main(argv=None):
                            "tcp_rmse_mm": r_best.rmse_tcp_mm,
                            "chi": r_best.chi_max},
         "disturbance_bound_Nm": d_bound,
+        "disturbance_force_Nm": d_force,
+        "disturbance_friction_Nm": d_fric,
         "tcp_tol_mm": args.tcp_tol_mm,
         "kkt": kkt,
         "alpha_sensitivity": alpha_rows,
