@@ -355,6 +355,14 @@ class EvalResult:
     diverged: bool
     n_sat: int
     chi_max: float = 0.0    # max_t max_i (K_i/phi)·dt/M_ii  (adimensional)
+    #: `chi_max` POR JUNTA. Hace falta porque el umbral de ciclo límite NO es el
+    #: mismo en todas: medido con fricción, va de 0.22 en `shoulder_lift` a 0.99
+    #: en `wrist_1`, un factor 5 (docs/05_smc.md §7.6). Con solo el máximo global
+    #: no se puede imponer un límite por junta, y un escalar único es a la vez
+    #: demasiado permisivo para las grandes y demasiado restrictivo para la
+    #: muñeca.
+    chi_joint: np.ndarray = field(
+        default_factory=lambda: np.zeros(6))
 
 
 #: Desviación típica del ruido de velocidad articular [rad/s], MEDIDA sobre las
@@ -404,6 +412,7 @@ def simulate(law, ref: Reference, plant: Plant,
     n_sat = 0
 
     chi_max = 0.0
+    chi_joint = np.zeros(6)
     # Cola del retardo de tubería: la ley ve el estado de hace `delay_steps`.
     from collections import deque
     hist: deque = deque([(q.copy(), dq.copy())] * (delay_steps + 1),
@@ -419,7 +428,9 @@ def simulate(law, ref: Reference, plant: Plant,
         tau_law, s, info = law(model, data, q_seen, dq_seen,
                                ref.q[k], ref.dq[k], ref.ddq[k])
         if "chi" in info:
-            chi_max = max(chi_max, float(np.max(info["chi"])) * dt)
+            chi_i = np.asarray(info["chi"], dtype=float) * dt
+            chi_joint = np.maximum(chi_joint, chi_i)
+            chi_max = max(chi_max, float(chi_i.max()))
         # `n_sat` mide cuando el CONTROLADOR pide mas par del que el actuador
         # entrega, asi que se evalua sobre la salida de la ley y nada mas. La
         # friccion no interviene aqui: no la manda nadie y ningun limite de
@@ -446,7 +457,8 @@ def simulate(law, ref: Reference, plant: Plant,
         ddq = pin.aba(model, data, q, dq, tau - tau_ext)
         if not np.all(np.isfinite(ddq)) or np.abs(dq).max() > 1e3:
             return EvalResult(np.inf, np.inf, np.inf, np.inf, np.inf,
-                              np.inf, np.inf, np.inf, True, n_sat, chi_max)
+                              np.inf, np.inf, np.inf, True, n_sat, chi_max,
+                              chi_joint)
         # Semi-implícito (simpléctico): mismo esquema que un integrador de
         # física, más estable que Euler explícito al mismo dt.
         dq = dq + ddq * dt
@@ -488,7 +500,7 @@ def simulate(law, ref: Reference, plant: Plant,
         rmse_q=float(np.sqrt((e_q[m] ** 2).mean())),
         rmse_tcp_mm=float(1e3 * np.sqrt((e_p[m] ** 2).mean())),
         s_max=float(np.abs(s_hist[m]).max()),
-        diverged=False, n_sat=n_sat, chi_max=chi_max)
+        diverged=False, n_sat=n_sat, chi_max=chi_max, chi_joint=chi_joint)
 
 
 def default_urdf() -> str:

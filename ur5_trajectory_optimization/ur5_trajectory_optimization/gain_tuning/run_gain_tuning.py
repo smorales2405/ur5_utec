@@ -34,7 +34,8 @@ from .closed_loop import Plant, load_reference
 from .optimize import (alpha_sensitivity, certify_kkt, hv_reference_point,
                        run_epsilon_constraint, run_nsga2,
                        run_weighted_sum_baseline, seed_points)
-from .problem import (CHI_LIMIT_DEFAULT, FRICTION_REAL_G4_0, PENALTY,
+from .problem import (CHI_SAFETY_DEFAULT, CHI_THRESHOLD,
+                      FRICTION_REAL_G4_0, PENALTY,
                       TCP_TOL_MM_DEFAULT, disturbance_bound, make_evaluator)
 
 DEFAULT_REF = os.path.expanduser("~/.ros/ur5_dyn_control/incision_ref.csv")
@@ -153,7 +154,10 @@ def main(argv=None):
     ap.add_argument("--alpha", type=float, default=0.3)
     ap.add_argument("--f-cut", type=float, default=5.0,
                     help="meseta de la fuerza de corte [N]; 0 = planta sin fuerza")
-    ap.add_argument("--chi-limit", type=float, default=CHI_LIMIT_DEFAULT)
+    ap.add_argument("--chi-safety", type=float, default=CHI_SAFETY_DEFAULT,
+                    help="fraccion del umbral de chattering MEDIDO por junta "
+                         "en la que se permite operar. Los umbrales son dato "
+                         "(docs/05_smc.md 7.6); esto es la unica decision")
     ap.add_argument("--tcp-tol-mm", type=float, default=TCP_TOL_MM_DEFAULT,
                     help="g4: RMSE de TCP admisible en la meseta del corte "
                          "(cota DECLARADA, no medida)")
@@ -188,15 +192,17 @@ def main(argv=None):
     # Ver el docstring de closed_loop.JointFriction.
     friction = FRICTION_REAL_G4_0 if args.friction else None
     ev = make_evaluator(ref, plant, mode=args.mode, alpha=args.alpha,
-                        f_cut=args.f_cut, chi_limit=args.chi_limit,
+                        f_cut=args.f_cut, chi_safety=args.chi_safety,
                         tcp_tol_mm=args.tcp_tol_mm, friction=friction)
     param = ev.param
 
     print(f"referencia : {ref.n} muestras · dt={ref.dt:.4f} s · {ref.n * ref.dt:.1f} s")
     print(f"inercia    : diag M(q_init) = {np.array2string(param.inertia, precision=5)}")
     print(f"variables  : {param.n_var}  {param.names}")
-    print(f"restricción: χ ≤ {args.chi_limit} · RMSE TCP ≤ {args.tcp_tol_mm} mm"
-          f" · fuerza de corte = {args.f_cut} N")
+    print(f"restricción: χ_i ≤ {args.chi_safety} · umbral_i · "
+          f"RMSE TCP ≤ {args.tcp_tol_mm} mm · fuerza de corte = {args.f_cut} N")
+    print(f"             umbral_i = {np.array2string(CHI_THRESHOLD, precision=2)}"
+          f"  ->  limite = {np.array2string(args.chi_safety * CHI_THRESHOLD, precision=3)}")
     if friction is None:
         print("fricción   : NINGUNA — planta ideal, NO predice el robot real")
     elif True:
@@ -454,7 +460,8 @@ def main(argv=None):
         {"metodo": "knee point sobre frente combinado NSGA-II + ε-restricción",
          "objetivos": f"f1={F_knee[0]:.6g} f2={F_knee[1]:.6g} f3={F_knee[2]:.6g}",
          "TCP_RMSE_mm": f"{r_knee.rmse_tcp_mm:.4f}",
-         "chi": f"{r_knee.chi_max:.4f} (limite {args.chi_limit})",
+         "chi": f"{np.max(np.asarray(r_knee.chi_joint) / CHI_THRESHOLD):.4f}"
+                f" del umbral (limite {args.chi_safety})",
          "semilla": args.seed, "parametrizacion": args.mode,
          "fuerza_corte_N": args.f_cut,
          "AVISO": "evaluador offline sin retardo de tuberia ni ruido de q̇: "
@@ -463,7 +470,8 @@ def main(argv=None):
     report = {
         "run": {"controller": args.controller, "mode": args.mode, "seed": args.seed,
                 "pop_size": args.pop, "n_gen": args.gen, "alpha": args.alpha,
-                "f_cut_N": args.f_cut, "chi_limit": args.chi_limit,
+                "f_cut_N": args.f_cut, "chi_safety": args.chi_safety,
+                "chi_threshold": CHI_THRESHOLD.tolist(),
                 "reference": args.ref, "urdf": urdf, "jobs": args.jobs,
                 "weights": list(w)},
         "cost": {"sec_per_eval": nsga["sec_per_eval"], "n_eval_nsga2": nsga["n_eval"],

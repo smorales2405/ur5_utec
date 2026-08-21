@@ -498,10 +498,26 @@ alta frecuencia.
 
 - **Un `chi_limit` único no sirve.** Con 0.8, la FASE 7 aceptaría ganancias que
   hacen chatear `shoulder_lift` y `elbow`, y rechazaría ganancias válidas en
-  `wrist_1`. La restricción debería ser **por junta**, con los umbrales de la
-  tabla y margen.
-- **Si hay que dejar un escalar**, el conservador es **0.2**, no 0.8: por debajo
-  del cruce de `shoulder_lift`.
+  `wrist_1`. **IMPLEMENTADO** (2026-08-21): la restricción pasa a normalizarse
+  por junta,
+
+  ```
+  g3 = max_i( χ_i / umbral_i ) − chi_safety
+  umbral = [0.22, 0.22, 0.32, 0.99, 0.99, 0.99]   ← medido (o por familia)
+  chi_safety = 0.75                                ← la única decisión
+  ```
+
+  Los seis umbrales son dato; el factor es el único número de ingeniería. Y
+  0.75 no es arbitrario: las `phi` del YAML se eligieron por otra vía —el óptimo
+  de error de TCP, §7.7— y quedaron a 1.40× del umbral en las tres juntas
+  medidas, o sea 0.714. Dos criterios independientes convergen ahí.
+- **Un escalar conservador sería PEOR, no más seguro.** Aplicar el umbral más
+  bajo (0.22) a todas obligaría a `wrist_1` a φ = 0.32 y 0.92° de error
+  permanente — más del doble de la tolerancia de TCP. Restringir de más no es la
+  opción prudente aquí.
+- **Supuestos declarados**: `shoulder_pan` nunca cruzó (su χ no pasó de 0.20),
+  `wrist_2` no se mueve en esta trayectoria y Gazebo congela a `wrist_3` (§7.5).
+  A los tres se les asigna el umbral de su familia.
 - **No cierra la brecha de las muñecas.** La cota analítica pide χ = 3.2 en
   `wrist_1` (§ `friction_residual_bound`) y el umbral medido está en 0.99–1.67:
   sigue habiendo un factor ~2. Menos que el 4× que suponía el límite 0.8, pero

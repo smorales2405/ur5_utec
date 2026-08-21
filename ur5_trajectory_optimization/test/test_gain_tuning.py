@@ -23,7 +23,7 @@ from ur5_trajectory_optimization.gain_tuning.closed_loop import (  # noqa: E402
 from ur5_trajectory_optimization.gain_tuning.optimize import (  # noqa: E402
     _cubic_features, alpha_sensitivity, seed_points)
 from ur5_trajectory_optimization.gain_tuning.problem import (  # noqa: E402
-    GainEvaluator, SmcParameterization, disturbance_bound,
+    CHI_THRESHOLD, GainEvaluator, SmcParameterization, disturbance_bound,
     friction_residual_bound)
 
 URDF = "/home/utec/ur5_ws/install/ur5_kinematics/share/ur5_kinematics/ur5e.urdf"
@@ -339,3 +339,30 @@ def test_cota_de_friccion_residual_distingue_arrancar_de_estar_quieta():
     assert d[0] == pytest.approx(5.0), "la junta que invierte necesita todo f_c"
     assert d[1] < 1.0, "la junta que nunca se para solo arrastra error de parametros"
     assert d[2] < 1.0, "la junta inmovil no necesita margen de arranque"
+
+
+def test_chi_se_normaliza_por_junta_y_no_en_bloque():
+    """
+    El umbral de ciclo limite NO es el mismo en todas las juntas: medido con
+    friccion va de 0.22 en shoulder_lift a 0.99 en wrist_1, un factor 5. La
+    restriccion tiene que comparar cada junta con el SUYO.
+
+    Con un escalar unico pasaba lo peor de los dos mundos: se aceptaban
+    ganancias que hacen chatear al hombro y se rechazaban ganancias validas en
+    la muñeca.
+    """
+    assert CHI_THRESHOLD.shape == (6,)
+    assert np.all(CHI_THRESHOLD > 0)
+    # La muñeca aguanta bastante mas que el hombro; si esto se invierte, alguien
+    # copio los numeros en el orden equivocado.
+    assert CHI_THRESHOLD[3] > 3.0 * CHI_THRESHOLD[1]
+
+    # Una junta al 90 % de SU umbral viola un factor 0.75 aunque su chi absoluto
+    # sea pequeño; y otra con chi mayor pero al 50 % del suyo, no.
+    chi = 0.90 * CHI_THRESHOLD.copy()
+    assert np.max(chi / CHI_THRESHOLD) > 0.75
+    chi = CHI_THRESHOLD.copy() * 0.5
+    assert np.max(chi / CHI_THRESHOLD) < 0.75
+    # chi absoluto de la muñeca (0.495) > el del hombro (0.11) y aun asi ambos
+    # son factibles: es justo lo que un limite escalar no sabe expresar.
+    assert chi[3] > CHI_THRESHOLD[1]

@@ -23,7 +23,8 @@ from scipy.optimize import minimize as scipy_minimize, nnls
 
 from ..metrics import compute_hv
 from .closed_loop import Plant, load_reference
-from .problem import PENALTY, GainEvaluator, GainTuningProblem, make_evaluator
+from .problem import (CHI_THRESHOLD, PENALTY, GainEvaluator, GainTuningProblem,
+                      make_evaluator)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Evaluación en paralelo
@@ -37,10 +38,10 @@ from .problem import PENALTY, GainEvaluator, GainTuningProblem, make_evaluator
 _WORKER: dict = {}
 
 
-def _worker_init(urdf, ref_path, mode, alpha, f_cut, chi_limit, tcp_tol_mm):
+def _worker_init(urdf, ref_path, mode, alpha, f_cut, chi_safety, tcp_tol_mm):
     _WORKER["ev"] = make_evaluator(
         load_reference(ref_path), Plant(urdf), mode=mode, alpha=alpha,
-        f_cut=f_cut, chi_limit=chi_limit, tcp_tol_mm=tcp_tol_mm)
+        f_cut=f_cut, chi_safety=chi_safety, tcp_tol_mm=tcp_tol_mm)
 
 
 def _worker_eval(x):
@@ -56,7 +57,7 @@ def _worker_result(x):
 def _pool_recipe(evaluator: GainEvaluator, urdf: str, ref_path: str) -> tuple:
     return (urdf, ref_path, evaluator.param.mode, evaluator.alpha,
             evaluator.force.f_cut if evaluator.force else 0.0,
-            evaluator.chi_limit, evaluator.tcp_tol_mm)
+            evaluator.chi_safety, evaluator.tcp_tol_mm)
 
 
 class _PooledProblem(Problem):
@@ -222,7 +223,8 @@ def seed_points(evaluator: GainEvaluator, d_bound: np.ndarray,
             eta = d_bound * margin + p.inertia * 0.5
             # φ mínimo que respeta χ en la junta que más aprieta, con holgura.
             phi = float(np.clip(
-                1.25 * np.max(eta * dt / (evaluator.chi_limit * p.inertia)),
+                1.25 * np.max(eta * dt /
+                              (evaluator.chi_safety * CHI_THRESHOLD * p.inertia)),
                 lo_phi, hi_phi))
             pts.append(p.encode(np.full(6, lam), eta, phi))
     # Se recortan a la caja: el `η` de la FASE 5 en `wrist_3` (2.6e-4 N·m) cae
@@ -497,7 +499,9 @@ def alpha_sensitivity(evaluator: GainEvaluator, x: np.ndarray,
                 "s_max": r.s_max, "chi": r.chi_max,
                 "g1_tau": r.g1_tau, "g2_dq": r.g2_dq,
                 "feasible": bool(r.g1_tau <= 0 and r.g2_dq <= 0
-                                 and r.chi_max <= evaluator.chi_limit),
+                                 and np.max(np.asarray(r.chi_joint) /
+                                            CHI_THRESHOLD)
+                                 <= evaluator.chi_safety),
             })
     finally:
         evaluator.alpha = alpha_0

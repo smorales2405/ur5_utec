@@ -25,7 +25,7 @@ Restricciones (≤ 0 factible)
 ----------------------------
   g1: max_t max_i |τ_i| − τ_max_i           límite de actuador
   g2: max_t max_i |q̇_i| − q̇_max_i           límite de velocidad
-  g3: χ_max − chi_limit                     umbral de chattering discreto
+  g3: max_i(χ_i/umbral_i) − chi_safety      umbral de chattering, POR JUNTA
   g4: RMSE_TCP(meseta) − tcp_tol            la incisión se ejecuta de verdad
 
 `g4` no está en la lista del plan y se añade con motivo. Sin él, el frente de
@@ -44,17 +44,26 @@ reporta como tal, igual que el plan hace con `ddq_max`.
 `g3` es la contribución de la FASE 5 a esta fase. Dentro de la capa límite
 `sat(s/φ)` no conmuta: actúa como ganancia proporcional `K/φ`, el polo del lazo
 es `(K/φ)/M_ii` y el lazo DISCRETO entra en ciclo límite cuando
-`χ = (K/φ)·dt/M_ii` se acerca a 1. Medido con este mismo evaluador sobre los dos
-puntos de operación que la FASE 5 corrió en Gazebo (docs/05_smc.md §4):
+`χ = (K/φ)·dt/M_ii` se acerca a 1.
 
-    φ = 0.05  →  χ = 1.139   (Gazebo: TV = 8117, 99 % de energía > 20 Hz)
-    φ = 0.10  →  χ = 0.561   (Gazebo: TV = 1,   0 % de energía > 20 Hz)
+**El umbral NO es universal, y esto se midió** (docs/05_smc.md §7.6). Barriendo
+φ en Gazebo con la fricción real inyectada, la transición cae en:
 
-o sea que el límite teórico χ = 1 queda BRACKETADO por las dos medidas. El
-valor por defecto `chi_limit = 0.8` es el centro de ese intervalo, no un número
-inventado: deja margen para el retardo de un ciclo de la tubería real, que este
-evaluador no modela y que reduce el margen de estabilidad (ver el encabezado de
-`closed_loop.py`).
+    shoulder_lift   0.22 – 0.36
+    elbow           0.32 – 0.53
+    wrist_1         0.99 – 1.67
+
+Un factor 5 entre la primera y la última. El argumento de estabilidad discreta
+predice un umbral común cercano a 1, y los datos no lo respaldan: la fricción de
+Coulomb no solo disipa, también es discontinua en el cruce por cero, y el
+pegado-deslizado induce ciclo límite a ganancias más bajas en las juntas que más
+Coulomb tienen.
+
+Por eso `g3` se normaliza POR JUNTA. El valor anterior —`chi_limit = 0.8`
+escalar, calibrado en la FASE 5 sobre planta SIN fricción— era a la vez
+demasiado permisivo para hombro y codo y demasiado restrictivo para la muñeca:
+un escalar conservador al umbral más bajo obligaría a `wrist_1` a φ = 0.32, con
+0.92° de error permanente, más del doble de la tolerancia de TCP.
 
 `g4` del plan (positividad de λ, η, φ) se satisface POR CONSTRUCCIÓN: las dos
 primeras se buscan en log10 y φ tiene cota inferior positiva. `g3` del plan
@@ -73,8 +82,31 @@ from pymoo.core.problem import ElementwiseProblem
 from .closed_loop import (TAU_MAX, CuttingForce, EvalResult, JointFriction,
                           Plant, Q_INIT, Reference, SmcLaw, simulate)
 
-#: Umbral de χ. Ver el encabezado del módulo para la calibración.
-CHI_LIMIT_DEFAULT = 0.8
+#: Umbral de χ POR JUNTA, MEDIDO en Gazebo con la fricción real inyectada
+#: (docs/05_smc.md §7.6). Es el borde inferior de la banda de transición: el
+#: último χ en el que la energía por encima de 20 Hz sigue siendo despreciable.
+#:
+#: No es el mismo en todas las juntas, y por eso un escalar no sirve: va de 0.22
+#: en `shoulder_lift` a 0.99 en `wrist_1`, un factor 5. Con 0.8 —el valor
+#: anterior, heredado de la FASE 5 sobre planta SIN fricción— se aceptarían
+#: ganancias que hacen chatear al hombro y al codo, y se rechazarían ganancias
+#: válidas en la muñeca.
+#:
+#: SUPUESTOS declarados: `shoulder_pan` nunca cruzó en el barrido (su χ no pasó
+#: de 0.20), y `wrist_2` no se mueve en esta trayectoria mientras Gazebo congela
+#: a `wrist_3` (§7.5). A los tres se les asigna el de su familia — `pan` como
+#: `lift`, las muñecas como `wrist_1` — y eso es suposición, no medida.
+CHI_THRESHOLD = np.array([0.22, 0.22, 0.32, 0.99, 0.99, 0.99])
+
+#: Fracción del umbral en la que se permite operar. Es el ÚNICO número de
+#: ingeniería aquí: los seis de arriba son medidas.
+#:
+#: 0.75 no es arbitrario. Las `phi` de `smc_params.yaml` se eligieron por otra
+#: vía —buscando el óptimo de error de TCP en Gazebo, §7.7— y quedaron a
+#: 1.40× del umbral en las tres juntas medidas, o sea un factor 0.714. Dos
+#: criterios independientes convergen ahí, así que 0.75 deja la configuración
+#: actual factible con algo de holgura.
+CHI_SAFETY_DEFAULT = 0.75
 
 #: Tolerancia de seguimiento del TCP en la meseta del corte [mm]. COTA
 #: DECLARADA (20 % de los 5 mm de profundidad de corte), no medida.
@@ -178,7 +210,7 @@ class GainEvaluator:
 
     def __init__(self, param: SmcParameterization, ref: Reference, plant: Plant,
                  force: CuttingForce | None = None, alpha: float = 0.3,
-                 chi_limit: float = CHI_LIMIT_DEFAULT,
+                 chi_safety: float = CHI_SAFETY_DEFAULT,
                  tcp_tol_mm: float = TCP_TOL_MM_DEFAULT, cache_size: int = 4096,
                  friction: JointFriction | None = None):
         self.param = param
@@ -187,7 +219,7 @@ class GainEvaluator:
         self.force = force
         self.friction = friction
         self.alpha = float(alpha)
-        self.chi_limit = float(chi_limit)
+        self.chi_safety = float(chi_safety)
         self.tcp_tol_mm = float(tcp_tol_mm)
         self._cache: OrderedDict = OrderedDict()
         self._cache_size = cache_size
@@ -239,7 +271,11 @@ class GainEvaluator:
         r = self.result(x)
         if r.diverged:
             return np.full(self.N_CON, PENALTY)
-        return np.array([r.g1_tau, r.g2_dq, r.chi_max - self.chi_limit,
+        # g3 NORMALIZADO por el umbral de CADA junta: lo que se acota es la
+        # fraccion del umbral en la que se opera, no un chi absoluto que
+        # significaria cosas distintas en el hombro y en la muñeca.
+        chi_rel = float(np.max(np.asarray(r.chi_joint) / CHI_THRESHOLD))
+        return np.array([r.g1_tau, r.g2_dq, chi_rel - self.chi_safety,
                          r.rmse_tcp_mm - self.tcp_tol_mm])
 
     def evaluate(self, x: np.ndarray) -> tuple:
@@ -300,7 +336,7 @@ FRICTION_REAL_G4_0 = JointFriction(
 
 def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
                    alpha: float = 0.3, f_cut: float = 5.0,
-                   chi_limit: float = CHI_LIMIT_DEFAULT,
+                   chi_safety: float = CHI_SAFETY_DEFAULT,
                    tcp_tol_mm: float = TCP_TOL_MM_DEFAULT,
                    q_ref: np.ndarray | None = None,
                    friction: JointFriction | None = None) -> GainEvaluator:
@@ -309,7 +345,7 @@ def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
     param = SmcParameterization(inertia=inertia, mode=mode)
     force = CuttingForce(f_cut=f_cut) if f_cut > 0 else None
     return GainEvaluator(param, ref, plant, force=force, alpha=alpha,
-                         chi_limit=chi_limit, tcp_tol_mm=tcp_tol_mm,
+                         chi_safety=chi_safety, tcp_tol_mm=tcp_tol_mm,
                          friction=friction)
 
 
