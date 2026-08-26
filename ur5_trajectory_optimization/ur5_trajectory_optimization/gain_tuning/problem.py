@@ -140,20 +140,33 @@ class SmcParameterization:
     #: escalan igual — que es justo lo que esta fase tiene que resolver.
     eta_frac_bounds: tuple = (1e-4, 0.2)
 
+    #: Modos disponibles y su número de variables.
+    #:
+    #: `full_phi` existe porque el umbral de ciclo límite es POR JUNTA (de 0.22
+    #: en `shoulder_lift` a 0.99 en `wrist_1`) mientras `full` busca un φ único.
+    #: Con φ escalar, el óptimo tiene que subirlo hasta satisfacer el umbral MÁS
+    #: BAJO y arrastra a las demás: la corrida del 2026-08-21 dio φ = 0.69 en las
+    #: seis, cuando las muñecas toleran 0.99 de χ. Como `e_ss ∝ φ`, eso paga
+    #: error permanente en cinco juntas para proteger a una.
+    _N_VAR = {"scalar": 3, "full": 13, "full_phi": 18}
+
     def __post_init__(self):
-        if self.mode not in ("scalar", "full"):
+        if self.mode not in self._N_VAR:
             raise ValueError(f"parametrización desconocida: {self.mode!r}")
 
     @property
     def n_var(self) -> int:
-        return 3 if self.mode == "scalar" else 13
+        return self._N_VAR[self.mode]
 
     @property
     def names(self) -> list:
         if self.mode == "scalar":
             return ["log10_lambda", "log10_a_reach", "phi"]
-        return ([f"log10_lambda{i}" for i in range(1, 7)] +
-                [f"log10_eta{i}" for i in range(1, 7)] + ["phi"])
+        base = ([f"log10_lambda{i}" for i in range(1, 7)] +
+                [f"log10_eta{i}" for i in range(1, 7)])
+        if self.mode == "full_phi":
+            return base + [f"phi{i}" for i in range(1, 7)]
+        return base + ["phi"]
 
     def bounds(self) -> tuple:
         """Devuelve (xl, xu) en el espacio de BÚSQUEDA (log10 donde aplica)."""
@@ -165,11 +178,18 @@ class SmcParameterization:
                     np.array([hi_lam, hi_a, hi_phi]))
         lo_eta = np.log10(self.eta_frac_bounds[0] * TAU_MAX)
         hi_eta = np.log10(self.eta_frac_bounds[1] * TAU_MAX)
-        return (np.concatenate([np.full(6, lo_lam), lo_eta, [lo_phi]]),
-                np.concatenate([np.full(6, hi_lam), hi_eta, [hi_phi]]))
+        n_phi = 6 if self.mode == "full_phi" else 1
+        return (np.concatenate([np.full(6, lo_lam), lo_eta, np.full(n_phi, lo_phi)]),
+                np.concatenate([np.full(6, hi_lam), hi_eta, np.full(n_phi, hi_phi)]))
 
     def gains(self, x: np.ndarray) -> tuple:
-        """`x` → `(lambda[6], eta[6], phi)` en unidades físicas."""
+        """
+        `x` → `(lambda[6], eta[6], phi)` en unidades físicas.
+
+        `phi` sale escalar en `scalar` y `full`, y vector de 6 en `full_phi`.
+        `SmcLaw` acepta las dos formas (difunde el escalar), igual que el nodo
+        con `phi` + `phi_joint`.
+        """
         x = np.asarray(x, dtype=float)
         if self.mode == "scalar":
             lam = np.full(6, 10.0 ** x[0])
@@ -178,7 +198,8 @@ class SmcParameterization:
         else:
             lam = 10.0 ** x[:6]
             eta = 10.0 ** x[6:12]
-            phi = float(x[12])
+            phi = np.asarray(x[12:18], dtype=float) \
+                if self.mode == "full_phi" else float(x[12])
         return lam, eta, phi
 
     def encode(self, lam, eta, phi) -> np.ndarray:
@@ -191,7 +212,12 @@ class SmcParameterization:
             return np.array([np.log10(float(lam[0])), np.log10(a_reach), phi])
         if lam.size == 1:
             lam = np.full(6, lam[0])
-        return np.concatenate([np.log10(lam), np.log10(eta), [phi]])
+        phi = np.atleast_1d(np.asarray(phi, dtype=float))
+        if self.mode == "full_phi" and phi.size == 1:
+            phi = np.full(6, phi[0])
+        elif self.mode == "full" and phi.size != 1:
+            raise ValueError("el modo `full` lleva un phi escalar; use `full_phi`")
+        return np.concatenate([np.log10(lam), np.log10(eta), phi])
 
 
 # ─────────────────────────────────────────────────────────────────────────────

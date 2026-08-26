@@ -38,6 +38,7 @@ from .problem import (CHI_SAFETY_DEFAULT, CHI_THRESHOLD,
                       FRICTION_REAL_G4_0, PENALTY,
                       TCP_TOL_MM_DEFAULT, disturbance_bound,
                       friction_residual_bound, make_evaluator)
+from .problem import SmcParameterization  # noqa: E402
 
 DEFAULT_REF = os.path.expanduser("~/.ros/ur5_dyn_control/incision_ref.csv")
 OBJ_NAMES = ["f1_iae_m_s", "f2_effort_N2m2s", "f3_tv_Nm"]
@@ -81,12 +82,15 @@ def _save_pareto(path, param, method, X, F, G):
     va en log10.
     """
     rows, header = [], ["method"] + param.names + ["lambda%d" % i for i in range(1, 7)]
-    header += ["eta%d" % i for i in range(1, 7)] + ["phi"] + OBJ_NAMES + CON_NAMES
+    n_phi = 6 if param.mode == "full_phi" else 1
+    header += (["eta%d" % i for i in range(1, 7)]
+               + (["phi%d" % i for i in range(1, 7)] if n_phi == 6 else ["phi"])
+               + OBJ_NAMES + CON_NAMES)
     for k in range(len(X)):
         lam, eta, phi = param.gains(X[k])
         g = G[k] if G is not None else [np.nan] * 3
         rows.append([method] + list(np.atleast_1d(X[k])) + list(lam) + list(eta)
-                    + [phi] + list(F[k]) + list(g))
+                    + list(np.atleast_1d(phi)) + list(F[k]) + list(g))
     new = not os.path.exists(path)
     with open(path, "a" if not new else "w") as fh:
         if new:
@@ -121,7 +125,13 @@ def _save_selected_yaml(path, lam, eta, phi, alpha, meta: dict):
     doc = {"gz_smc_control_node": {"ros__parameters": {
         "lambda": [round(float(v), 8) for v in lam],
         "eta": [round(float(v), 8) for v in eta],
-        "phi": round(float(phi), 8),
+        # El nodo lee `phi` escalar y `phi_joint` opcional de 6, y phi_joint
+        # GANA si esta presente. Escribir solo `phi` con una solucion por junta
+        # dejaria las seis al mismo valor sin que nadie lo notara.
+        **({"phi_joint": [round(float(v), 8) for v in np.atleast_1d(phi)],
+            "phi": round(float(np.atleast_1d(phi)[0]), 8)}
+           if np.atleast_1d(phi).size == 6
+           else {"phi": round(float(phi), 8)}),
         "alpha": round(float(alpha), 8),
         "switching_function": "sat",
     }}}
@@ -155,8 +165,12 @@ def _py(obj):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="FASE 7 — sintonía multiobjetivo del SMC")
     ap.add_argument("--controller", default="smc")
-    ap.add_argument("--mode", default="scalar", choices=["scalar", "full"],
-                    help="parametrización: [λ,a_reach,φ] o [λ_1..6,η_1..6,φ]")
+    # `choices` sale de la propia parametrizacion: escribir la lista a mano
+    # aqui la dejo desincronizada al anadir `full_phi`.
+    ap.add_argument("--mode", default="scalar",
+                    choices=sorted(SmcParameterization._N_VAR),
+                    help="scalar (3 vars) | full (13) | full_phi (18, phi "
+                         "por junta: el umbral de chattering NO es comun)")
     ap.add_argument("--ref", default=DEFAULT_REF, help="tabla de referencias del nodo")
     ap.add_argument("--urdf", default=None)
     ap.add_argument("--pop", type=int, default=40)
@@ -379,7 +393,9 @@ def main(argv=None):
     print("\n── Punto de rodilla ──")
     print(f"  λ   = {np.array2string(lam_k, precision=4)}")
     print(f"  η   = {np.array2string(eta_k, precision=6)}")
-    print(f"  φ   = {phi_k:.5f}   ·  dist. utopía (norm.) = {dist:.4f}")
+    _phi_txt = (np.array2string(np.atleast_1d(phi_k), precision=4)
+                if np.atleast_1d(phi_k).size > 1 else f"{float(phi_k):.5f}")
+    print(f"  φ   = {_phi_txt}   ·  dist. utopía (norm.) = {dist:.4f}")
     print(f"  f   = {np.array2string(F_knee, precision=5)}")
     G_knee = ev.constraints(x_knee)
     print(f"  TCP = {r_knee.rmse_tcp_mm:.4f} mm · RMSE q = {r_knee.rmse_q:.3e} "
@@ -523,7 +539,7 @@ def main(argv=None):
         "phase5_start": {"F": F_f5, "G": G_f5, "tcp_rmse_mm": r_f5.rmse_tcp_mm,
                          "chi": r_f5.chi_max, "feasible": bool(np.all(G_f5 <= 0))},
         "metrics": dict(metrics, convergence_hv_ref=nsga["convergence_hv_ref"]),
-        "selected": {"x": x_knee, "lambda": lam_k, "eta": eta_k, "phi": phi_k,
+        "selected": {"x": x_knee, "lambda": lam_k, "eta": eta_k, "phi": np.atleast_1d(phi_k).tolist(),
                      "F": F_knee, "norm_dist_utopia": dist,
                      "tcp_rmse_mm": r_knee.rmse_tcp_mm, "rmse_q": r_knee.rmse_q,
                      "s_max": r_knee.s_max, "chi": r_knee.chi_max},

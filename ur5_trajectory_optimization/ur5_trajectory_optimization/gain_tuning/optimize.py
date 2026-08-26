@@ -222,10 +222,14 @@ def seed_points(evaluator: GainEvaluator, d_bound: np.ndarray,
         for margin in (1.1, 1.5, 2.5):
             eta = d_bound * margin + p.inertia * 0.5
             # φ mínimo que respeta χ en la junta que más aprieta, con holgura.
-            phi = float(np.clip(
-                1.25 * np.max(eta * dt /
-                              (evaluator.chi_safety * CHI_THRESHOLD * p.inertia)),
-                lo_phi, hi_phi))
+            # phi minima que respeta el umbral, POR JUNTA. En `full_phi` se
+            # siembra el vector: sembrar el maximo en las seis es justo lo que
+            # hace el modo escalar, y el motivo de ampliar la parametrizacion.
+            phi_j = np.clip(
+                1.25 * eta * dt /
+                (evaluator.chi_safety * CHI_THRESHOLD * p.inertia),
+                lo_phi, hi_phi)
+            phi = phi_j if p.mode == "full_phi" else float(np.max(phi_j))
             pts.append(p.encode(np.full(6, lam), eta, phi))
     # Se recortan a la caja: el `η` de la FASE 5 en `wrist_3` (2.6e-4 N·m) cae
     # POR DEBAJO de la cota inferior anclada al actuador (1e-4·τ_max = 2.8e-3),

@@ -366,3 +366,33 @@ def test_chi_se_normaliza_por_junta_y_no_en_bloque():
     # chi absoluto de la muñeca (0.495) > el del hombro (0.11) y aun asi ambos
     # son factibles: es justo lo que un limite escalar no sabe expresar.
     assert chi[3] > CHI_THRESHOLD[1]
+
+
+def test_full_phi_busca_seis_phi_y_los_conserva():
+    """
+    `full_phi` amplia la busqueda a phi POR JUNTA (18 variables).
+
+    Hace falta porque el umbral de ciclo limite es por junta: con un phi unico,
+    el optimo tiene que subirlo hasta satisfacer el MAS BAJO y arrastra a las
+    demas. Medido: la corrida en modo `full` dio phi = 0.69 en las seis cuando
+    las muñecas toleran chi = 0.99, y como `e_ss ~ phi` eso paga error
+    permanente en cinco juntas para proteger a una.
+    """
+    p = SmcParameterization(inertia=INERTIA, mode="full_phi")
+    assert p.n_var == 18
+    assert p.names[-6:] == [f"phi{i}" for i in range(1, 7)]
+
+    lam = np.full(6, 20.0)
+    phi = np.array([0.05, 0.07, 0.07, 0.07, 0.05, 0.20])
+    lam2, eta2, phi2 = p.gains(p.encode(lam, INERTIA, phi))
+    np.testing.assert_allclose(phi2, phi, rtol=1e-12)
+    np.testing.assert_allclose(eta2, INERTIA, rtol=1e-9)
+
+    # Un escalar se difunde a las seis, para poder sembrar con la config manual.
+    _, _, phi3 = p.gains(p.encode(lam, INERTIA, 0.05))
+    np.testing.assert_allclose(phi3, np.full(6, 0.05), rtol=1e-12)
+
+    # Y el modo `full` RECHAZA un phi vectorial en vez de quedarse con el primero
+    # en silencio, que es como se acaba optimizando otra cosa de la que se cree.
+    with pytest.raises(ValueError):
+        SmcParameterization(inertia=INERTIA, mode="full").encode(lam, INERTIA, phi)
