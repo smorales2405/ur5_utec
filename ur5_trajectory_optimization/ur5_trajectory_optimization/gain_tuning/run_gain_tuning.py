@@ -30,7 +30,7 @@ import yaml
 
 from ..metrics import compute_coverage, compute_hv, compute_igd, filter_nondominated
 from ..multiobjective_optimizer import select_solution
-from .closed_loop import Plant, load_reference
+from .closed_loop import CuttingForce, Plant, load_reference
 from .optimize import (alpha_sensitivity, certify_kkt, hv_reference_point,
                        run_epsilon_constraint, run_nsga2,
                        run_weighted_sum_baseline, seed_points)
@@ -42,7 +42,7 @@ from .problem import SmcParameterization  # noqa: E402
 
 DEFAULT_REF = os.path.expanduser("~/.ros/ur5_dyn_control/incision_ref.csv")
 OBJ_NAMES = ["f1_iae_m_s", "f2_effort_N2m2s", "f3_tv_Nm"]
-CON_NAMES = ["g1_tau", "g2_dq", "g3_chi", "g4_tcp"]
+CON_NAMES = ["g1_tau", "g2_dq", "g3_chi", "g4_tcp", "g5_alcance"]
 
 
 def _default_urdf() -> str:
@@ -233,9 +233,18 @@ def main(argv=None):
     # errores articulares 100-1200x mayores. No se puede optimizar contra eso.
     # Ver el docstring de closed_loop.JointFriction.
     friction = FRICTION_REAL_G4_0 if args.friction else None
+    # La cota se calcula ANTES del evaluador: g5 la necesita. Antes se calculaba
+    # despues y solo servia para sembrar, que es lo que invalido las dos
+    # primeras corridas.
+    _force = CuttingForce(f_cut=args.f_cut) if args.f_cut > 0 else None
+    d_force = (disturbance_bound(plant, ref, _force)
+               if _force is not None else np.zeros(6))
+    d_fric = friction_residual_bound(ref, FRICTION_REAL_G4_0)
+    d_bound = d_force + d_fric
     ev = make_evaluator(ref, plant, mode=args.mode, alpha=args.alpha,
                         f_cut=args.f_cut, chi_safety=args.chi_safety,
-                        tcp_tol_mm=args.tcp_tol_mm, friction=friction)
+                        tcp_tol_mm=args.tcp_tol_mm, friction=friction,
+                        d_bound=d_bound)
     param = ev.param
 
     print(f"referencia : {ref.n} muestras · dt={ref.dt:.4f} s · {ref.n * ref.dt:.1f} s")
@@ -280,10 +289,6 @@ def main(argv=None):
     # Se usa la cota ANALITICA y no el stick-slip simulado: el modelo de
     # friccion del evaluador no valida contra Gazebo (ver JointFriction), y una
     # perturbacion acotada es lo que pide la teoria de SMC de todos modos.
-    d_force = (disturbance_bound(plant, ref, ev.force)
-               if ev.force is not None else np.zeros(6))
-    d_fric = friction_residual_bound(ref, FRICTION_REAL_G4_0)
-    d_bound = d_force + d_fric
     seeds = seed_points(ev, d_bound)
     print(f"\ncota de perturbación:")
     print(f"  fuerza de corte |Jᵀw| = {np.array2string(d_force, precision=4)}")

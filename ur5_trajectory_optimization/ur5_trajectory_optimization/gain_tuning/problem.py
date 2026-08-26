@@ -27,6 +27,15 @@ Restricciones (≤ 0 factible)
   g2: max_t max_i |q̇_i| − q̇_max_i           límite de velocidad
   g3: max_i(χ_i/umbral_i) − chi_safety      umbral de chattering, POR JUNTA
   g4: RMSE_TCP(meseta) − tcp_tol            la incisión se ejecuta de verdad
+  g5: max_i(d_i − η_i)                      CONDICIÓN DE ALCANCE frente a `d`
+
+`g5` se añadió tras las dos primeras corridas, y su ausencia las invalidó. La
+cota `d` solo se usaba para SEMBRAR la población. Como el evaluador simula una
+planta SIN fricción, bajar `η` mejora seguimiento y chattering sin coste alguno,
+así que el optimizador abandonaba la semilla: el óptimo en modo `full` quedó por
+debajo de la cota en 3 de 6 juntas y el de `full_phi` en **las 6**. Esas
+ganancias dan buen número offline y dejarían juntas CLAVADAS en el robot real,
+que es justo el fallo que la campaña de fricción existía para evitar.
 
 `g4` no está en la lista del plan y se añade con motivo. Sin él, el frente de
 Pareto contiene soluciones con 228 mm de error de TCP que dominan en esfuerzo y
@@ -238,12 +247,22 @@ class GainEvaluator:
                  force: CuttingForce | None = None, alpha: float = 0.3,
                  chi_safety: float = CHI_SAFETY_DEFAULT,
                  tcp_tol_mm: float = TCP_TOL_MM_DEFAULT, cache_size: int = 4096,
-                 friction: JointFriction | None = None):
+                 friction: JointFriction | None = None,
+                 d_bound: np.ndarray | None = None):
         self.param = param
         self.ref = ref
         self.plant = plant
         self.force = force
         self.friction = friction
+        #: Cota de la perturbacion que `eta` tiene que cubrir (g5). Sin ella la
+        #: condicion de alcance NO se impone, y como el evaluador simula una
+        #: planta SIN friccion, bajar `eta` mejora seguimiento y chattering sin
+        #: coste: el optimizador abandona la semilla y devuelve ganancias que en
+        #: el robot real dejarian juntas CLAVADAS. Medido en las dos primeras
+        #: corridas: 3 de 6 juntas por debajo de la cota en modo `full`, y 6 de 6
+        #: en `full_phi`.
+        self.d_bound = (np.zeros(6) if d_bound is None
+                        else np.asarray(d_bound, dtype=float))
         self.alpha = float(alpha)
         self.chi_safety = float(chi_safety)
         self.tcp_tol_mm = float(tcp_tol_mm)
@@ -290,10 +309,10 @@ class GainEvaluator:
             return np.full(3, PENALTY)
         return np.array([r.f1_iae, r.f2_effort, r.f3_chatter])
 
-    N_CON = 4
+    N_CON = 5
 
     def constraints(self, x: np.ndarray) -> np.ndarray:
-        """[g1, g2, g3, g4] ≤ 0 factible."""
+        """[g1, g2, g3, g4, g5] ≤ 0 factible."""
         r = self.result(x)
         if r.diverged:
             return np.full(self.N_CON, PENALTY)
@@ -301,8 +320,13 @@ class GainEvaluator:
         # fraccion del umbral en la que se opera, no un chi absoluto que
         # significaria cosas distintas en el hombro y en la muñeca.
         chi_rel = float(np.max(np.asarray(r.chi_joint) / CHI_THRESHOLD))
+        # g5 — CONDICION DE ALCANCE. `eta` es el margen que queda para lo NO
+        # modelado una vez que los terminos en alpha cubren la incertidumbre del
+        # modelo, asi que es `eta` y no `K` quien tiene que superar la friccion.
+        lam_, eta_, phi_ = self.param.gains(x)
+        g5 = float(np.max(self.d_bound - eta_))
         return np.array([r.g1_tau, r.g2_dq, chi_rel - self.chi_safety,
-                         r.rmse_tcp_mm - self.tcp_tol_mm])
+                         r.rmse_tcp_mm - self.tcp_tol_mm, g5])
 
     def evaluate(self, x: np.ndarray) -> tuple:
         return self.objectives(x), self.constraints(x)
@@ -365,14 +389,15 @@ def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
                    chi_safety: float = CHI_SAFETY_DEFAULT,
                    tcp_tol_mm: float = TCP_TOL_MM_DEFAULT,
                    q_ref: np.ndarray | None = None,
-                   friction: JointFriction | None = None) -> GainEvaluator:
+                   friction: JointFriction | None = None,
+                   d_bound: np.ndarray | None = None) -> GainEvaluator:
     """Atajo: construye parametrización + evaluador con los valores del plan."""
     inertia = plant.inertia_diag(Q_INIT if q_ref is None else q_ref)
     param = SmcParameterization(inertia=inertia, mode=mode)
     force = CuttingForce(f_cut=f_cut) if f_cut > 0 else None
     return GainEvaluator(param, ref, plant, force=force, alpha=alpha,
                          chi_safety=chi_safety, tcp_tol_mm=tcp_tol_mm,
-                         friction=friction)
+                         friction=friction, d_bound=d_bound)
 
 
 #: Dispersión relativa de la identificación entre las TRES campañas reales
@@ -381,15 +406,32 @@ def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
 FRICTION_REL_ERR_F_V = np.array([0.081, 0.050, 0.042, 0.052, 0.051, 0.044])
 FRICTION_REL_ERR_F_C = np.array([0.023, 0.006, 0.044, 0.007, 0.005, 0.009])
 
-#: `wrist_3` arrastra ADEMÁS la incertidumbre de su `k`, que no es identificable
-#: y se declaró en el rango [9.8, 11.7] N·m/A: ±8.8 % sobre la media. Sus dos
-#: coeficientes escalan linealmente con ella, así que el error relativo se suma
-#: en cuadratura al de la campaña.
-FRICTION_REL_ERR_K_W3 = 0.088
+#: Incertidumbre de la constante `k`, que multiplica a los dos coeficientes y por
+#: tanto se suma en cuadratura al error de la campaña.
+#:
+#: ERA 0.088 (±8.8 %) mientras la `k` de `wrist_3` fue una HIPÓTESIS declarada en
+#: el rango [9.8, 11.7] N·m/A. Desde el 2026-08-20 las seis están MEDIDAS por
+#: `tau_phys/cur` con 0.05–0.24 % de dispersión (`02_friction_real.md` §8.4), así
+#: que 0.005 es conservador.
+#:
+#: No es un detalle: con 0.088, la cota de `wrist_3` salía 0.22 N·m y exigía
+#: φ = 2.26 para respetar su χ — fuera de la caja de búsqueda, lo que hacía el
+#: problema INFACTIBLE por una constante caducada y no por física.
+FRICTION_REL_ERR_K = 0.005
+
+#: Ancho del `tanh` del feedforward, y por tanto de la banda que NO se compensa.
+#: Tiene que ser el MISMO que `friction.dq_eps` de `ur5_dyn_control`
+#: (smc_params.yaml y sweep_params.yaml): si divergen, el optimizador dimensiona
+#: `eta` para una banda sin compensar que el nodo no tiene, o al reves.
+#:
+#: Paso: la funcion tenia 1e-3 por defecto mientras el nodo ya usaba 1e-5, y la
+#: cota salia 30x mayor de lo que corresponde — con `wrist_3` exigiendo una phi
+#: fuera de la caja de busqueda.
+FRICTION_DQ_EPS = 1.0e-5
 
 
 def friction_residual_bound(ref: Reference, friction: JointFriction,
-                            dq_eps: float = 1e-3) -> np.ndarray:
+                            dq_eps: float = FRICTION_DQ_EPS) -> np.ndarray:
     """
     Cota por junta del par de fricción que el feedforward NO cancela.
 
@@ -415,27 +457,35 @@ def friction_residual_bound(ref: Reference, friction: JointFriction,
     """
     rel_v = FRICTION_REL_ERR_F_V.copy()
     rel_c = FRICTION_REL_ERR_F_C.copy()
-    rel_v[5] = np.hypot(rel_v[5], FRICTION_REL_ERR_K_W3)
-    rel_c[5] = np.hypot(rel_c[5], FRICTION_REL_ERR_K_W3)
+    rel_v = np.hypot(rel_v, FRICTION_REL_ERR_K)
+    rel_c = np.hypot(rel_c, FRICTION_REL_ERR_K)
 
-    dq_max = np.abs(ref.dq).max(axis=0)
-    en_marcha = rel_v * friction.f_v * dq_max + rel_c * friction.f_c
-    # La fricción estática entera solo cuenta donde la junta tiene que ARRANCAR:
-    # pasa por debajo de `dq_eps` y ADEMÁS se mueve en algún otro tramo. Una
-    # junta que no se mueve en toda la trayectoria —`wrist_2` en la incisión
-    # recta— no necesita romper nada: allí la fricción la ayuda a sostenerse, y
-    # cargarle `f_c` de perturbación le pediría al optimizador una `η` para un
-    # problema que no tiene.
-    # El criterio primario es el CAMBIO DE SIGNO, no «hay una muestra pequeña»:
-    # una junta puede cruzar el cero ENTRE muestras y entonces la segunda prueba
-    # no lo ve. Con el trazo de incisión y dt = 2 ms pasa de verdad — una rampa
-    # de −0.5 a 0.5 rad/s en 100 muestras no deja ninguna por debajo de 1e-3.
-    sg = np.sign(ref.dq)
-    invierte = np.array([
-        bool(np.any(np.diff(sg[sg[:, j] != 0, j]) != 0)) for j in range(6)])
-    lenta = (np.abs(ref.dq) < dq_eps).any(axis=0)
-    arranca = (invierte | lenta) & (dq_max > dq_eps)
-    return np.where(arranca, np.maximum(en_marcha, friction.f_c), en_marcha)
+    v = np.abs(ref.dq)
+    # Friccion que el feedforward NO cancela, instante a instante. Es continua en
+    # `dq_eps`, que es lo que la hace coherente con el nodo: al bajar eps la
+    # banda sin compensar se encoge y la cota baja con ella.
+    sin_comp = friction.f_c * (1.0 - np.tanh(v / dq_eps))
+    err_param = rel_v * friction.f_v * v + rel_c * friction.f_c
+
+    # Solo cuenta donde la referencia pide movimiento QUE IMPORTA. Por debajo de
+    # `v_floor` estar clavada no cuesta nada: `wrist_3` pide menos de 1e-5 rad/s
+    # durante 7.2 s del trazo, y quedarse quieta ahi acumula 7e-6 rad. Sin este
+    # filtro la cota le cargaba `f_c` entero (2.35 N·m), lo que exige phi = 24.6
+    # para respetar su chi — fuera de la caja de busqueda: problema INFACTIBLE
+    # por un artefacto de la cota, no por fisica.
+    v_floor = 1.0e-4          # [rad/s] ~1 mrad en los ~10 s del corte
+    d = np.zeros(6)
+    for k in range(6):
+        act = v[:, k] >= v_floor
+        if not act.any():
+            # No se le pide moverse en toda la trayectoria: la friccion la AYUDA
+            # a sostenerse, asi que no hay nada que vencer y la cota es CERO.
+            # Cargarle el error de parametros sobre `f_c` seria pedirle a `eta`
+            # margen para un problema que esa junta no tiene — le pasa a
+            # `wrist_2` en el trazo recto.
+            continue
+        d[k] = float((sin_comp[act, k] + err_param[act, k]).max())
+    return d
 
 
 def disturbance_bound(plant: Plant, ref: Reference, force: CuttingForce,

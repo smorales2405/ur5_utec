@@ -21,7 +21,7 @@ from ur5_trajectory_optimization.gain_tuning.closed_loop import (  # noqa: E402
     Q_INIT, TAU_MAX, CuttingForce, JointFriction, Plant, Reference, SmcLaw,
     load_reference, simulate)
 from ur5_trajectory_optimization.gain_tuning.optimize import (  # noqa: E402
-    _cubic_features, alpha_sensitivity, seed_points)
+    _cubic_features, _pool_recipe, alpha_sensitivity, seed_points)
 from ur5_trajectory_optimization.gain_tuning.problem import (  # noqa: E402
     CHI_THRESHOLD, GainEvaluator, SmcParameterization, disturbance_bound,
     friction_residual_bound)
@@ -319,80 +319,87 @@ def test_phi_por_junta_escala_chi_junta_a_junta():
         SmcLaw(phi=np.array([0.05] * 5 + [0.0]), **kw)
 
 
-def test_cota_de_friccion_residual_distingue_arrancar_de_estar_quieta():
+def test_la_cota_de_friccion_sigue_a_dq_eps():
     """
-    La friccion estatica ENTERA solo es perturbacion donde la junta tiene que
-    arrancar. Una junta que no se mueve en toda la trayectoria no necesita
-    romper nada —la friccion la ayuda a sostenerse— y cargarle `f_c` le pediria
-    al optimizador una `eta` para un problema que no tiene.
+    La cota mide la friccion que el feedforward NO cancela, y eso lo fija
+    `dq_eps`: `f_c·(1 - tanh(|dq_ref|/eps))`. Al bajar eps la banda sin
+    compensar se encoge y la cota tiene que bajar con ella.
+
+    La version anterior usaba un criterio BINARIO —"la junta invierte" ->
+    `f_c` entero— que no dependia de eps. Con eps = 1e-5, que es lo que usa el
+    nodo desde que el feedforward se alimenta de la referencia, eso cargaba a
+    `wrist_3` con 2.35 N·m sostenidos y exigia phi = 24.6 para respetar su chi:
+    fuera de la caja de busqueda. El problema salia INFACTIBLE por la cota, no
+    por fisica.
     """
-    n = 100
+    n = 400
     dq = np.zeros((n, 6))
-    dq[:, 0] = np.linspace(-0.5, 0.5, n)      # invierte: SI arranca
-    dq[:, 1] = 0.5                            # nunca se para: no arranca
-    # la junta 2 se queda en cero todo el rato: tampoco arranca
+    dq[:, 0] = np.linspace(-0.5, 0.5, n)      # invierte, y se mueve de verdad
+    dq[:, 1] = 0.5                            # nunca se para
+    # la junta 2 se queda en cero: no se le pide moverse
     ref = Reference(dt=0.002, q=np.zeros((n, 6)), dq=dq, ddq=np.zeros((n, 6)),
                     phase=np.array(["TRACK"] * n))
     fr = JointFriction(f_v=np.full(6, 1.0), f_c=np.full(6, 5.0))
-    d = friction_residual_bound(ref, fr)
 
-    assert d[0] == pytest.approx(5.0), "la junta que invierte necesita todo f_c"
-    assert d[1] < 1.0, "la junta que nunca se para solo arrastra error de parametros"
-    assert d[2] < 1.0, "la junta inmovil no necesita margen de arranque"
+    d_ancho = friction_residual_bound(ref, fr, dq_eps=1e-1)
+    d_fino = friction_residual_bound(ref, fr, dq_eps=1e-5)
+    assert d_ancho[0] > 5.0 * d_fino[0], "la cota no responde a dq_eps"
+    assert d_fino[0] < 0.5, "con eps pequeño la banda sin compensar es marginal"
+
+    # La junta que nunca se para no tiene banda sin compensar en ningun caso.
+    assert d_ancho[1] < 1.0
+    # Y a la inmovil no se le exige NADA: la friccion la ayuda a sostenerse, asi
+    # que su cota es cero exacto y no un residuo del error de parametros.
+    assert d_fino[2] == 0.0
 
 
-def test_chi_se_normaliza_por_junta_y_no_en_bloque():
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_g5_impone_la_condicion_de_alcance():
     """
-    El umbral de ciclo limite NO es el mismo en todas las juntas: medido con
-    friccion va de 0.22 en shoulder_lift a 0.99 en wrist_1, un factor 5. La
-    restriccion tiene que comparar cada junta con el SUYO.
+    REGRESION de las dos primeras corridas de la FASE 7, que quedaron
+    invalidadas.
 
-    Con un escalar unico pasaba lo peor de los dos mundos: se aceptaban
-    ganancias que hacen chatear al hombro y se rechazaban ganancias validas en
-    la muñeca.
+    La cota de perturbacion solo se usaba para SEMBRAR. Como el evaluador simula
+    una planta SIN friccion, bajar `eta` mejora seguimiento y chattering sin
+    coste, asi que el optimizador abandonaba la semilla: el optimo en `full`
+    quedo por debajo de la cota en 3 de 6 juntas y el de `full_phi` en las 6.
+    Numeros buenos offline, juntas clavadas en el robot real.
     """
-    assert CHI_THRESHOLD.shape == (6,)
-    assert np.all(CHI_THRESHOLD > 0)
-    # La muñeca aguanta bastante mas que el hombro; si esto se invierte, alguien
-    # copio los numeros en el orden equivocado.
-    assert CHI_THRESHOLD[3] > 3.0 * CHI_THRESHOLD[1]
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant)
+    param = SmcParameterization(inertia=INERTIA, mode="full")
+    d = np.array([7.46, 10.02, 8.71, 2.43, 0.22, 2.35])
+    ev = GainEvaluator(param, ref, plant, force=None, alpha=0.3, d_bound=d)
 
-    # Una junta al 90 % de SU umbral viola un factor 0.75 aunque su chi absoluto
-    # sea pequeño; y otra con chi mayor pero al 50 % del suyo, no.
-    chi = 0.90 * CHI_THRESHOLD.copy()
-    assert np.max(chi / CHI_THRESHOLD) > 0.75
-    chi = CHI_THRESHOLD.copy() * 0.5
-    assert np.max(chi / CHI_THRESHOLD) < 0.75
-    # chi absoluto de la muñeca (0.495) > el del hombro (0.11) y aun asi ambos
-    # son factibles: es justo lo que un limite escalar no sabe expresar.
-    assert chi[3] > CHI_THRESHOLD[1]
+    assert ev.constraints(param.encode(np.full(6, 20.0), d * 1.5, 0.3))[4] <= 0.0
+    g = ev.constraints(param.encode(np.full(6, 20.0), d * 0.1, 0.3))
+    assert g[4] > 0.0, "eta muy por debajo de la cota y g5 no lo detecta"
+    # g5 mide la peor junta, no la media: una sola por debajo basta.
+    eta = d * 1.5
+    eta[3] = 0.1 * d[3]
+    assert ev.constraints(param.encode(np.full(6, 20.0), eta, 0.3))[4] > 0.0
+    assert ev.constraints(param.encode(np.full(6, 20.0), eta, 0.3)).shape == (5,)
 
 
-def test_full_phi_busca_seis_phi_y_los_conserva():
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_la_receta_del_pool_lleva_todo_lo_que_usan_las_restricciones():
     """
-    `full_phi` amplia la busqueda a phi POR JUNTA (18 variables).
+    El evaluador se RECONSTRUYE en cada proceso hijo desde `_pool_recipe`. Si
+    algo que usan las restricciones no viaja en la receta, en paralelo se evalua
+    otra cosa que en serie — y sin error, solo con resultados distintos.
 
-    Hace falta porque el umbral de ciclo limite es por junta: con un phi unico,
-    el optimo tiene que subirlo hasta satisfacer el MAS BAJO y arrastra a las
-    demas. Medido: la corrida en modo `full` dio phi = 0.69 en las seis cuando
-    las muñecas toleran chi = 0.99, y como `e_ss ~ phi` eso paga error
-    permanente en cinco juntas para proteger a una.
+    Paso con `d_bound` al anadir g5: en los hijos habria valido cero y la
+    condicion de alcance se habria cumplido siempre.
     """
-    p = SmcParameterization(inertia=INERTIA, mode="full_phi")
-    assert p.n_var == 18
-    assert p.names[-6:] == [f"phi{i}" for i in range(1, 7)]
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant)
+    param = SmcParameterization(inertia=INERTIA, mode="full")
+    d = np.array([7.46, 10.02, 8.71, 2.43, 0.22, 2.35])
+    ev = GainEvaluator(param, ref, plant, force=None, alpha=0.3, d_bound=d)
 
-    lam = np.full(6, 20.0)
-    phi = np.array([0.05, 0.07, 0.07, 0.07, 0.05, 0.20])
-    lam2, eta2, phi2 = p.gains(p.encode(lam, INERTIA, phi))
-    np.testing.assert_allclose(phi2, phi, rtol=1e-12)
-    np.testing.assert_allclose(eta2, INERTIA, rtol=1e-9)
-
-    # Un escalar se difunde a las seis, para poder sembrar con la config manual.
-    _, _, phi3 = p.gains(p.encode(lam, INERTIA, 0.05))
-    np.testing.assert_allclose(phi3, np.full(6, 0.05), rtol=1e-12)
-
-    # Y el modo `full` RECHAZA un phi vectorial en vez de quedarse con el primero
-    # en silencio, que es como se acaba optimizando otra cosa de la que se cree.
-    with pytest.raises(ValueError):
-        SmcParameterization(inertia=INERTIA, mode="full").encode(lam, INERTIA, phi)
+    receta = _pool_recipe(ev, URDF, "/no/existe.csv")
+    assert any(np.allclose(np.asarray(c, dtype=float), d)
+               for c in receta if np.ndim(c) == 1 and np.size(c) == 6), \
+        "d_bound no viaja en la receta del pool"
+    for attr in ("chi_safety", "tcp_tol_mm", "alpha"):
+        assert getattr(ev, attr) in receta, f"{attr} no viaja en la receta"

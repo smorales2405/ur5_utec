@@ -38,10 +38,20 @@ from .problem import (CHI_THRESHOLD, PENALTY, GainEvaluator, GainTuningProblem,
 _WORKER: dict = {}
 
 
-def _worker_init(urdf, ref_path, mode, alpha, f_cut, chi_safety, tcp_tol_mm):
+def _worker_init(urdf, ref_path, mode, alpha, f_cut, chi_safety, tcp_tol_mm,
+                 d_bound):
+    """
+    Reconstruye el evaluador en cada proceso hijo.
+
+    OJO: todo lo que el evaluador necesite para las RESTRICCIONES tiene que
+    viajar en esta receta. `d_bound` se olvido al anadir g5 y el sintoma habria
+    sido invisible: en los hijos la cota valdria cero, g5 se cumpliria siempre y
+    la condicion de alcance solo se impondria en las evaluaciones en serie.
+    """
     _WORKER["ev"] = make_evaluator(
         load_reference(ref_path), Plant(urdf), mode=mode, alpha=alpha,
-        f_cut=f_cut, chi_safety=chi_safety, tcp_tol_mm=tcp_tol_mm)
+        f_cut=f_cut, chi_safety=chi_safety, tcp_tol_mm=tcp_tol_mm,
+        d_bound=np.asarray(d_bound, dtype=float))
 
 
 def _worker_eval(x):
@@ -57,7 +67,8 @@ def _worker_result(x):
 def _pool_recipe(evaluator: GainEvaluator, urdf: str, ref_path: str) -> tuple:
     return (urdf, ref_path, evaluator.param.mode, evaluator.alpha,
             evaluator.force.f_cut if evaluator.force else 0.0,
-            evaluator.chi_safety, evaluator.tcp_tol_mm)
+            evaluator.chi_safety, evaluator.tcp_tol_mm,
+            tuple(np.asarray(evaluator.d_bound, dtype=float)))
 
 
 class _PooledProblem(Problem):
@@ -375,7 +386,16 @@ def run_epsilon_constraint(evaluator: GainEvaluator, pareto_F: np.ndarray,
 #: Escalas para adimensionalizar las restricciones antes de decidir cuáles
 #: están ACTIVAS. Sin esto habría que comparar N·m con rad/s y con un número
 #: adimensional usando la misma tolerancia, que no significa nada.
-_CON_SCALE = np.array([150.0, np.pi, 1.0, 1.0])   # g1 N·m, g2 rad/s, g3 –, g4 mm
+#:
+#: g1 N·m · g2 rad/s · g3 adimensional · g4 mm · g5 N·m
+_CON_SCALE = np.array([150.0, np.pi, 1.0, 1.0, 10.0])
+
+# La longitud tiene que seguir a N_CON. Estaba escrita a mano y al anadir g5 el
+# concatenate reventaba con "shapes (5,) (4,)" — a los 8 minutos de corrida, en
+# la certificacion KKT y no antes. Que falle aqui, al importar, es preferible.
+assert _CON_SCALE.size == GainEvaluator.N_CON, (
+    f"_CON_SCALE tiene {_CON_SCALE.size} escalas y hay "
+    f"{GainEvaluator.N_CON} restricciones")
 
 
 def certify_kkt(evaluator: GainEvaluator, x: np.ndarray, eps_obj_idx: int,
