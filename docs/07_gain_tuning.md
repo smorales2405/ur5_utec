@@ -366,6 +366,115 @@ brazo mucho más. Ver `ur5_dyn_control/launch/world_defaults.py`.
 
 ---
 
+## 5.7 Re-optimización 2026-08-26: fricción real, φ por junta y `g5`
+
+Rehecha sobre la trayectoria nueva (`incision_ref_v2.csv`, `surface_z` = 0.03) y
+con la fricción medida en el robot. Hicieron falta **tres corridas**, y las dos
+primeras quedaron invalidadas por un defecto de formulación que conviene no
+repetir.
+
+### 5.7.1 La cota que solo sembraba
+
+`friction_residual_bound` se usaba únicamente para generar la población inicial,
+no como restricción. Y como el evaluador simula una planta **sin fricción**,
+bajar `η` mejora seguimiento y chattering sin coste alguno: el optimizador
+abandona la semilla de inmediato.
+
+| | 13 vars | 18 vars | 18 vars + `g5` |
+|---|---|---|---|
+| TCP RMSE | 0.5605 mm | 0.3695 mm | **0.4571 mm** |
+| f3 (chattering) | 940 | 1681 | **1123** |
+| juntas que NO cubren `d` | **3/6** | **6/6** | **0/6** |
+
+Las dos primeras dan mejor número **porque renuncian a arrancar**. En el robot
+real dejarían juntas clavadas — el fallo exacto que la campaña de fricción
+existía para evitar. `g5 = max_i(d_i − η_i) ≤ 0` lo cierra: es `η` y no `K` quien
+debe superar la fricción, porque los términos en α ya cubren la incertidumbre
+del modelo.
+
+> **La lección, más general que este caso:** una cota que solo siembra no
+> restringe nada. El optimizador va a explotar cualquier grado de libertad que
+> el evaluador no penalice, y aquí el evaluador no podía penalizarlo porque su
+> planta no tiene fricción. Cuando el modelo de la planta omite un efecto, ese
+> efecto tiene que entrar como restricción ANALÍTICA o no entra.
+
+### 5.7.2 Cuatro constantes que no siguieron a un cambio anterior
+
+Al implementar `g5` aparecieron cuatro fallos encadenados, todos de la misma
+forma. Se listan porque el patrón se repitió cuatro veces en dos días:
+
+| qué | síntoma | cómo se detectó |
+|---|---|---|
+| `d_bound` no viajaba en `_pool_recipe` | en los procesos hijo valdría cero y `g5` se cumpliría **siempre** | ninguno — es invisible |
+| `_CON_SCALE` dimensionada a 4 a mano | `shapes (5,) (4,)` a los 8 min, dentro del KKT | traza |
+| la cota no seguía a `dq_eps` | `wrist_3` exigía φ = 24.6, fuera de la caja: **infactible** | ensayo corto |
+| `FRICTION_REL_ERR_K_W3` = ±8.8 % | aportaba 0.208 de los 0.216 N·m de la cota de `wrist_3` | al desglosarla |
+
+El primero es el peligroso: **no da síntoma**. Habría producido otra corrida de
+75 min con la condición de alcance impuesta solo en las evaluaciones en serie.
+Hay ahora un test que comprueba que todo lo que usan las restricciones viaja en
+la receta del pool, y una `assert` al importar que ata `_CON_SCALE` a `N_CON`.
+
+### 5.7.3 φ por junta
+
+El modo `full` (13 vars) devolvió **φ = 0.6935 en las seis juntas**. No es una
+preferencia del problema: con un φ único, el óptimo tiene que subirlo hasta
+satisfacer el umbral **más bajo** (`shoulder_lift`, 0.22) y arrastra a las
+muñecas, que toleran 0.99. Como `e_ss ∝ φ`, eso paga error permanente en cinco
+juntas para proteger a una.
+
+`full_phi` (18 vars) lo reparte: **φ = [0.187, 0.310, 0.654, 0.569, 0.248, 0.883]**.
+
+### 5.7.4 Solución adoptada
+
+```
+λ = [161.2, 78.0, 130.7, 139.7, 167.8, 37.3]
+η = [1.531, 3.930, 2.194, 0.820, 0.237, 0.042]
+φ = [0.187, 0.310, 0.654, 0.569, 0.248, 0.883]
+```
+
+Condición de alcance con margen 1.1×–1.9× en las seis. Márgenes ajustados, que
+es la señal de que `g5` está activa y el optimizador apura hasta el límite.
+
+Verificado en Gazebo (`smc_601`) con la fricción real inyectada y compensada:
+
+| | evaluador | Gazebo |
+|---|---|---|
+| TCP RMSE | 0.4571 mm | **0.101 mm** |
+
+| junta | RMSE | e / recorrido | \|s\|/φ |
+|---|---|---|---|
+| shoulder_pan | 0.00004 | 0.000 | 0.07 |
+| shoulder_lift | 0.00004 | 0.000 | 0.09 |
+| elbow | 0.00033 | 0.001 | 0.10 |
+| wrist_1 | 0.00062 | 0.001 | 0.19 |
+| wrist_2 | 0.00000 | — † | 0.00 |
+| wrist_3 | 0.15994 | 0.835 ‡ | 8.09 |
+
+† `wrist_2` no se mueve en este trazo: el cociente no significa nada.
+‡ `wrist_3` está congelada por el artefacto de Gazebo (`05_smc.md` §7.5), no por
+estas ganancias. Es idéntico en todas las corridas con fricción inyectada.
+
+Las cuatro juntas que se ejercitan y que Gazebo simula bien siguen la referencia
+con **una milésima de su recorrido** de error, y `|s|` entre el 7 % y el 19 % de
+su capa límite.
+
+### 5.7.5 Lo que estas ganancias NO garantizan
+
+- **El evaluador no simula fricción.** Su `f1` es de planta ideal; la fricción
+  entra por `g5` y por χ. Que Gazebo salga 4.5× mejor no dice nada sobre el
+  robot real, donde la fricción sí está.
+- **`wrist_3` no está verificada en ningún sitio.** Ni sus ganancias, ni su φ, ni
+  su η. Gazebo la congela y el evaluador no la modela bien. Su primer ensayo real
+  será también su primera prueba.
+- **λ subió de 20 a 37–168.** `s = ė + λe`, así que cualquier junta que siga mal
+  generará una `s` mucho mayor que antes con el mismo error, y el término
+  conmutado responde en proporción hasta saturar.
+- **El KKT no certifica limpio** (`slsqp_success = False`). La solución es
+  factible y no viola nada, pero la certificación no cerró.
+
+---
+
 ## 6. Límites de validez del evaluador
 
 Declarados en el encabezado de `closed_loop.py` y verificados contra Gazebo:
