@@ -1,0 +1,283 @@
+# ============================================================================
+#  BARRIDO ARTICULAR bajo SMC — puesta a punto en el UR5e REAL
+#
+#  Mueve UNA junta a velocidad constante en ambos sentidos, con las demas
+#  sostenidas. Es el paso intermedio entre sostener q_init y ejecutar la
+#  incision: verifica que el SMC con las ganancias de la FASE 7 puede MOVER cada
+#  junta del robot fisico, junta a junta y dentro de un recorrido acotado.
+#
+#  DIFERENCIAS con sweep_params.yaml (el de la campana de friccion, que corre
+#  bajo FL) y por que:
+#
+#  - amplitud +-30 grados, no +-45. A +-45 `shoulder_lift` baja la brida a
+#    44.8 mm de la mesa; con el acople montado (162.7 mm) la atraviesa, y eso ya
+#    provoco un choque durante la campana de friccion. A +-30 el punto mas bajo
+#    se queda en 162.5 mm en las seis juntas.
+#  - velocidades hasta 0.5 rad/s, no 1.0. Es la primera vez que el SMC mueve
+#    este robot: no conviene estrenarlo a la velocidad maxima.
+#
+#  Uso (una junta por corrida):
+#    ros2 launch ur5_dyn_control ur5e_real.launch.py controller:=smc \
+#        params_file:=<...>/sweep_smc_params.yaml gains_file:=<...> \
+#        trajectory_type:=joint_sweep sweep_joint:=0 test_num:=710 \
+#        tau_scale:=0.30 tool_mounted:=false \
+#        friction_compensation:=viscous_coulomb \
+#        friction_f_v:="..." friction_f_c:="..."
+# ============================================================================
+
+gz_smc_control_node:
+  ros__parameters:
+    use_sim_time: true
+
+    control_rate: 500.0
+
+    urdf_path: ""
+    gravity: 9.8
+    q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
+
+    # G3 — true en Gazebo; false en el UR5e real (docs/00_prereqs.md).
+    gravity_in_command: true
+
+    # A2 / A1 (docs/00_assumptions.md)
+    tcp_offset_z: 0.162686               # punta de la hoja (malla del acople)
+    # A1 LEVANTADO: el acople porta-bisturi va montado en la planta
+    # (urdf/scalpel_tool.xacro) y estos valores lo meten en el modelo de
+    # Pinocchio del controlador. Los dos van juntos o el controlador compensa
+    # una gravedad que no es la de la planta.
+    # physical_properites_toolscalpel.png: 0.182 kg, CoG (-2.227, 2.134,
+    # 29.398) mm desde tool0; aqui en el frame TCP (= CoG - [0,0,tcp_offset_z]).
+    tool_mass: 0.182                     # [kg]
+    tool_com: [-0.002227, 0.002134, -0.133288]           # [m] en el frame TCP
+    tool_inertia: [2.39199e-4, 2.54858e-4, 1.19620e-4,   # [kg m^2] resp. al CoM
+                   -8.80e-7, -3.820e-6, -7.570e-6]       # [Ixx,Iyy,Izz,Ixy,Ixz,Iyz]
+
+    command_topic: "/forward_effort_controller/commands"
+    controller_manager: "/controller_manager"
+    activate_controllers: ["joint_state_broadcaster", "forward_effort_controller"]
+    perform_switch: true
+    perform_unpause: true
+    world_name: "default"
+
+    hold_start_duration: 1.0
+    transition_duration: 3.0
+    t_sim: 2.0
+    skip_trajectory: false
+
+    # -- Ganancias del SMC (FASE 5) -------------------------------------------
+    # s = dq_e + Lambda*q_e. Sobre s = 0 el error decae con constante 1/lambda,
+    # asi que lambda = 20 -> 50 ms, del orden del lazo cerrado del FL (wn = 10).
+    lambda: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
+    # eta: margen de alcance por encima de la cota de incertidumbre, ESCALADO
+    # POR INERCIA:  eta_i = I_ii * a_reach,  con a_reach = 1.0 rad/s^2 y I_ii la
+    # diagonal de M(q_init).
+    #
+    # POR QUE. Dentro de la capa limite, sat(s/phi) actua como una ganancia
+    # K/phi, asi que el polo del lazo es (K/phi)/I_ii. Con eta uniforme
+    # ([5,5,5,1,1,1]) ese polo iba de 39 rad/s en el hombro a 77 652 rad/s en
+    # wrist_3 (I = 2.6e-4 kg m^2), y el numero de estabilidad discreta
+    # (K/phi)*dt/I valia 155: MEDIDO, el SMC daba |s| max de 4.09 rad/s = 82*phi
+    # (el criterio del plan es O(phi)) y un error RMS 150 veces peor que el FL
+    # sobre la misma trayectoria.
+    #
+    # Con eta ~ I ese polo vale a_reach/phi = 20 rad/s en las SEIS juntas y el
+    # numero discreto 0.040. Es el mismo escalado que gravity_comp necesito.
+    eta: [1.05823, 2.59146, 0.88146, 0.02324, 0.00535, 0.00026]
+    # phi: ancho de la capa limite de sat(s/phi) [rad/s]. NO tiene nada que ver
+    # con tau_max: phi vive en el espacio de la superficie deslizante, tau_max
+    # en el del actuador. Confundirlos es el error que el plan avisa de evitar.
+    phi: 0.05
+    # phi_joint: phi POR JUNTA (vacio = usar el escalar de arriba en las seis).
+    #
+    # wrist_1 sube a 0.07 por el umbral de chattering MEDIDO con friccion
+    # (docs/05_smc.md 7.6): a phi = 0.05 su chi vale 0.99, justo el borde
+    # inferior de su banda de transicion (0.99-1.67). 0.07 deja chi = 0.71,
+    # un factor 1.4 de margen.
+    #
+    # 0.07 y no 0.10, MEDIDO sobre la trayectoria completa (7.7):
+    #
+    #     phi_w1    TCP RMSE   TV(tau)   w1 RMSE   w1 >20Hz
+    #      0.05      0.542 mm    10087   0.00099     7.15 %
+    #      0.07      0.289 mm     7874   0.00131     0.63 %
+    #      0.10      0.437 mm     5262   0.00187     0.00 %
+    #
+    # Subir a 0.10 apaga el resto del chattering, pero `e_ss` crece con phi y el
+    # error articular que anade pesa MAS en el TCP que lo que gana. 0.07 es el
+    # optimo del compromiso, no un punto intermedio elegido a ojo.
+    #
+    # shoulder_lift y elbow suben tambien a 0.07, por el MISMO criterio de
+    # margen: a phi = 0.05 sus chi valen 0.22 y 0.32, el borde inferior de sus
+    # bandas medidas (0.22-0.36 y 0.32-0.53); 0.07 deja el mismo factor 1.4.
+    #
+    # NO se sube mas, y el motivo importa. El barrido parecia pedir 0.10:
+    #
+    #     phi lift/elbow   TCP RMSE   elbow RMSE
+    #          0.05         0.289 mm    0.00023
+    #          0.07         0.239 mm    0.00031
+    #          0.10         0.210 mm    0.00044
+    #          0.15         0.212 mm    0.00065
+    #
+    # Pero el desglose por junta dice que NADA mejora: pan, lift, w1, w2 y w3
+    # son constantes y el codo solo empeora. La ganancia de TCP es CANCELACION
+    # en el mapa cinematico —el error medio con signo del codo crece en negativo
+    # (-0.000112 -> -0.000321) mientras el de pan sigue en +0.000112—, no mejor
+    # seguimiento. Optimizar phi contra el TCP aqui seria ajustar un artefacto
+    # que depende de esta trayectoria y de estas ganancias.
+    #
+    # Y a phi = 0.05 ninguna de las dos chatea de hecho (0.40 % y 1.12 % de
+    # energia > 20 Hz), asi que lo que se compra es margen, no una cura.
+    #
+    # wrist_3 sube a 0.20 con la friccion RECALCULADA (02_friction_real.md 8.3):
+    # su cota residual pide phi >= 0.197 para mantener chi bajo umbral. Antes
+    # pedia 1.71 —con 4.9 grados de error de filo— porque su `k` era una
+    # hipotesis con +-8.8 %; medida de verdad, la friccion cae un 26 % y la
+    # incertidumbre casi desaparece. e_ss queda en 0.56 grados.
+    #
+    # OJO: el umbral de chattering de wrist_3 NO esta medido (Gazebo la congela,
+    # 05_smc.md 7.5). Se le supone el de wrist_1 (1.33). Es el unico phi de la
+    # lista apoyado en una suposicion y no en una medida.
+    phi_joint: [0.05, 0.07, 0.07, 0.07, 0.05, 0.20]
+    # alpha en (0,1]: fraccion de los terminos nominales que se asume incierta.
+    # Estudio de sensibilidad del plan: 0.1 / 0.3 / 0.5 / 1.0.
+    alpha: 0.3
+    # sign -> chattering maximo, s -> 0 exacto en tiempo finito
+    # sat  -> chattering suprimido, |s| acotada por O(phi)
+    switching_function: "sat"
+
+    # -- Compensacion de friccion (FASE 2 real) --------------------------------
+    # Solo se activa pasando `friction_compensation` y los coeficientes; aqui se
+    # fija dq_source y dq_eps, que son las dos decisiones de diseno.
+    friction:
+      # `desired`: el feedforward se alimenta de la velocidad de REFERENCIA. Con
+      # la medida, F_c*tanh(dq/eps) se anula justo cuando la junta esta clavada
+      # y no la desbloquea nunca (docs/05_smc.md 7.1: 314x de diferencia).
+      dq_source: "desired"
+      # eps existia para no conmutar sobre el RUIDO de la velocidad medida. Con
+      # `desired` la senal es la referencia, que no tiene ruido, asi que ese
+      # papel desaparece — y eps pasa a ser lo UNICO que crea la banda sin
+      # compensar: el hueco es exactamente |dq_ref| < eps. Medido en wrist_1
+      # (docs/05_smc.md 7.7):
+      #
+      #     |dq_ref| > 1e-4  ->  friccion sin compensar 1.68 N.m,  chi 2.89
+      #     |dq_ref| > 1e-3  ->                         0.45 N.m,  chi 0.78
+      #     |dq_ref| > 2e-3  ->                         0.08 N.m,  chi 0.14
+      #
+      # Con eps = 1e-5 la banda se encoge dos ordenes y la friccion sin
+      # compensar de wrist_1 cae a 0.021 N.m (chi 0.04).
+      #
+      # NO bajar esto con dq_source = "measured": ahi conmutaria sobre el ruido.
+      dq_eps: 1.0e-5
+
+    tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
+
+    sweep:
+      # Configuracion en la que se mantienen las juntas NO barridas.
+      q_fixed: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
+
+      joint: 0                  # se sobrescribe con `sweep_joint:=`
+
+      # +-30 grados. Ver la cabecera: a +-45 shoulder_lift choca con la mesa.
+      amplitude: 0.5235987756
+
+      # Hasta 0.5 rad/s. El barrido de la campana llega a 1.0, pero eso es para
+      # identificar friccion con un rango amplio de velocidad; aqui lo que se
+      # comprueba es que la junta SE MUEVE y sigue, no cuanta friccion tiene.
+      velocities: [0.05, 0.20, 0.50]
+
+      ramp_fraction: 0.15
+      max_sweep_duration: 40.0
+      dwell: 1.0
+      approach_duration: 3.0
+      ddq_max: 5.0
+
+    # -- Trayectoria ---------------------------------------------------------
+    # cubic_spline   : historico (jerk discontinuo en los nudos)
+    # quintic_spline : spline quintico C4 sobre waypoints_xyz/waypoint_times
+    # incision       : las 5 fases de abajo
+    trajectory_type: "joint_sweep"
+
+    # A4 — orientacion del TCP constante, gripper hacia abajo.
+    tcp_orientation_rpy: [3.14159265, 0.0, 3.14159265]
+
+    incision:
+      # Pose de partida: FK(q_init), para que la rampa inicial sea minima.
+      start_pose: [-0.1333, 0.4919, 0.3469]
+
+      # Superficie e incision (decisiones experimentales, docs/00_prereqs.md).
+      surface_z: 0.03             # [m] plano de corte nominal.
+      # NO hay muestra de tejido en el mundo: el trazo se hace en aire y este
+      # valor solo fija la ALTURA. Se subio de 0.02 a 0.03 para dejar 25 mm de
+      # holgura entre la punta de la hoja y la mesa (antes 15 mm), que es el
+      # margen con el que se valida en el robot real. Si algun dia se apoya una
+      # muestra, este valor pasa a ser su espesor y hay que anadir el modelo al
+      # mundo, porque hoy la simulacion NO tiene fuerza de contacto.
+      # OJO con los nombres: NO siguen al eje. En incision_trajectory.cpp,
+      #   cut_axis "y" -> punto = (cut_x, cut_center_y + offset)   -> cut_x FIJO
+      #   cut_axis "x" -> punto = (cut_x + offset, cut_center_y)   -> cut_x CENTRO
+      # Con eje X, cut_x es el CENTRO del trazo y cut_center_y la coordenada fija.
+      # La base del robot esta girada -90 deg en el mundo (ver el spawn en
+      # ur5e_effort_gz.launch.py), asi que base_link tambien: world_x = base_y,
+      # world_y = -base_x. El trazo se describe en BASE_LINK, y estos valores
+      # son los que lo dejan en world x[0.70, 0.80], y = 0 — encima de la mesa,
+      # exactamente donde estaba antes de girar la base.
+      cut_x: 0.0                  # [m] coordenada FIJA en x (base_link)
+      cut_center_y: 0.75          # [m] centro del trazo (eje Y de base_link)
+      # El trazo recorre X. Antes recorria Y "manipulabilidad ~constante": al
+      # ir en X cambia la distancia radial a la base, asi que la
+      # manipulabilidad SI varia a lo largo del corte. Medido: sigma_min(J) =
+      # 0.2168 (umbral 0.05) frente a 0.2432 del trazo en Y, asi que hay
+      # margen de sobra; pero al interpretar el error de seguimiento hay que
+      # tener presente que puede variar a lo largo del trazo por geometria y
+      # no por el controlador.
+      cut_axis: "y"
+      # Sentido del recorrido a lo largo de cut_axis: +1 o -1.
+      #   +1 -> base_y CRECIENTE (world_x 0.70 -> 0.80): se ALEJA
+      #   -1 -> base_y DECRECIENTE (world_x 0.80 -> 0.70): se ACERCA
+      # Invierte las CINCO fases: aproximacion, contacto y penetracion
+      # pasan al extremo por el que ahora se empieza, y la retirada al otro.
+      cut_direction: -1
+      cut_length: 0.08            # [m] 80 mm MEDIDOS, integros a feed constante
+      cut_lead: 0.010             # [m] entrada/salida a cada lado (rampas)
+                                  #     -> trazo total de material: 100 mm
+      cut_depth: 0.005            # [m] 5 mm
+      approach_height: 0.03       # [m] cota de aproximacion sobre la superficie
+
+      # Velocidades por fase [m/s].
+      v_approach: 0.10
+      v_contact: 0.015            # descenso cuidadoso hasta el primer contacto
+      v_penetration: 0.005        # penetracion lenta: aqui crece la fuerza
+      v_cut: 0.010                # FEED del corte: 10 mm/s
+      v_withdraw: 0.05
+
+      # Forma del perfil temporal. La fraccion de rampa del CORTE no es un
+      # parametro libre: se deriva de cut_lead, de modo que la meseta de feed
+      # constante coincide EXACTAMENTE con los cut_length medidos.
+      #   trazo   = cut_length + 2*cut_lead = 100 mm  (material cortado)
+      #   meseta  = cut_length              =  80 mm  (medido y reportado)
+      # ramp_fraction_move = 0.5 -> fases punto a punto sin meseta.
+      ramp_fraction_move: 0.5
+      dwell: 0.3                  # [s] reposo entre fases
+
+    # -- IK (QP de ur5_kinematics, target gripper_tcp) ------------------------
+    ik_seed: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
+    ik_max_iterations: 450
+    ik_alpha: 0.5
+    ik_weight_pos: 1.0
+    ik_weight_orient: 1.0
+    ik_fk_tol: 0.005
+    q_jump_tol: 0.15
+
+    # -- Validacion de la tabla de referencias (FASE 1) ----------------------
+    # dq_max: limite REAL del UR5e, 180 deg/s (ur_description joint_limits.yaml).
+    # ddq_max: el robot NO tiene limite de aceleracion articular; 5.0 rad/s^2 es
+    #   el valor conservador de ur_moveit_config, adoptado como cota DECLARADA
+    #   (se reporta como tal en el paper, no es un dato de hardware).
+    # sigma_min_threshold: aborta la generacion si el trazo se acerca a una
+    #   singularidad. En la incision sigma_min ~ 0.243, muy por encima.
+    dq_max:  [3.14159, 3.14159, 3.14159, 3.14159, 3.14159, 3.14159]
+    ddq_max: [5.0, 5.0, 5.0, 5.0, 5.0, 5.0]
+    sigma_min_threshold: 0.05
+    manipulability_threshold: 0.0     # 0 = desactivado (se registra igualmente)
+
+    csv_output_dir: ""
+    test_num: 1
+    csv_hold_decimation: 10
