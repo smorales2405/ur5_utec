@@ -143,6 +143,10 @@ def launch_setup(context, *args, **kwargs):
                            ("friction_compensation", "friction_compensation", str),
                            ("friction_dq_source", "friction.dq_source", str),
                            ("friction_dq_eps", "friction.dq_eps", float),
+                           ("friction_ff_dv_max",
+                            "friction.ff_dv_max", float),
+                           ("watchdog_q_err_max",
+                            "watchdog.q_err_max", float),
                            ("skip_trajectory", "skip_trajectory",
                             lambda v: v.lower() in ("1", "true", "yes"))):
         raw = LaunchConfiguration(arg).perform(context).strip()
@@ -239,6 +243,17 @@ def generate_launch_description():
             description="'' = params_file; measured | desired. Con 'measured' "
                         "el Coulomb se anula con la junta clavada y no la "
                         "desbloquea nunca (docs/05_smc.md §7.1)"),
+        DeclareLaunchArgument(
+            "watchdog_q_err_max", default_value="",
+            description="error de seguimiento [rad] que dispara SAFE_HOLD. "
+                        "0 = desactivado. Un umbral de seguridad que no se "
+                        "puede fijar desde el launch no sirve de nada"),
+        DeclareLaunchArgument(
+            "friction_ff_dv_max", default_value="",
+            description="limite de tasa del feedforward [rad/s por ciclo]. "
+                        "0 = sin limite. Sin el, el escalon de tanh en una "
+                        "junta ligera desestabiliza (smc_710: wrist_2 se fugo "
+                        "162 grados)"),
         DeclareLaunchArgument(
             "friction_dq_eps", default_value="",
             description="ancho del tanh [rad/s]. Con 'desired' conviene "

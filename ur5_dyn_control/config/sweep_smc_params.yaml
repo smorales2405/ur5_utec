@@ -165,8 +165,16 @@ gz_smc_control_node:
       # compensar de wrist_1 cae a 0.021 N.m (chi 0.04).
       #
       # NO bajar esto con dq_source = "measured": ahi conmutaria sobre el ruido.
-      dq_eps: 1.0e-5
-
+      # 1e-2 y no 1e-5. Bajarlo encoge la banda sin compensar, pero en una junta
+      # ligera lo que importa es la DERIVADA: con 1e-5 el tanh es un escalon y
+      # salta ~1 N.m entre ciclos consecutivos, que sobre M_55 = 0.00535 kg m2
+      # son 184 rad/s2. Fugo wrist_2 162 grados en el robot real (smc_710). A
+      # las velocidades de trabajo (0.05-0.5 rad/s) 1e-2 da tanh > 0.99, o sea
+      # compensacion practicamente plena.
+      dq_eps: 1.0e-2
+      # Limite de tasa del feedforward [rad/s por ciclo]. Es la defensa de fondo:
+      # acota el escalon aunque eps se vuelva a bajar. 0 = sin limite.
+      ff_dv_max: 0.01
     tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
 
     sweep:

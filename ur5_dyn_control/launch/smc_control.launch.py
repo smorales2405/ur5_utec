@@ -61,6 +61,16 @@ def launch_setup(context, *args, **kwargs):
     dq_src = LaunchConfiguration("friction_dq_source").perform(context).strip()
     if dq_src:
         overrides["friction.dq_source"] = dq_src
+    # Gazebo tiene que poder reproducir EXACTAMENTE una configuracion del robot
+    # real; si no, deja de servir para validarla. Estos dos faltaban aqui y
+    # estaban en el launch real, asi que una corrida de simulacion los ignoraba
+    # EN SILENCIO y parecia validar algo que no era.
+    for arg, key in (("friction_dq_eps", "friction.dq_eps"),
+                     ("friction_ff_dv_max", "friction.ff_dv_max"),
+                     ("watchdog_q_err_max", "watchdog.q_err_max")):
+        raw = LaunchConfiguration(arg).perform(context).strip()
+        if raw:
+            overrides[key] = float(raw)
     # FASE 7: volcado de la tabla de referencia que consume el optimizador. Se
     # expone como argumento —y no solo como parametro del YAML— porque hay que
     # regenerarla cada vez que cambia la trayectoria, y editar el YAML a mano
@@ -149,6 +159,19 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "switching_function", default_value="",
             description="'' = params_file; si no: sign | sat"),
+        DeclareLaunchArgument(
+            "watchdog_q_err_max", default_value="",
+            description="error de seguimiento [rad] que dispara SAFE_HOLD. "
+                        "0 = desactivado. Un umbral de seguridad que no se "
+                        "puede fijar desde el launch no sirve de nada"),
+        DeclareLaunchArgument(
+            "friction_dq_eps", default_value="",
+            description="ancho del tanh [rad/s]. Pequeno = menos banda sin "
+                        "compensar pero escalon mas abrupto (ver smc_710)"),
+        DeclareLaunchArgument(
+            "friction_ff_dv_max", default_value="",
+            description="limite de tasa del feedforward [rad/s por ciclo]. "
+                        "0 = sin limite"),
         DeclareLaunchArgument(
             "friction_dq_source", default_value="",
             description="'' = params_file; measured (default del nodo) | "

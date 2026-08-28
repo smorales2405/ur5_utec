@@ -229,6 +229,12 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
     // (docs/05_smc.md 7.7). Con `measured` es justo al reves, y bajarlo hace
     // que el termino de Coulomb conmute con el ruido. Se avisa en vez de
     // abortar porque hay ensayos legitimos ahi.
+    friction_ff_dv_max_ = declare_parameter<double>("friction.ff_dv_max", 0.0);
+    watchdog_q_err_max_ =
+      declare_parameter<double>("watchdog.q_err_max", 1.0);
+    if (friction_ff_dv_max_ < 0.0) {
+      throw std::runtime_error("friction.ff_dv_max no puede ser negativo");
+    }
     if (!friction_use_ref_dq_ && friction_dq_eps_ < 1e-4 &&
         friction_mode_ == FrictionCompensation::VISCOUS_COULOMB)
     {
@@ -248,6 +254,11 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
                   friction_f_c_[0], friction_f_c_[1], friction_f_c_[2],
                   friction_f_c_[3], friction_f_c_[4], friction_f_c_[5],
                   friction_dq_eps_);
+      if (friction_ff_dv_max_ <= 0.0) {
+        RCLCPP_WARN(get_logger(),
+                    "  feedforward SIN limite de tasa: en juntas ligeras el "
+                    "escalon de tanh puede desestabilizar (ver smc_710)");
+      }
       RCLCPP_INFO(get_logger(), "  alimentada con la velocidad %s",
                   friction_use_ref_dq_ ? "DESEADA (rompe el bloqueo en q̇=0)"
                                        : "MEDIDA");
@@ -364,6 +375,29 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
 
   // Torque de sosten "a ciegas" para PRE_HOLD (antes de /joint_states).
   tau_hold_blind_ = dyn_->gravity(q_init_);
+  // Escala del limite de tasa del feedforward: diag M(q_init), congelada. No se
+  // recalcula por ciclo porque la variacion de M a lo largo del trazo es
+  // irrelevante frente a los cuatro ordenes que separan a las juntas entre si,
+  // que es lo que este limite tiene que respetar.
+  friction_ff_inertia_ = dyn_->M(q_init_).diagonal();
+  // El log va AQUI y no junto a la declaracion del parametro: alli `dyn_` aun
+  // no existe y se imprimia la inercia por defecto (unos), o sea el mismo
+  // numero en las seis juntas.
+  if (friction_ff_dv_max_ > 0.0 && friction_mode_ != FrictionCompensation::NONE) {
+    // En N.m/s = paso_por_ciclo / dt = dv_max * M * rate^2. "N.m por ciclo" no
+    // dice nada sin saber el periodo. Y los nombres van con .c_str(): pasar un
+    // std::string a un printf-like es comportamiento indefinido, y en la
+    // primera version imprimio basura.
+    const double r2 = control_rate_ * control_rate_;
+    RCLCPP_INFO(get_logger(),
+                "Limite de tasa del feedforward: %.4g rad/s por ciclo -> "
+                "%.1f N.m/s en %s, %.3f en %s",
+                friction_ff_dv_max_,
+                friction_ff_dv_max_ * friction_ff_inertia_.maxCoeff() * r2,
+                kJointNames[1].c_str(),
+                friction_ff_dv_max_ * friction_ff_inertia_.minCoeff() * r2,
+                kJointNames[5].c_str());
+  }
 
   // ── Trayectoria cartesiana -> tabla articular ─────────────────────────────
   if (!skip_trajectory_) {
@@ -627,6 +661,7 @@ void TorqueControlNodeBase::logRow(double t_sim, const Vector6d & q,
   d.q = q;
   d.dq = dq;
   d.q_des = ref.q;
+  q_err_ = q - ref.q;   // lo consume el watchdog
   d.dq_des = ref.dq;
   d.ddq_des = ref.ddq;
   d.tau_cmd = tau_cmd;
@@ -695,6 +730,22 @@ bool TorqueControlNodeBase::watchdogOk(double dt_sim)
   if (js_seq_ != js_seq_prev_) {
     js_seq_prev_ = js_seq_;
     t_last_js_wall_ = t_wall;
+  }
+
+  // 3) SEGUIMIENTO. Las dos comprobaciones anteriores miran la infraestructura;
+  //    esta mira si el robot esta haciendo lo que se le pide. Sin ella, una
+  //    junta que se fuga no despierta a nadie mientras el lazo siga puntual —
+  //    que es exactamente lo que paso en smc_710.
+  if (reason.empty() && watchdog_q_err_max_ > 0.0) {
+    int peor = 0;
+    for (int i = 1; i < 6; ++i) {
+      if (std::abs(q_err_[i]) > std::abs(q_err_[peor])) {peor = i;}
+    }
+    if (std::abs(q_err_[peor]) > watchdog_q_err_max_) {
+      reason = "error de seguimiento " + std::to_string(q_err_[peor]) +
+        " rad en " + kJointNames[static_cast<std::size_t>(peor)] + " > " +
+        std::to_string(watchdog_q_err_max_) + " rad";
+    }
   }
 
   if (reason.empty()) {
@@ -777,8 +828,33 @@ Vector6d TorqueControlNodeBase::commandFromLaw(const Vector6d & tau_law,
   // "measured" y esto se elige a proposito.
   const Vector6d & dq_fric =
     (friction_use_ref_dq_ && dq_ref != nullptr) ? *dq_ref : dq;
-  const Vector6d tau_total = tau_law + frictionFeedforward(
+  Vector6d ff = frictionFeedforward(
     dq_fric, friction_f_v_, friction_f_c_, friction_mode_, friction_dq_eps_);
+
+  // LIMITE DE TASA del feedforward. Ver la declaracion en el header: sin el,
+  // `f_c·tanh(q̇_d/eps)` es un escalon que en una junta ligera inyecta cientos
+  // de rad/s2 y desestabiliza. El limite va en incremento de VELOCIDAD, que es
+  // lo que significa lo mismo en juntas cuya inercia recorre 4 ordenes.
+  //
+  // OJO: se limita el feedforward y NO el mando total. El limitador de tasa de
+  // la FASE 3 actua sobre el comando ya saturado, demasiado tarde: para
+  // entonces el escalon ya se ha sumado al par de la ley y recortarlo entero
+  // tambien recortaria la correccion del controlador.
+  if (friction_ff_dv_max_ > 0.0 && friction_mode_ != FrictionCompensation::NONE) {
+    if (!friction_ff_prev_valid_) {
+      friction_ff_prev_ = ff;
+      friction_ff_prev_valid_ = true;
+    } else {
+      const double dt = 1.0 / control_rate_;
+      for (int i = 0; i < 6; ++i) {
+        const double paso = friction_ff_dv_max_ * friction_ff_inertia_[i] / dt;
+        const double d = ff[i] - friction_ff_prev_[i];
+        ff[i] = friction_ff_prev_[i] + std::clamp(d, -paso, paso);
+      }
+      friction_ff_prev_ = ff;
+    }
+  }
+  const Vector6d tau_total = tau_law + ff;
   // g(q) solo se evalua cuando hace falta restarla (ahorra una RNEA por tick
   // en el caso de Gazebo, que es el default).
   const Vector6d g_q = gravity_in_command_ ? Vector6d::Zero().eval() : dyn_->gravity(q);

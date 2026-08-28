@@ -194,6 +194,49 @@ private:
   /// `friction.dq_source` = "desired": alimentar el feedforward con la
   /// velocidad DESEADA en vez de la medida. Ver commandFromLaw().
   bool friction_use_ref_dq_ = false;
+  /**
+   * LIMITE DE TASA del feedforward de friccion, en incremento de velocidad por
+   * ciclo [rad/s]. El limite en par sale de la inercia: `dv_max * M_ii / dt`.
+   *
+   * Existe por un incidente en el robot real (2026-08-27, corrida smc_710):
+   * `wrist_2` se fugo 162 grados durante un barrido bajo SMC. La causa no fue el
+   * SMC — las otras cinco juntas sostuvieron dentro de 0.01 grados — sino que
+   * `f_c·tanh(q̇_d/eps)` con eps = 1e-5 es practicamente un ESCALON: saltaba
+   * 0.98 N·m entre dos ciclos, que sobre M_55 = 0.00535 kg m2 son 184 rad/s2.
+   * El feedforward valia 1.973 N·m RMS frente a 0.342 de la ley de control —
+   * 5.8x— asi que mandaba el termino en LAZO ABIERTO, que se calcula con la
+   * velocidad de REFERENCIA y no sabe que la junta se ha ido: agravaba el error
+   * en el 45 % de los ciclos.
+   *
+   * Se limita en INCREMENTO DE VELOCIDAD y no en N·m/s porque es lo que
+   * significa lo mismo en las seis juntas: la inercia recorre cuatro ordenes de
+   * magnitud, asi que un limite en par comun seria irrelevante en el hombro y
+   * brutal en la muñeca. Con 0.01 rad/s por ciclo, el hombro admite 6475 N·m/s
+   * (sin efecto practico) y `wrist_2` 13.4 N·m/s.
+   */
+  double friction_ff_dv_max_ = 0.0;      // 0 = sin limite
+  /**
+   * Limite de ERROR DE SEGUIMIENTO por junta [rad]. Al superarlo se entra en
+   * SAFE_HOLD. 0 = desactivado.
+   *
+   * El watchdog de la FASE 3 vigila el RITMO del lazo y la llegada de
+   * /joint_states — infraestructura— pero no si el robot esta haciendo lo que
+   * se le pide. Por eso no se entero de que `wrist_2` se fugaba 162 grados en
+   * la corrida smc_710: el lazo corria a 500 Hz y los estados llegaban
+   * puntuales todo el rato. Se paro cuando termino el barrido, no antes.
+   *
+   * El default (1.0 rad = 57 grados) esta puesto para distinguir una FUGA de un
+   * seguimiento malo: en Gazebo, `wrist_2` acumula 37.9 grados de error en el
+   * barrido lento sin que eso sea un fallo de seguridad, y no debe abortar.
+   */
+  double watchdog_q_err_max_ = 0.0;
+  /// Ultimo error de seguimiento, para que el watchdog pueda mirarlo.
+  Vector6d q_err_ = Vector6d::Zero();
+  /// diag M(q_init), congelada al arrancar: escala del limite de tasa.
+  Vector6d friction_ff_inertia_ = Vector6d::Ones();
+  /// Feedforward del ciclo anterior, para poder limitar su tasa.
+  Vector6d friction_ff_prev_ = Vector6d::Zero();
+  bool friction_ff_prev_valid_ = false;
   /// Ultimo `effort` de /joint_states: CORRIENTE [A] en el UR5e real,
   /// esfuerzo [N·m] en Gazebo (G5). NaN si el driver no lo publica.
   Vector6d cur_ = Vector6d::Constant(std::numeric_limits<double>::quiet_NaN());
