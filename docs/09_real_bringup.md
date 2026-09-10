@@ -281,6 +281,73 @@ max_i G_i        sobre las SEIS juntas, se muevan o no
 
 y lo medido hasta hoy es: **`max G` = 109 limpio, `max G` = 240 violento.**
 
+### 6.3 `smc_718`: el codo SOLO en su λ del fallo no arranca nada
+
+`λ₃ = 130.67` —exactamente la de `smc_712`— con las otras cinco en 20. Limpio:
+cero saturación, rizado 2.34 % en el codo, error 0.21°.
+
+**Queda probado que la `G` del codo no basta.** Hacía falta el hombro.
+
+### 6.4 Pero hay una resonancia que crece, y permite extrapolar sin romper nada
+
+En las seis corridas hay un modo compartido entre codo, `shoulder_lift` y
+`wrist_1`. Amplitud de τ en la banda 40–55 Hz [N·m RMS]:
+
+| G₃ | codo | `shoulder_lift` | crecimiento de A | subida de G |
+|---|---|---|---|---|
+| 29.9 | 0.008 | 0.005 | — | — |
+| 43.2 | 0.014 | 0.008 | 1.75× | 1.44× |
+| 60.8 | 0.021 | 0.014 | 1.50× | 1.41× |
+| 82.8 | 0.029 | 0.019 | 1.38× | 1.36× |
+| 109.3 | 0.049 | 0.037 | 1.69× | 1.32× |
+| **127.5** | **0.092** | **0.066** | **1.88×** | **1.17×** |
+
+El crecimiento es **super-lineal y se acelera**: en el último escalón la
+amplitud casi se dobla con una subida de `G` del 17 %. Si sólo fuese inyección
+de ruido (`τ_rizado = G·Δq̇`) sería proporcional. El exceso es amplificación
+resonante: el amortiguamiento del modo cae según sube `G`.
+
+Eso da una forma de **estimar el límite sin alcanzarlo**. Con
+`A/G ≈ c/(1 − G/G_c)`, la recta `G/A` frente a `G` corta cero en `G_c`:
+
+| ajuste sobre | codo | `shoulder_lift` |
+|---|---|---|
+| 6 puntos | 209.6 (r −0.95) | 182.8 (r −0.98) |
+| 5 puntos | 217.6 (r −0.93) | 183.9 (r −0.97) |
+| 4 puntos | 199.5 (r −0.93) | 184.5 (r −0.95) |
+| 3 puntos | 173.5 (r −0.98) | 163.4 (r −1.00) |
+
+**`G_c ≈ 170–220`**, y el ajuste de `shoulder_lift` apenas se mueve con el
+número de puntos (182.8 / 183.9 / 184.5). Cae dentro del intervalo medido
+`[127.5 limpio, 240 violento]`: tres cosas independientes coinciden.
+
+**Y `smc_718` no estaba holgado.** Su amplitud, 0.092 N·m, es el **81 %** de los
+0.113 N·m que `smc_712` tenía en los 14 s anteriores a irse.
+
+> **Salvedad.** El modo de la rampa está en 47–49 Hz y el que se fue en
+> `smc_712` en 35.7 Hz (con 25–29 Hz en su tramo sano). Con λ = [161, 78, 131,
+> 140, 168, 37] el lazo cerrado es otro, así que **puede que no sea el mismo
+> modo** y la extrapolación y el intervalo midan cosas distintas. Que den
+> números compatibles es tranquilizador, no concluyente.
+
+### 6.5 Cota de diseño propuesta
+
+```
+G_i = M_ii·λ_i + K_i/φ_i  ≤  120     en las SEIS juntas
+```
+
+- por debajo del `127.5` **medido limpio** (`smc_718`),
+- factor **1.5** por debajo del `G_c ≈ 180` extrapolado,
+- factor **2** por debajo del `240` medido violento.
+
+Confirmación pendiente, y es una corrida que **no sube `max G`**: poner
+`shoulder_lift` —el amplificador— en `G₂ = 119.8` (λ₂ = 33) con el codo en
+130.67. `max G` sigue siendo 127.5, ya probado limpio, pero por primera vez el
+hombro está alto. Predicción falsable del ajuste: `A_codo ≈ 0.067`,
+`A_lift ≈ 0.049`, o sea **por debajo** de los 0.092 / 0.066 de `smc_718`. Si
+sale bastante por encima, el criterio no es `max_i G_i` y hay que ponderar por
+junta.
+
 Se barre **solo el codo** porque es la única junta con un punto de fallo medido.
 Las otras cinco se quedan quietas con λ = 20, lo que las deja en
 `G = [29.4, 84.1, —, 2.9, 1.1, 0.06]`.
