@@ -187,6 +187,35 @@ explícitamente, que es exactamente lo que hace `ControllerSwitcher` del paquete
 compatible con `tool_contact`. Confirma el `deactivate_controllers:=[scaled_joint_trajectory_controller]`
 que el nodo ya soporta.
 
+### Pinocchio — versión MAYOR, y un `apt upgrade` se la lleva
+
+`robotpkg-pinocchio` no está clavado a ninguna versión, así que entra en
+cualquier `apt upgrade`. El **2026-09-01 12:27** uno genérico saltó de
+**3.9.0 a 4.1.0** (con `coal` 3.0.2→3.0.4 y `eigenpy` 3.12.0→3.13.0) y dejó el
+workspace sin compilar. Dos roturas, ninguna avisada:
+
+| Qué cambió en Pinocchio 4 | Síntoma |
+|---|---|
+| Las cabeceras se reorganizaron: `<pinocchio/multibody/model.hpp>` ya no existe en `include/`, solo el puente en `include/pinocchio/deprecated/`. Ese directorio se exporta **únicamente** por el target `pinocchio::pinocchio`; la variable `PINOCCHIO_INCLUDE_DIRS` no lo trae y `PINOCCHIO_LIBRARIES` quedó **vacía** | `fatal error: pinocchio/multibody/model.hpp: No such file or directory` |
+| `Frame::parent` → `Frame::parentJoint` (renombrado en 3, eliminado en 4) | `'const Frame' has no member named 'parent'` |
+| Las `.so` viejas desaparecen | `libpinocchio_parsers.so.3.9.0 => not found` en todo binario compilado antes |
+
+La dinámica **no** cambió de valores. Verificado contra dos referencias
+registradas con 3.9.0: en `smc_724.csv` (HOLD, `dq=0`) las cuatro juntas con
+error de seguimiento exactamente cero reproducen el par al **noveno decimal**
+—las dos que difieren son justo las que tenían error, cuyo comando lleva
+además el término del SMC—; y `g(q_init)` sin herramienta coincide con el
+`[0, −20.244, −20.244, −1.823, 0, 0]` de este documento dentro del redondeo.
+
+Toda la campaña anterior al 2026-09-01 se produjo con **3.9.0**.
+
+Para que un `apt upgrade` no vuelva a moverlo a mitad de campaña:
+
+```bash
+sudo apt-mark hold robotpkg-pinocchio robotpkg-py310-pinocchio \
+                   robotpkg-coal robotpkg-py310-coal robotpkg-py310-eigenpy
+```
+
 ### Re-verificación (si se actualiza el sistema)
 
 ```bash
@@ -194,6 +223,9 @@ source /opt/ros/humble/setup.bash
 dpkg -l | grep -E "ros-humble-ur-(robot-driver|controllers|client-library|msgs)"
 grep -A2 "^    forward_effort_controller:" /opt/ros/humble/share/ur_robot_driver/config/ur_controllers.yaml
 grep -c FrictionModelController /opt/ros/humble/share/ur_controllers/controller_plugins.xml
+# Pinocchio: version y que las .so con las que se enlazo siguen existiendo
+dpkg -l | grep -E "robotpkg-(py310-)?(pinocchio|coal|eigenpy)"
+ldd ~/ur5_ws/install/ur5_kinematics/lib/libur5_kinematics.so | grep -i "not found"
 ```
 
 ---

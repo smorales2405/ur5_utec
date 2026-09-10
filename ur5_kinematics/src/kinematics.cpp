@@ -27,7 +27,7 @@ void UR5Kinematics::registerFixedFrame(const std::string& name,
 
     model_->addFrame(pinocchio::Frame(
         name,
-        tool0_frame.parent,                   // same parent joint as tool0
+        tool0_frame.parentJoint,              // same parent joint as tool0
         tool0_id,                             // parent frame
         tool0_frame.placement * offset_from_tool0,
         pinocchio::OP_FRAME

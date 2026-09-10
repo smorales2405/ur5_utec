@@ -4,6 +4,18 @@ project(ur5_dyn_control)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Sin tipo de build, colcon compila SIN optimizacion, y eso aqui no es una
+# preferencia: el lazo corre a 500 Hz y solveCare tarda 1.55 ms en Release
+# contra 3.52 ms a -O0, o sea que a -O0 el LQR-SDRE NO cabe en su ciclo. El
+# fallo es ademas SILENCIOSO —el tipo de build vive en la cache de CMake, asi
+# que basta un `rm -rf build/` para perderlo sin que nada avise— y el unico
+# sintoma es un test de tiempo que se cae. Se fija por defecto, sin pisar al
+# que pida otro explicitamente en la linea de ordenes.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+  message(STATUS "ur5_dyn_control: CMAKE_BUILD_TYPE vacio -> Release")
+endif()
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -53,12 +65,13 @@ add_library(${PROJECT_NAME}_core SHARED
 target_include_directories(${PROJECT_NAME}_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
-  ${PINOCCHIO_INCLUDE_DIRS}
 )
 target_link_libraries(${PROJECT_NAME}_core PUBLIC
   ur5_kinematics::ur5_kinematics
   Eigen3::Eigen
-  ${PINOCCHIO_LIBRARIES}
+  # Ver la nota en ur5_kinematics/CMakeLists.txt: en Pinocchio 4 las variables
+  # PINOCCHIO_INCLUDE_DIRS / PINOCCHIO_LIBRARIES ya no bastan.
+  pinocchio::pinocchio
 )
 ament_target_dependencies(${PROJECT_NAME}_core PUBLIC
   rclcpp sensor_msgs std_msgs controller_manager_msgs ament_index_cpp)
