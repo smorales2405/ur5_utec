@@ -131,9 +131,40 @@ public:
         ? (" (phi=" + phi_lista.substr(0, phi_lista.find(' ')) + ")")
         : (" (phi POR JUNTA=[" + phi_lista + "])"))
       : std::string();
+    // Las SEIS lambdas y etas, no solo la primera. En una rampa de lambda sobre
+    // una junta (docs/09_real_bringup.md §6) el resto no cambia, asi que con
+    // "lambda=[20.0 ...]" los cinco escalones salen IDENTICOS en el log y no
+    // hay forma de saber cual fue cada corrida.
+    auto lista = [](const Vector6d & v) {
+        std::string s;
+        char b[32];
+        for (int i = 0; i < 6; ++i) {
+          std::snprintf(b, sizeof(b), "%s%.4g", i ? " " : "", v[i]);
+          s += b;
+        }
+        return s;
+      };
     RCLCPP_INFO(get_logger(),
-                "SMC rho=%s%s | lambda=[%.1f ...] eta=[%.1f ...] alpha=%.2f",
-                sw.c_str(), phi_txt.c_str(), lambda_[0], eta_[0], alpha_);
+                "SMC rho=%s%s | lambda=[%s] eta=[%s] alpha=%.2f",
+                sw.c_str(), phi_txt.c_str(),
+                lista(lambda_).c_str(), lista(eta_).c_str(), alpha_);
+    // Ganancia derivativa que esto crea sobre la velocidad MEDIDA. Es el
+    // numero que entro en ciclo limite en smc_712 (G = 127.8 en el codo), y
+    // tenerlo en el log evita tener que reconstruirlo despues del susto.
+    {
+      const Vector6d Mi = dyn().M(qInit()).diagonal();
+      const Vector6d Kap =
+        eta_ + alpha_ * dyn().nle(qInit(), Vector6d::Zero()).cwiseAbs();
+      Vector6d G;
+      for (int i = 0; i < 6; ++i) {
+        G[i] = Mi[i] * lambda_[i] + Kap[i] / phi_[i];
+      }
+      RCLCPP_INFO(get_logger(),
+                  "  G = M_ii*lambda_i + K_i/phi_i = [%s] N.m por rad/s, "
+                  "evaluada en q_init con dq=0 (ciclo limite MEDIDO en 127.8 "
+                  "en el codo, docs/09_real_bringup.md)",
+                  lista(G).c_str());
+    }
     RCLCPP_INFO(get_logger(),
                 "  K se calcula por ciclo: K_i = eta_i + |alpha*M*ddq_r + "
                 "alpha*b + (1-alpha)*dM*dq_r|_i  (condicion de alcance por "
