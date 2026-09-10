@@ -21,8 +21,10 @@
 #        params_file:=<...>/sweep_smc_params.yaml gains_file:=<...> \
 #        trajectory_type:=joint_sweep sweep_joint:=0 test_num:=710 \
 #        tau_scale:=0.30 tool_mounted:=false \
-#        friction_compensation:=viscous_coulomb \
-#        friction_f_v:="..." friction_f_c:="..."
+#        friction_compensation:=viscous_coulomb
+#
+#  Los coeficientes de friccion ya van en este fichero (ver abajo): solo hay
+#  que pasar `friction_compensation` para activarla.
 # ============================================================================
 
 gz_smc_control_node:
@@ -157,6 +159,23 @@ gz_smc_control_node:
     # Solo se activa pasando `friction_compensation` y los coeficientes; aqui se
     # fija dq_source y dq_eps, que son las dos decisiones de diseno.
     friction:
+      # Coeficientes MEDIDOS en el robot real, docs/02_friction_real.md 8.4
+      # (corriente de la campana x la `k` medida por el metodo de la
+      # diferencia, no la de gravedad). Estaban SOLO en una tabla del
+      # documento y en la variable de shell del operador, asi que cada corrida
+      # dependia de lo que hubiera en $FV/$FC — y las cifras anteriores siguen
+      # circulando: [14.55 12.30 14.53 1.33 1.85 2.87] y
+      # [7.31 7.20 7.89 1.85 2.68 3.18], hasta un 27 % altas en las munecas.
+      #
+      # No hacen nada por si solas: la compensacion solo se activa si ademas se
+      # pasa `friction_compensation`. `friction_f_v:=` / `friction_f_c:=` las
+      # siguen pisando.
+      #
+      # AVISO TERMICO (8.5): F_v cae un 9.3 % entre el robot frio y el rodado
+      # (F_c solo 0.76 %, `k` 0.05 %). Estos son de campana, robot ya en
+      # marcha; la primera corrida de una sesion compensa de menos.
+      f_v: [13.64, 11.55, 13.74, 1.28, 1.35, 2.12]
+      f_c: [6.85, 6.76, 7.46, 1.78, 1.96, 2.35]
       # `desired`: el feedforward se alimenta de la velocidad de REFERENCIA. Con
       # la medida, F_c*tanh(dq/eps) se anula justo cuando la junta esta clavada
       # y no la desbloquea nunca (docs/05_smc.md 7.1: 314x de diferencia).
