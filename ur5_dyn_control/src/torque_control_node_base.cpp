@@ -4,6 +4,7 @@
 
 #include <pinocchio/spatial/explog.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 #include <fstream>
@@ -272,6 +273,16 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
   watchdog_dt_factor_ = declare_parameter<double>("watchdog.dt_factor", 5.0);
   watchdog_js_timeout_ = declare_parameter<double>("watchdog.joint_state_timeout", 0.2);
   watchdog_strikes_ = static_cast<int>(declare_parameter<int>("watchdog.strikes", 5));
+  // Guarda de VIBRACION. Ver la cabecera: el error de seguimiento no ve un
+  // ciclo limite (en smc_712 valia 0.03-0.2 grados mientras el brazo se
+  // sacudia a 35.6 Hz contra el tope de par), pero la saturacion sostenida si.
+  watchdog_sat_frac_max_ = declare_parameter<double>("watchdog.sat_frac_max", 0.25);
+  watchdog_sat_window_ = declare_parameter<double>("watchdog.sat_window", 0.2);
+  {
+    const auto n = static_cast<std::size_t>(
+      std::max(1.0, std::round(watchdog_sat_window_ * control_rate_)));
+    watchdog_sat_hist_.assign(n, 0);
+  }
   dry_run_ = declare_parameter<bool>("dry_run", false);
   // FASE 7: volcado de la tabla de referencias para el evaluador de lazo
   // cerrado offline. Se exporta desde AQUI, no se reimplementa en Python: la
@@ -293,6 +304,24 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
               "%d ciclos seguidos)",
               watchdog_enabled_ ? "activo" : "DESACTIVADO",
               watchdog_dt_factor_, watchdog_js_timeout_, watchdog_strikes_);
+  // Las dos guardas de la planta se anuncian por separado, y se anuncia tambien
+  // cuando estan APAGADAS: una guarda que no se ve en el log es una que no se
+  // puede confirmar que estuviera puesta al revisar una corrida.
+  if (watchdog_q_err_max_ > 0.0) {
+    RCLCPP_INFO(get_logger(), "  guarda de seguimiento: |q - q_ref| > %.3f rad",
+                watchdog_q_err_max_);
+  } else {
+    RCLCPP_WARN(get_logger(), "  guarda de seguimiento DESACTIVADA");
+  }
+  if (watchdog_sat_frac_max_ > 0.0) {
+    RCLCPP_INFO(get_logger(),
+                "  guarda de vibracion: par saturado > %.0f %% de %.2f s "
+                "(%zu ciclos)",
+                100.0 * watchdog_sat_frac_max_, watchdog_sat_window_,
+                watchdog_sat_hist_.size());
+  } else {
+    RCLCPP_WARN(get_logger(), "  guarda de vibracion DESACTIVADA");
+  }
 
   command_topic_ = declare_parameter<std::string>(
     "command_topic", "/forward_effort_controller/commands");
@@ -703,6 +732,10 @@ bool TorqueControlNodeBase::watchdogOk(double dt_sim)
   if (state_ == State::PRE_HOLD || state_ == State::WAIT_STATE ||
       state_ == State::SAFE_HOLD || state_ == State::DONE)
   {
+    // Se OLVIDA la ventana de saturacion: el transitorio de arranque satura de
+    // forma legitima y no debe contar contra el primer TRACK.
+    std::fill(watchdog_sat_hist_.begin(), watchdog_sat_hist_.end(), 0);
+    watchdog_sat_count_ = 0;
     return true;
   }
 
@@ -732,7 +765,36 @@ bool TorqueControlNodeBase::watchdogOk(double dt_sim)
     t_last_js_wall_ = t_wall;
   }
 
-  // 3) SEGUIMIENTO. Las dos comprobaciones anteriores miran la infraestructura;
+  // 3) VIBRACION. Se acumula ANTES de las demas comprobaciones porque la
+  //    ventana tiene que reflejar los ultimos 0.2 s de verdad, se dispare o no
+  //    otra causa. `sat_flags_` viene del ciclo anterior (el comando de este
+  //    aun no se ha calculado), que es un retardo de 2 ms sobre una ventana de
+  //    200: irrelevante.
+  if (watchdog_sat_frac_max_ > 0.0 && !watchdog_sat_hist_.empty()) {
+    uint8_t any = 0;
+    for (int i = 0; i < 6; ++i) {
+      if (sat_flags_.saturated[i]) {
+        any = 1;
+        watchdog_sat_joint_ = i;
+        break;
+      }
+    }
+    watchdog_sat_count_ += any - watchdog_sat_hist_[watchdog_sat_pos_];
+    watchdog_sat_hist_[watchdog_sat_pos_] = any;
+    watchdog_sat_pos_ = (watchdog_sat_pos_ + 1) % watchdog_sat_hist_.size();
+
+    const double frac = static_cast<double>(watchdog_sat_count_) /
+      static_cast<double>(watchdog_sat_hist_.size());
+    if (reason.empty() && frac > watchdog_sat_frac_max_) {
+      reason = "par saturado en el " + std::to_string(100.0 * frac) +
+        " % de los ultimos " + std::to_string(watchdog_sat_window_) +
+        " s (ultima junta: " +
+        kJointNames[static_cast<std::size_t>(watchdog_sat_joint_)] +
+        "), umbral " + std::to_string(100.0 * watchdog_sat_frac_max_) + " %";
+    }
+  }
+
+  // 4) SEGUIMIENTO. Las dos primeras comprobaciones miran la infraestructura;
   //    esta mira si el robot esta haciendo lo que se le pide. Sin ella, una
   //    junta que se fuga no despierta a nadie mientras el lazo siga puntual —
   //    que es exactamente lo que paso en smc_710.

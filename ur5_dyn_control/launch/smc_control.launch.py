@@ -26,6 +26,12 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
+#: Par maximo nominal del UR5e [N.m]. Duplicado a proposito con
+#: ur5e_real.launch.py: son el MISMO robot y el test de simetria vigila que
+#: `tau_scale` exista en los dos launches.
+TAU_MAX_NOMINAL = [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
+
+
 def launch_setup(context, *args, **kwargs):
     dyn_pkg = get_package_share_directory("ur5_dyn_control")
 
@@ -43,9 +49,22 @@ def launch_setup(context, *args, **kwargs):
         }.items(),
     )
 
+    # `tau_scale`: el tope de par con el que se comanda. Faltaba aqui, y es
+    # justo el parametro que dio FORMA al fallo de smc_712 — con el tope al
+    # 30 % el lazo sobre-ganado se convirtio en un rele de +-45 N.m a 35.6 Hz.
+    # Sin poder fijarlo, Gazebo no puede reproducir una corrida de puesta a
+    # punto ni ejercitar la guarda de saturacion.
+    scale = LaunchConfiguration("tau_scale").perform(context).strip()
+    overrides_tau = {}
+    if scale:
+        f = float(scale)
+        if not (0.0 < f <= 1.0):
+            raise RuntimeError(f"tau_scale debe estar en (0, 1], se dio {f}")
+        overrides_tau["tau_max"] = [f * t for t in TAU_MAX_NOMINAL]
+
     # Overrides de FASE 2: solo se anaden los que el usuario dio explicitamente,
     # de modo que sin ellos el params_file manda (comportamiento historico).
-    overrides = {}
+    overrides = dict(overrides_tau)
     mode = LaunchConfiguration("friction_compensation").perform(context).strip()
     if mode:
         overrides["friction_compensation"] = mode
@@ -67,7 +86,9 @@ def launch_setup(context, *args, **kwargs):
     # EN SILENCIO y parecia validar algo que no era.
     for arg, key in (("friction_dq_eps", "friction.dq_eps"),
                      ("friction_ff_dv_max", "friction.ff_dv_max"),
-                     ("watchdog_q_err_max", "watchdog.q_err_max")):
+                     ("watchdog_q_err_max", "watchdog.q_err_max"),
+                     ("watchdog_sat_frac_max", "watchdog.sat_frac_max"),
+                     ("watchdog_sat_window", "watchdog.sat_window")):
         raw = LaunchConfiguration(arg).perform(context).strip()
         if raw:
             overrides[key] = float(raw)
@@ -85,6 +106,7 @@ def launch_setup(context, *args, **kwargs):
     for arg, key in (("friction_f_v", "friction.f_v"),
                      ("friction_f_c", "friction.f_c"),
                      ("phi_joint", "phi_joint"),
+                     ("lambda_joint", "lambda"),
                      ("initial_offset", "initial_offset")):
         raw = LaunchConfiguration(arg).perform(context).strip()
         if raw:
@@ -164,6 +186,22 @@ def generate_launch_description():
             description="error de seguimiento [rad] que dispara SAFE_HOLD. "
                         "0 = desactivado. Un umbral de seguridad que no se "
                         "puede fijar desde el launch no sirve de nada"),
+        DeclareLaunchArgument(
+            "tau_scale", default_value="",
+            description="'' = usar el params_file; si no, fraccion en (0,1] "
+                        "del par nominal [150,150,150,28,28,28] N.m"),
+        DeclareLaunchArgument(
+            "watchdog_sat_frac_max", default_value="",
+            description="fraccion de ciclos con el par SATURADO en la ventana "
+                        "que dispara SAFE_HOLD. Guarda de VIBRACION: la de "
+                        "seguimiento no ve un ciclo limite (smc_712)"),
+        DeclareLaunchArgument(
+            "watchdog_sat_window", default_value="",
+            description="ancho de esa ventana [s]"),
+        DeclareLaunchArgument(
+            "lambda_joint", default_value="",
+            description="6 valores de lambda [1/s]. Crea una ganancia "
+                        "derivativa M_ii*lambda_i sobre la velocidad MEDIDA"),
         DeclareLaunchArgument(
             "friction_dq_eps", default_value="",
             description="ancho del tanh [rad/s]. Pequeno = menos banda sin "

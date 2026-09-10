@@ -1,6 +1,7 @@
 #ifndef UR5_DYN_CONTROL_TORQUE_CONTROL_NODE_BASE_HPP
 #define UR5_DYN_CONTROL_TORQUE_CONTROL_NODE_BASE_HPP
 
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <memory>
@@ -230,6 +231,41 @@ private:
    * barrido lento sin que eso sea un fallo de seguridad, y no debe abortar.
    */
   double watchdog_q_err_max_ = 0.0;
+  /**
+   * Fraccion de ciclos SATURADOS en la ventana que dispara SAFE_HOLD, y ancho
+   * de esa ventana [s]. 0 = desactivado.
+   *
+   * Es la guarda de VIBRACION, y existe porque la de seguimiento no puede
+   * verla. En la corrida smc_712 el codo entro en un ciclo limite de 35.6 Hz
+   * clavado en el tope de par: el 99.7 % de la energia de tau por encima de
+   * 20 Hz, el brazo entero sacudiendose, la caja de control desplazada. Y el
+   * error de seguimiento en ese momento era de 0.03 a 0.2 GRADOS. El maximo
+   * antes del paro de emergencia fue 0.155 rad: ni con un umbral de 0.3 habria
+   * disparado `watchdog.q_err_max`. Un ciclo limite no se ve en el error.
+   *
+   * Se ve en el par. Medido sobre smc_712 con ventana de 0.2 s:
+   *
+   *     tramo         fraccion saturada        rizado de tau / tope
+   *     sano (69 s)   0.000 en las SEIS juntas  <= 0.97 %
+   *     el fallo      0.66 - 0.91               46 - 69 %
+   *
+   * Se elige la fraccion saturada y no el rizado porque su separacion es
+   * absoluta —cero contra 0.66— en vez de un factor: en operacion legitima con
+   * `tau_scale` de puesta a punto no se satura NUNCA. El default de 0.25 esta
+   * 3.6x por debajo de lo observado en el fallo y por encima de un suelo que es
+   * exactamente cero.
+   *
+   * Habria disparado en t=75.31 s, 3.49 s ANTES de que el operador alcanzase el
+   * pulsador.
+   */
+  double watchdog_sat_frac_max_ = 0.0;
+  double watchdog_sat_window_ = 0.2;
+  /// Historial circular de saturacion (1 = alguna junta saturada) y su suma.
+  std::vector<uint8_t> watchdog_sat_hist_;
+  std::size_t watchdog_sat_pos_ = 0;
+  int watchdog_sat_count_ = 0;
+  /// Ultima junta que se vio saturada, para poder nombrarla al disparar.
+  int watchdog_sat_joint_ = 0;
   /// Ultimo error de seguimiento, para que el watchdog pueda mirarlo.
   Vector6d q_err_ = Vector6d::Zero();
   /// diag M(q_init), congelada al arrancar: escala del limite de tasa.

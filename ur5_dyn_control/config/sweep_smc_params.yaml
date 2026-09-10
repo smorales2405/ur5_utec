@@ -66,6 +66,16 @@ gz_smc_control_node:
     # -- Ganancias del SMC (FASE 5) -------------------------------------------
     # s = dq_e + Lambda*q_e. Sobre s = 0 el error decae con constante 1/lambda,
     # asi que lambda = 20 -> 50 ms, del orden del lazo cerrado del FL (wn = 10).
+    # AVISO (smc_712, docs/09_real_bringup.md §2.0). Estos 20.0 NO son un valor
+    # seguro para el robot real por si solos. La ganancia derivativa que ve la
+    # velocidad medida es G = M_ii*lambda_i + K_i/phi_i, y con la phi de abajo
+    # el codo sale en G = 117.1 — un 8 % por debajo del G = 127.8 con el que
+    # entro en ciclo limite a 35.6 Hz. La lambda es seis veces menor y la
+    # ganancia total casi la misma, porque K/phi pasa a ser el 85 % del total.
+    #
+    # Para la rampa de medida del umbral se usan la eta y la phi del gains_file
+    # optimizado (phi_3 = 0.654 -> K/phi = 12.3) y se varia SOLO lambda con
+    # `lambda_joint:=`. Ver §6 del documento.
     lambda: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
     # eta: margen de alcance por encima de la cota de incertidumbre, ESCALADO
     # POR INERCIA:  eta_i = I_ii * a_reach,  con a_reach = 1.0 rad/s^2 y I_ii la

@@ -1,0 +1,256 @@
+# FASE 9 — Puesta a punto del SMC en el UR5e real
+
+Registro de lo que ha pasado al llevar el SMC de Gazebo al robot físico, qué lo
+explica y qué queda por medir. Dos incidentes hasta ahora, **con causas
+opuestas**, y los dos con las mismas ganancias.
+
+---
+
+## 1. Los dos incidentes
+
+| | `smc_710` (2026-08-27) | `smc_712` (2026-09-10) |
+|---|---|---|
+| junta barrida | `wrist_2` | `elbow` |
+| síntoma | fuga de 162°, se quedó en −252° | ciclo límite a 35.6 Hz, el brazo entero sacudiéndose |
+| par | **nunca** saturó (3.2 de 8.4 N·m) | saturado el **100 %** de los ciclos |
+| error de seguimiento | 162° | **0.03–0.2°** durante la vibración |
+| desenlace | terminó el barrido y paró solo | paro de emergencia del operador; la caja de control se desplazó |
+| `D = M·λ` | **0.9** | **115** |
+
+Mismo `selected_gains.yaml` (`smc_v4_g5`), misma α, misma corrida del
+optimizador. Un extremo se quedó sin autoridad y el otro se pasó de ganancia.
+
+---
+
+## 2. Qué gobierna esto: `G = M_ii·λ_i + K_i/φ_i`
+
+La ley del SMC es `τ = b + M·q̈_r − K·sat(s/φ)` con `q̈_r = q̈_des − Λ·ė` y
+`s = ė + Λe`. Derivando respecto a la velocidad **medida**, dentro de la capa
+límite:
+
+```
+G_i = M_ii·λ_i  +  K_i/φ_i        [N·m por rad/s de error de velocidad]
+        \____/      \_____/
+      control eq.   conmutado
+```
+
+Es una ganancia derivativa, y las **dos** mitades cuentan. `sat()` sólo deja de
+aportar cuando `|s| > φ`, y en `smc_712` el robot estuvo dentro de la capa el
+**100 % de los ciclos en las seis juntas** (|s| mediana 0.007–0.090 contra φ de
+0.19–0.88), así que `K/φ` estuvo activa todo el rato.
+
+`λ` sola no dice nada. `M_ii` recorre cuatro órdenes de magnitud en el UR5e, así
+que con λ casi uniforme (37–168, salida del optimizador) `M·λ` recorre otros
+cuatro:
+
+| junta | M_jj † | λ (FASE 7) | **D** | λ (FASE 5) | D |
+|---|---|---|---|---|---|
+| shoulder_pan | 1.0582 | 161.2 | **170.6** | 20 | 21.2 |
+| shoulder_lift | 2.5914 | 78.0 | **202.2** | 20 | 51.8 |
+| elbow | 0.8815 | 130.7 | **115.2** ← falló | 20 | 17.6 |
+| wrist_1 | 0.0232 | 139.7 | 3.2 | 20 | 0.46 |
+| wrist_2 | 0.0054 | 167.8 | **0.9** ← falló | 20 | 0.11 |
+| wrist_3 | 0.00026 | 37.3 | 0.010 | 20 | 0.005 |
+
+† `M_jj` no depende de la propia junta `j`, solo de las distales, así que es
+**constante** a lo largo del barrido de `j`. Pinocchio sobre `ur5e.urdf` sin
+herramienta.
+
+### 2.0 Bajar λ NO basta: la trampa de las ganancias de la FASE 5
+
+Lo primero que uno hace tras `smc_712` es volver a λ = 20. No sirve, y el motivo
+es que `φ` de la FASE 5 es pequeña. `G` completa en la pose del barrido del codo:
+
+| junta | \|\| `M·λ` | `K` | `K/φ` | **`G`** |
+|---|---|---|---|---|
+| **FASE 5** — λ=20, φ=[0.05,0.07,0.07,0.07,0.05,0.20] | | | | |
+| shoulder_pan | 21.2 | 1.06 | 21.2 | 42.4 |
+| shoulder_lift | 51.8 | 8.68 | 124.0 | **175.8** |
+| elbow | 17.6 | 6.96 | 99.4 | **117.1** |
+| **FASE 7** — `smc_v4_g5` | | | | |
+| shoulder_pan | 170.6 | 1.53 | 8.2 | 178.8 |
+| shoulder_lift | 202.2 | 10.02 | 32.3 | **234.5** |
+| elbow | 115.2 | 8.27 | 12.6 | **127.8** ← falló |
+
+El codo con las ganancias de la FASE 5 habría corrido a **117.1**, un **8 % por
+debajo** del punto que acaba de entrar en ciclo límite. La λ es seis veces menor
+y la ganancia total prácticamente la misma, porque `K/φ` pasa a ser el 85 % del
+total. `shoulder_lift` sale incluso peor que con las de la FASE 7 en su mitad
+conmutada.
+
+Con `α = 0.3`, `K = η + |α·(M·q̈_r) + α·b + (1−α)·(dM·q̇_r)|` y `b` lleva la
+gravedad, así que `K` del codo vale ~7–8 N·m aunque su η valga 0.88: **`K` no se
+elige, se calcula**, y con φ pequeña se convierte en una ganancia enorme.
+
+### 2.1 Por arriba: el ruido de `q̇`
+
+Del propio registro de `smc_712`: el encoder cuantiza en **5.722 µrad**
+(2²⁰ cuentas/vuelta) y `q̇` es su diferencia finita a 500 Hz, luego
+
+```
+Δq̇ = 5.722e-6 / 0.002 = 2.86e-3 rad/s
+```
+
+Medido: σ(q̇ − q̇_des) = 2.93e-3 rad/s a 0.05 rad/s en la junta que se mueve, y
+**exactamente 0** en las cinco que están quietas. Coincide con la cuantización.
+
+El optimizador de la FASE 7 usó **5e-6 rad/s**, el suelo de Gazebo
+(`DQ_NOISE_STD_GAZEBO`). Es **570× menor**. El comentario que hay en
+`problem.py` sobre las cotas de λ nombra el mecanismo correcto —«quien la limita
+de verdad es el ruido de `q̇`, que λ amplifica»— y lo calibró contra el robot
+equivocado.
+
+Rizado de par que sale de ahí, `τ_rizado = G·Δq̇`:
+
+```
+elbow, G = 127.8 (FASE 7)  ->  0.366 N·m    inestable  (MEDIDO)
+elbow, G = 117.1 (FASE 5)  ->  0.335 N·m    un 8 % menos: NO es un margen
+```
+
+### 2.2 Por abajo: la fricción de Coulomb
+
+`wrist_2` falló por lo contrario. Con `D = 0.9` y `η = 0.237 N·m` no tiene
+autoridad frente a **1.96 N·m** de Coulomb: no saturó nunca porque nunca pidió
+par suficiente. Ver `docs/05_smc.md` §7.
+
+**La fricción no escala con la inercia** —la fija la reductora y es parecida en
+todas las juntas grandes— mientras `M_ii` recorre cuatro órdenes. Cualquier
+criterio que ignore una de las dos cosas rompe un extremo o el otro.
+
+---
+
+## 3. El modo a 35.6 Hz es ESTRUCTURAL, no del codo
+
+`analyze_vibration.py` sobre `smc_712`, tomando el espectro en el tramo de
+rizado máximo:
+
+| junta | rizado/tope | máx. sat. | f dominante | E > 20 Hz |
+|---|---|---|---|---|
+| shoulder_pan | 46.7 % | 0.66 | 36.3 Hz | 98.8 % |
+| shoulder_lift | 69.0 % | 1.00 | 35.0 Hz | 99.9 % |
+| elbow | 58.2 % | 1.00 | 35.0 Hz | 100.0 % |
+| wrist_1 | 46.2 % | 0.67 | 35.0 Hz | 100.0 % |
+| wrist_2 | 5.3 % | 0.00 | 35.0 Hz | 99.1 % |
+| wrist_3 | 0.04 % | 0.00 | 35.0 Hz | 98.6 % |
+
+**Las seis juntas a la misma frecuencia.** No es una oscilación local del codo:
+es el primer modo estructural del brazo en esa pose, y la ganancia derivativa
+del codo le metió energía. Por eso movió la caja de control.
+
+El pico de velocidad de `shoulder_lift` fue **0.91 rad/s** dentro de un recorrido
+de 6 mrad, estando quieta.
+
+---
+
+## 4. `tau_scale` no es la solución, es lo que le dio forma
+
+Con el tope al 30 % (±45 N·m en las juntas grandes) el lazo sobre-ganado se
+convirtió en un **relé**: `M·λ·ė` valía 46 N·m con `ė = 0.4 rad/s`, por encima
+del tope, así que el comando conmutaba entre +45 y −45 en vez de pedir un par
+continuo. Subir `tau_scale` quitaría el relé y dejaría la inestabilidad, con más
+energía. **Lo que la quita es bajar `D`.**
+
+Umbral de saturación por junta, `ė_crit = τ_tope / D`:
+
+```
+ė_crit con tau_scale = 0.30 y las ganancias de la FASE 7:
+  pan 0.264   lift 0.223   elbow 0.391   w1 2.59   w2 9.36   w3 875   [rad/s]
+```
+
+El barrido pide hasta 0.5 rad/s. `shoulder_lift` saturaría con **0.22 rad/s** de
+error de velocidad.
+
+---
+
+## 5. Las guardas
+
+`watchdog.q_err_max` (error de seguimiento) **no puede** ver esto: durante la
+vibración el error valía 0.03–0.2°, y el máximo antes del paro de emergencia fue
+**0.155 rad**. Ni con umbral 0.3 habría disparado. Los 0.888 rad del log son
+posteriores al paro, con el robot ya congelado.
+
+Lo que sí lo ve es el par. Sobre `smc_712`, ventana de 0.2 s:
+
+| indicador | sano (69 s) | en el fallo |
+|---|---|---|
+| fracción de ciclos saturados | **0.000** en las seis juntas | 0.66 – 1.00 |
+| rizado de τ / tope | ≤ 0.97 % | 46 – 69 % |
+
+Se implementa la **fracción saturada** (`watchdog.sat_frac_max`, default 0.25,
+ventana 0.2 s) y no el rizado, porque su separación es absoluta —cero contra
+0.66— en vez de un factor: con `tau_scale` de puesta a punto no se satura nunca
+en operación legítima.
+
+Habría disparado en **t = 75.31 s, 3.49 s antes** de que el operador alcanzase el
+pulsador.
+
+**Validación en Gazebo:**
+
+- `smc_730` — barrido del codo completo, 90 s, λ = 20, guarda al 25 %:
+  **no dispara**. Fracción saturada 0.000 en las seis juntas, rizado ≤ 1.62 %.
+- `smc_731` — el mismo barrido con `tau_scale = 0.23`, que estrangula el par del
+  codo por debajo de su pico de 37.6 N·m: **dispara**, nombra la junta y entra
+  en `SAFE_HOLD`.
+
+---
+
+## 6. Lo que falta medir: el umbral de `D`
+
+Hay **un** punto medido en el robot real: inestable con `D = 115` en el codo. El
+`D = 17.6` de la FASE 5 no se ha ensayado nunca en el robot físico. **No se
+inventa el umbral**: se mide, igual que se midió el de chattering de φ
+(`05_smc.md` §7.6).
+
+Rampa sobre el codo, una corrida por escalón. Se **mantienen η y φ del
+`gains_file` optimizado** y se varía sólo λ: con φ₃ = 0.654, `K/φ` vale 12.3
+(entre 11.3 y 12.6 en todo el recorrido, a ±0.5 rad/s) y λ queda como **único
+mando**. Con la φ de la FASE 5 no se podría: `K/φ` valdría 99 y dominaría.
+
+| λ₃ | `M·λ` | `K/φ` | **G** | fracción del punto que falló |
+|---|---|---|---|---|
+| 20 | 17.6 | 12.3 | 30.0 | 0.23 |
+| 35 | 30.9 | 12.3 | 43.2 | 0.34 |
+| 55 | 48.5 | 12.3 | 60.8 | 0.48 |
+| 80 | 70.5 | 12.3 | 82.8 | 0.65 |
+| 110 | 97.0 | 12.3 | 109.3 | 0.86 |
+| *130.7* | *115.2* | *12.3* | *127.5* | *1.00 — ya medido, no se repite* |
+
+Criterio de parada: el primer escalón en que `analyze_vibration.py` marque
+`rizado/tope > 5 %` o `máx. sat > 0.10`. El umbral queda acotado entre ese
+escalón y el anterior. La rampa **bracketea** el fallo conocido, así que
+termina sí o sí.
+
+Se barre **solo el codo** porque es la única junta con un punto de fallo medido.
+Las otras cinco se quedan quietas con λ = 20, lo que las deja en
+`G = [29.4, 84.1, —, 2.9, 1.1, 0.06]`.
+
+**Riesgo residual declarado**: `shoulder_lift` se queda en `G = 84`, el 66 % del
+punto de fallo del codo, y su `K/φ = 32.3` es un suelo que λ no baja. Está
+quieta, y una junta quieta no tiene ruido de `q̇` que amplificar —medido:
+σ(q̇) = **exactamente 0** en las cinco juntas paradas de `smc_712`—, pero sí
+amplificó el modo de 35 Hz una vez que el codo lo excitó. La mitigación es la
+guarda de vibración, que corta en 0.2 s.
+
+Una vez medido `G_umbral`, entra en el optimizador como restricción
+
+```
+g6 :  max_i ( M_ii·λ_i + K_i/φ_i ) / G_umbral  −  margen  ≤  0
+```
+
+y se re-optimiza. Nótese que `g6` acopla λ **y** φ, que hasta ahora sólo se
+tocaban por separado (`g3` mira φ contra el chattering, nadie miraba λ). Hasta
+entonces las ganancias de `smc_v4_g5` **no se usan en el robot real**.
+
+---
+
+## 7. Qué limita λ en cada extremo (resumen)
+
+| | juntas grandes | muñecas |
+|---|---|---|
+| lo que muerde | `G = M·λ + K/φ` contra el ruido de `q̇` y el modo de 35 Hz | `χ = (K/φ)·dt/M` y la autoridad frente a Coulomb |
+| ¿medido? | **no** — un solo punto de fallo | sí, `05_smc.md` §7.6 |
+| ¿está en el optimizador? | **no** | sí (`g3`, `g5`) |
+
+Que el optimizador se equivocara en los dos extremos a la vez no es casualidad:
+su evaluador no tiene ruido de velocidad *ni* fricción en la planta, que son
+justo las dos cosas que limitan λ por arriba y por abajo.

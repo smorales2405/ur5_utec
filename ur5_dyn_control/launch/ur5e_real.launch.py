@@ -147,6 +147,12 @@ def launch_setup(context, *args, **kwargs):
                             "friction.ff_dv_max", float),
                            ("watchdog_q_err_max",
                             "watchdog.q_err_max", float),
+                           ("watchdog_sat_frac_max",
+                            "watchdog.sat_frac_max", float),
+                           ("watchdog_sat_window",
+                            "watchdog.sat_window", float),
+                           ("phi", "phi", float),
+                           ("alpha", "alpha", float),
                            ("skip_trajectory", "skip_trajectory",
                             lambda v: v.lower() in ("1", "true", "yes"))):
         raw = LaunchConfiguration(arg).perform(context).strip()
@@ -155,6 +161,8 @@ def launch_setup(context, *args, **kwargs):
     for arg, key in (("initial_offset", "initial_offset"),
                      ("friction_f_v", "friction.f_v"),
                      ("friction_f_c", "friction.f_c"),
+                     ("phi_joint", "phi_joint"),
+                     ("lambda_joint", "lambda"),
                      ("q_init", "q_init")):
         raw = LaunchConfiguration(arg).perform(context).strip()
         if raw:
@@ -256,13 +264,39 @@ def generate_launch_description():
                         "162 grados)"),
         DeclareLaunchArgument(
             "friction_dq_eps", default_value="",
-            description="ancho del tanh [rad/s]. Con 'desired' conviene "
-                        "pequeno (1e-5): la senal es la referencia y no tiene "
-                        "ruido del que protegerse (§7.7)"),
+            description="ancho del tanh [rad/s]. NO bajarlo: con 1e-5 el tanh "
+                        "es un escalon de ~1 N.m entre ciclos y fugo wrist_2 "
+                        "162 grados (smc_710). El YAML pone 1e-2"),
         DeclareLaunchArgument("initial_offset", default_value=""),
         DeclareLaunchArgument(
             "switching_function", default_value="",
             description="SMC: sign | sat"),
+        DeclareLaunchArgument(
+            "watchdog_sat_frac_max", default_value="",
+            description="fraccion de ciclos con el par SATURADO en la ventana "
+                        "que dispara SAFE_HOLD. 0 = desactivado. Es la guarda "
+                        "de VIBRACION: la de seguimiento no ve un ciclo limite "
+                        "(en smc_712 el error valia 0.2 grados mientras el "
+                        "brazo se sacudia a 35.6 Hz)"),
+        DeclareLaunchArgument(
+            "watchdog_sat_window", default_value="",
+            description="ancho de esa ventana [s]"),
+        # Ganancias, para poder BARRERLAS sin editar YAML ni regenerar el
+        # gains_file. Ninguna de las tres estaba expuesta aqui aunque
+        # smc_control.launch.py llevaba phi/alpha/phi_joint desde la FASE 5:
+        # una configuracion que no se puede fijar desde el launch real es una
+        # que no se puede medir en el robot real.
+        DeclareLaunchArgument(
+            "lambda_joint", default_value="",
+            description="6 valores de lambda [1/s]. La ganancia derivativa que "
+                        "esto crea es M_ii*lambda_i, y el ruido de q_punto del "
+                        "UR5e la amplifica: con lambda = 130.7 el codo entro en "
+                        "ciclo limite (smc_712). Ver docs/09_real_bringup.md"),
+        DeclareLaunchArgument(
+            "phi_joint", default_value="",
+            description="6 anchos de capa limite [rad/s]. '' = usar `phi`"),
+        DeclareLaunchArgument("phi", default_value=""),
+        DeclareLaunchArgument("alpha", default_value=""),
         DeclareLaunchArgument(
             "gains_file", default_value="",
             description="YAML de ganancias de run_gain_tuning (FASE 7)"),

@@ -137,6 +137,12 @@ if(BUILD_TESTING)
   # inercia de la Q del LQR-SDRE.
   ament_add_gtest(test_care_solver test/test_care_solver.cpp)
   target_link_libraries(test_care_solver ${PROJECT_NAME}_core)
+
+  # Simetria de los launches: Gazebo solo valida el robot real si puede fijar
+  # la MISMA configuracion. Cinco argumentos han faltado en un lado u otro y
+  # cada vez la corrida de simulacion los ignoro en silencio.
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_launch_arg_symmetry test/test_launch_arg_symmetry.py)
 endif()
 
 ament_package()
