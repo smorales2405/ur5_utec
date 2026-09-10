@@ -216,9 +216,70 @@ mando**. Con la φ de la FASE 5 no se podría: `K/φ` valdría 99 y dominaría.
 | *130.7* | *115.2* | *12.3* | *127.5* | *1.00 — ya medido, no se repite* |
 
 Criterio de parada: el primer escalón en que `analyze_vibration.py` marque
-`rizado/tope > 5 %` o `máx. sat > 0.10`. El umbral queda acotado entre ese
-escalón y el anterior. La rampa **bracketea** el fallo conocido, así que
-termina sí o sí.
+`rizado/tope > 5 %` o `máx. sat > 0.10`.
+
+### 6.1 Resultado (2026-09-10, `smc_713`–`smc_717`): la rampa NO acotó el umbral
+
+| test | λ₃ | G₃ | rizado/tope | máx. sat | \|e\|max | σ(q̇ − q̇_des) |
+|---|---|---|---|---|---|---|
+| 713 | 20 | 29.9 | 0.30 % | 0.000 | 1.09° | 8.92e-3 |
+| 714 | 35 | 43.2 | 0.67 % | 0.000 | 0.72° | 5.57e-3 |
+| 715 | 55 | 60.8 | 0.71 % | 0.000 | 0.45° | 4.56e-3 |
+| 716 | 80 | 82.8 | 1.60 % | 0.000 | 0.36° | 3.90e-3 |
+| 717 | 110 | 109.3 | 1.28 % | 0.000 | 0.26° | 3.14e-3 |
+
+Las cinco limpias, ninguna saturación. **Pero `G₃ = 109.3` está a un 14 % del
+`127.8` que entró en ciclo límite, y el rizado es 1.28 % contra 58 %: un factor
+45.** Eso no es acercarse a un umbral, es otro régimen.
+
+Lo que sí valida es el **modelo de ruido**. El rizado crece proporcionalmente a
+`G` —que es lo que predice `τ_rizado = G·Δq̇`— y en `717` σ(q̇) = 3.14e-3 rad/s
+ya casi toca el suelo de cuantización de **2.86e-3**: `G·Δq̇` = 0.343 N·m =
+0.76 % del tope, contra el 1.28 % medido como máximo por ventana. Y el
+seguimiento **mejora monótonamente** con λ, de 1.09° a 0.26°.
+
+### 6.2 Por qué no acotó: el confundido era el barrido, no el codo
+
+En la rampa se bajaron **las seis** λ a 20. En `smc_712` `shoulder_pan` estaba en
+`G = 186` y `shoulder_lift` en `G = 240`. Es decir, la rampa quitó los
+amplificadores y midió sólo el arranque.
+
+Reparto de energía **durante** la vibración (t = 75.0–78.5 s, antes del paro):
+
+| junta | máx \|q̇\| | % ciclos sat. | rizado τ | potencia \|τ·q̇\| |
+|---|---|---|---|---|
+| shoulder_pan | 0.288 | 48.8 % | 18.41 N·m | 5.26 W |
+| **shoulder_lift** (QUIETA) | **0.907** | **79.0 %** | **27.14 N·m** | **18.18 W** |
+| elbow (la barrida) | 0.591 | 61.1 % | 22.12 N·m | 10.21 W |
+| wrist_1 | 0.535 | 45.7 % | 3.34 N·m | 1.93 W |
+
+**La junta que más energía metió en el modo de 35 Hz no se estaba moviendo.**
+
+Secuencia de arranque (primer rizado > 5× su nivel sano):
+
+```
+codo           74.827 s   ← empieza
+shoulder_lift  74.871 s   +44 ms
+wrist_1        74.971 s   +144 ms
+shoulder_pan   75.037 s   +210 ms
+```
+
+y en 0.4 s `shoulder_lift` **adelanta** al codo en velocidad (0.64 contra 0.53
+rad/s) y ya no lo suelta.
+
+**Lectura:** el codo *arranca* el modo —es la junta que se mueve, y por tanto la
+única con ruido de cuantización— y `shoulder_lift` lo *amplifica*. Una junta
+quieta no puede iniciar nada (σ(q̇) = exactamente 0), pero en cuanto la
+estructura vibra su q̇ medida deja de ser cero y su `G` la convierte en par que
+refuerza el movimiento.
+
+Por tanto el criterio no es sobre la `G` de la junta que se mueve, sino sobre
+
+```
+max_i G_i        sobre las SEIS juntas, se muevan o no
+```
+
+y lo medido hasta hoy es: **`max G` = 109 limpio, `max G` = 240 violento.**
 
 Se barre **solo el codo** porque es la única junta con un punto de fallo medido.
 Las otras cinco se quedan quietas con λ = 20, lo que las deja en
