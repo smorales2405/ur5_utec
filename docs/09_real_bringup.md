@@ -288,86 +288,92 @@ cero saturación, rizado 2.34 % en el codo, error 0.21°.
 
 **Queda probado que la `G` del codo no basta.** Hacía falta el hombro.
 
-### 6.4 Pero hay una resonancia que crece, y permite extrapolar sin romper nada
+### 6.4 Dos modos, y sólo uno pierde amortiguamiento con la `G` del codo
 
-En las seis corridas hay un modo compartido entre codo, `shoulder_lift` y
-`wrist_1`. Amplitud de τ en la banda 40–55 Hz [N·m RMS]:
+Amplitud RMS de τ por banda [N·m], `analyze_vibration.py`:
 
-| G₃ | codo | `shoulder_lift` | crecimiento de A | subida de G |
+| G₃ | codo 20–35 Hz | lift 20–35 Hz | codo 40–55 Hz | lift 40–55 Hz |
 |---|---|---|---|---|
-| 29.9 | 0.008 | 0.005 | — | — |
-| 43.2 | 0.014 | 0.008 | 1.75× | 1.44× |
-| 60.8 | 0.021 | 0.014 | 1.50× | 1.41× |
-| 82.8 | 0.029 | 0.019 | 1.38× | 1.36× |
-| 109.3 | 0.049 | 0.037 | 1.69× | 1.32× |
-| **127.5** | **0.092** | **0.066** | **1.88×** | **1.17×** |
+| 29.9 | 0.012 | 0.008 | 0.008 | 0.005 |
+| 43.2 | 0.021 | 0.015 | 0.014 | 0.008 |
+| 60.8 | 0.029 | 0.025 | 0.021 | 0.014 |
+| 82.8 | 0.044 | 0.041 | 0.029 | 0.019 |
+| 109.3 | 0.049 | 0.050 | 0.049 | 0.037 |
+| **127.5** | **0.059** | **0.060** | **0.092** | **0.066** |
+| *`smc_712`, 14 s antes de irse* | *0.081* | *0.089* | *0.071* | *0.061* |
 
-El crecimiento es **super-lineal y se acelera**: en el último escalón la
-amplitud casi se dobla con una subida de `G` del 17 %. Si sólo fuese inyección
-de ruido (`τ_rizado = G·Δq̇`) sería proporcional. El exceso es amplificación
-resonante: el amortiguamiento del modo cae según sube `G`.
+- **20–35 Hz** (pico en 25.7 Hz): es **el mismo modo** que `smc_712` tenía en su
+  tramo sano (25.5 Hz) y que se fue a 35.7 Hz. Crece **lineal** con la `G` del
+  codo —A/G casi constante—: el codo lo excita pero **no le quita
+  amortiguamiento**. En 718 está al 73 % (codo) y 68 % (hombro) del nivel previo
+  al fallo.
+- **40–55 Hz** (pico en 47–49 Hz): crece **super-lineal** —casi se dobla en el
+  último escalón con un 17 % más de `G`—. Éste sí pierde amortiguamiento.
 
-Eso da una forma de **estimar el límite sin alcanzarlo**. Con
-`A/G ≈ c/(1 − G/G_c)`, la recta `G/A` frente a `G` corta cero en `G_c`:
+Ajuste del límite (§ del script: `G/A` lineal en `G` para la junta que se
+mueve, cero en `G_c`):
 
-| ajuste sobre | codo | `shoulder_lift` |
+| modo | codo | `shoulder_lift` |
 |---|---|---|
-| 6 puntos | 209.6 (r −0.95) | 182.8 (r −0.98) |
-| 5 puntos | 217.6 (r −0.93) | 183.9 (r −0.97) |
-| 4 puntos | 199.5 (r −0.93) | 184.5 (r −0.95) |
-| 3 puntos | 173.5 (r −0.98) | 163.4 (r −1.00) |
+| 20–35 Hz | sin pérdida medible (r −0.32) | 250 (r −0.81, débil) |
+| 40–55 Hz | **215** (r −0.95) | **184** (r −0.98) |
 
-**`G_c ≈ 170–220`**, y el ajuste de `shoulder_lift` apenas se mueve con el
-número de puntos (182.8 / 183.9 / 184.5). Cae dentro del intervalo medido
-`[127.5 limpio, 240 violento]`: tres cosas independientes coinciden.
+> **Corrección.** La primera versión de este análisis miraba sólo 40–55 Hz,
+> daba `G_c ≈ 180` como si fuese el límite del fallo y comparaba 718 con
+> `smc_712` en bandas distintas («81 %»). El `G_c` de 184–215 es real pero es
+> del modo **secundario del codo**, no del que se fue.
 
-**Y `smc_718` no estaba holgado.** Su amplitud, 0.092 N·m, es el **81 %** de los
-0.113 N·m que `smc_712` tenía en los 14 s anteriores a irse.
+**Lectura:** que el modo de 25 Hz no pierda amortiguamiento con la `G` del codo
+—pero sí se fuese en `smc_712`— encaja con lo que dijo el reparto de energía:
+lo desestabilizó la `G` de los hombros. Es la hipótesis que hay que verificar.
 
-> **Salvedad.** El modo de la rampa está en 47–49 Hz y el que se fue en
-> `smc_712` en 35.7 Hz (con 25–29 Hz en su tramo sano). Con λ = [161, 78, 131,
-> 140, 168, 37] el lazo cerrado es otro, así que **puede que no sea el mismo
-> modo** y la extrapolación y el intervalo midan cosas distintas. Que den
-> números compatibles es tranquilizador, no concluyente.
+### 6.5 Cómo se verifica el hombro
 
-### 6.5 Cota de diseño propuesta
+Pregunta: **¿subir la `G` de `shoulder_lift` estando quieta le quita
+amortiguamiento al modo de 25 Hz?**
 
-```
-G_i = M_ii·λ_i + K_i/φ_i  ≤  120     en las SEIS juntas
-```
-
-- por debajo del `127.5` **medido limpio** (`smc_718`),
-- factor **1.5** por debajo del `G_c ≈ 180` extrapolado,
-- factor **2** por debajo del `240` medido violento.
-
-Confirmación pendiente, y es una corrida que **no sube `max G`**: poner
-`shoulder_lift` —el amplificador— en `G₂ = 119.8` (λ₂ = 33) con el codo en
-130.67. `max G` sigue siendo 127.5, ya probado limpio, pero por primera vez el
-hombro está alto. Predicción falsable del ajuste: `A_codo ≈ 0.067`,
-`A_lift ≈ 0.049`, o sea **por debajo** de los 0.092 / 0.066 de `smc_718`. Si
-sale bastante por encima, el criterio no es `max_i G_i` y hay que ponderar por
-junta.
-
-Se barre **solo el codo** porque es la única junta con un punto de fallo medido.
-Las otras cinco se quedan quietas con λ = 20, lo que las deja en
-`G = [29.4, 84.1, —, 2.9, 1.1, 0.06]`.
-
-**Riesgo residual declarado**: `shoulder_lift` se queda en `G = 84`, el 66 % del
-punto de fallo del codo, y su `K/φ = 32.3` es un suelo que λ no baja. Está
-quieta, y una junta quieta no tiene ruido de `q̇` que amplificar —medido:
-σ(q̇) = **exactamente 0** en las cinco juntas paradas de `smc_712`—, pero sí
-amplificó el modo de 35 Hz una vez que el codo lo excitó. La mitigación es la
-guarda de vibración, que corta en 0.2 s.
-
-Una vez medido `G_umbral`, entra en el optimizador como restricción
+Una junta quieta no inyecta ruido (σ(q̇) = 0 exacto), así que con el codo fijo la
+excitación es constante y sólo puede cambiar el amortiguamiento:
 
 ```
-g6 :  max_i ( M_ii·λ_i + K_i/φ_i ) / G_umbral  −  margen  ≤  0
+A ≈ c / (1 − G₂/G_c)     ->     1/A es una recta en G₂ que corta cero en G_c
 ```
 
-y se re-optimiza. Nótese que `g6` acopla λ **y** φ, que hasta ahora sólo se
-tocaban por separado (`g3` mira φ contra el chattering, nadie miraba λ). Hasta
-entonces las ganancias de `smc_v4_g5` **no se usan en el robot real**.
+Diseño:
+
+- codo barrido en **λ₃ = 55** (`G₃ = 60.8`): modo de 25 Hz al ~35 % del nivel
+  previo al fallo y el de 48 Hz lejos de su `G_c` ≈ 184. Excitación medible
+  (3× el suelo de 713) con margen.
+- `shoulder_lift` quieta, rampa λ₂ = 20 / 33 / 45 / 60 → `G₂` = 86.1 / 119.8 /
+  150.9 / 189.8.
+- resto en λ = 20, `tau_scale` 0.30, guardas armadas.
+- **calentamiento** previo (F_v cae 9.3 % frío→rodado, §02 8.5, y la fricción
+  viscosa amortigua el modo: un robot que se calienta durante la rampa
+  parecería perder amortiguamiento por la `G`), y **línea base repetida al
+  final** para detectar deriva.
+
+| test | `lambda_joint` | G₂ | |
+|---|---|---|---|
+| 790 | `20,20,55,20,20,20` | 86.1 | calentamiento, no se analiza |
+| 719 | `20,20,55,20,20,20` | 86.1 | línea base (repite 715: comprueba repetibilidad entre días) |
+| 720 | `20,33,55,20,20,20` | 119.8 | |
+| 721 | `20,45,55,20,20,20` | 150.9 | |
+| 722 | `20,60,55,20,20,20` | 189.8 | **sólo si** el ajuste de 719–721 permite `G < 0.8·G_c` |
+| 723 | `20,20,55,20,20,20` | 86.1 | línea base repetida |
+
+Resultados posibles:
+
+1. **El modo de 25 Hz crece y `1/A` ajusta** → el hombro es el amplificador y
+   `G_c` del hombro es su límite medido.
+2. **Plano** → `shoulder_lift` sola no lo desestabiliza; el siguiente sospechoso
+   es `shoulder_pan` (`G` = 186 en `smc_712`) o la combinación.
+3. **719 difiere de 715 más de ~25 %, o 723 de 719** → la amplitud no es
+   repetible entre sesiones / derivó durante la rampa, y la conclusión se
+   limita a lo comparable dentro de la sesión.
+
+La cota de diseño queda **pendiente** de este resultado. Lo que sí está medido:
+el codo aguanta `G₃ = 127.5` con los hombros bajos, y su modo secundario tiene
+`G_c` ≈ 184–215.
 
 ---
 
