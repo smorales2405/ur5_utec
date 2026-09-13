@@ -538,6 +538,83 @@ Fricción recalculada (corriente de la campaña × `k` nueva):
 | wrist_2 | 1.85 | **1.35** | 2.68 | **1.96** | **−26.9 %** |
 | wrist_3 | 2.87 | **2.12** | 3.18 | **2.35** | **−26.1 %** |
 
+### 8.6 El payload del pendant volvió solo a 1.068 kg — y no movió la fricción
+
+**Qué pasó.** Para la campaña se puso el payload del pendant a 0 kg. En algún
+momento volvió por sí solo al valor por defecto de la instalación (1.068 kg, la
+configuración de una pinza que no estaba montada) y así siguió hasta que se
+borró la configuración el 2026-09-10. El robot estuvo un mes compensando por
+dentro la gravedad de una masa que no existía.
+
+**Cómo se ve en los datos.** En modo par el robot añade `g_robot(q)` al comando
+(G3), y en las juntas quietas se puede aislar: `g_robot = cur·k − tau_cmd`. Con
+la brida desnuda y payload 0 (`smc_712`–`718`, siete corridas) `shoulder_lift`
+da **−19.02** y `wrist_1` **−1.70**, idéntico en todas. Con 1.068 kg en la brida
+el modelo predice −5.2 y −1.05 N·m más.
+
+| corridas | fecha | modo | `g_robot` lift | `g_robot` w1 | `tau_cmd` codo quieto | payload |
+|---|---|---|---|---|---|---|
+| `fl_900`–`902` | 08-03 13:08–13:21 | par, nivel 0.0 | — † | — † | +0.10 … +0.19 | **0** |
+| `fl_910`–`913` | 08-03 14:07–15:19 | par, nivel default | — † | — † | +2.66 … +2.79 | **fantasma** |
+| `cur_800`–`975` | 08-03 16:37–19:53 | posición | no observable | | | ? |
+| `fl_500`–`507` | 08-20 | par (campaña definitiva) | −23.5 … −26.2 | −2.9 … −3.1 | +2.55 … +5.66 | **fantasma** |
+| `smc_700`, `701`, `710` | 08-27 | par | −25.3 / −25.4 | −2.9 | | **fantasma** |
+| `smc_712`–`718` | 09-10 | par | **−19.02** | **−1.70** | | **0** |
+
+† sin columna `cur` (anteriores a G5); se lee sólo `tau_cmd`.
+
+El cambio ocurrió el 3 de agosto entre las 13:21 y las 14:07 —`run_903.log`
+está justo ahí— y coincide con recargar el programa del robot: el payload de la
+instalación se reimpone.
+
+**Por qué no afecta a lo publicado.** Tres razones, y las dos primeras son
+independientes:
+
+1. **La corriente es par físico.** El motor entrega lo que la mecánica exige; el
+   payload fantasma sólo cambia *cómo se reparte* ese par entre lo que añade el
+   robot y lo que añade `tau_cmd`. La fricción recalculada en §8.4 sale de la
+   corriente.
+2. **La diferencia entre sentidos cancela todo lo par en la velocidad**, y el
+   fantasma es una función de `q`, par en `v`. Tanto la fricción (DIF) como la
+   `k` de §8.3 (`Δtau_phys / Δcur`) se apoyan en esa cancelación.
+3. **Medido.** Fricción del codo por diferencia entre sentidos, a `q`
+   emparejada, en tres sesiones:
+
+   | corrida | payload | vía | F_v | F_c | f(0.5 rad/s) |
+   |---|---|---|---|---|---|
+   | `fl_902` (08-03, FL) | 0 | `tau` | 14.39 | 7.73 | 16.17 |
+   | `fl_502` (08-20, FL) | **fantasma** | `tau` | 14.92 | 7.36 | 15.70 |
+   | `fl_502` (08-20, FL) | **fantasma** | `cur` | 15.00 | 7.33 | 15.71 |
+   | `smc_713` (09-10, SMC) | 0 | `cur` | 17.68 ‡ | 7.48 | 16.10 |
+   | `smc_715` (09-10, SMC) | 0 | `cur` | 18.86 ‡ | 7.53 | 16.73 |
+
+   ‡ ajuste de sólo tres niveles (0.05 / 0.2 / 0.5), sin la zona de Stribeck:
+   la pendiente sale más alta que con ocho niveles. Comparar `f(0.5)`.
+
+   `F_c` queda en **7.33–7.73** (±2.6 %) y `f(0.5)` en 15.7–16.7 (±3 %) sin que
+   la corrida con fantasma se salga del grupo: está en medio. Y en `fl_502`
+   las vías de par y de corriente coinciden al 0.5 % (`k` implícita 10.94 y
+   11.05 frente a 11.00), que es la `k` por diferencia reproducida sobre una
+   corrida **con** fantasma.
+
+**Dónde sí entra.** En los términos *pares*: `tau_phys` de las corridas con
+fantasma lleva un sesgo `−g_fantasma(q)`, y con la junta quieta la fricción
+estática absorbe una parte (por eso `tau_cmd` marca +2.7 y no +5). Afecta a
+lo que se apoye en el valor absoluto de `tau_phys` a lo largo de `q` —no a lo
+que se apoya en la diferencia—. Y afecta al **control**: en `smc_710` el robot
+empujaba a `wrist_2` con hasta 0.52 N·m de gravedad de una masa inexistente,
+2.2× su η. Ver `09_real_bringup.md` §1.
+
+**Comprobación**, antes y después de cada sesión:
+
+```bash
+python3 ur5_identification/scripts/check_pendant_payload.py ~/.ros/ur5_dyn_control/smc_<n>.csv
+```
+
+Lee `g_robot` en las juntas quietas y avisa si se separa de la referencia sin
+carga. Y en el pendant: **Instalación → Payload**, no basta con ponerlo a 0 en
+el programa; hay que borrar la configuración de la instalación.
+
 ### 8.5 `F_v` depende del estado TÉRMICO — declararlo
 
 Repitiendo `shoulder_lift` al final de la sesión, tras seis barridos:

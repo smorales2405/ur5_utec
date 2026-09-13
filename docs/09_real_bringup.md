@@ -16,9 +16,29 @@ opuestas**, y los dos con las mismas ganancias.
 | error de seguimiento | 162° | **0.03–0.2°** durante la vibración |
 | desenlace | terminó el barrido y paró solo | paro de emergencia del operador; la caja de control se desplazó |
 | `D = M·λ` | **0.9** | **115** |
+| payload del pendant | **1.068 kg fantasma** (§1.1) | 0 |
 
 Mismo `selected_gains.yaml` (`smc_v4_g5`), misma α, misma corrida del
 optimizador. Un extremo se quedó sin autoridad y el otro se pasó de ganancia.
+
+### 1.1 `smc_710` corrió con una carga fantasma de 1.068 kg en el pendant
+
+Descubierto después (`02_friction_real.md` §8.6): del 3 de agosto al 10 de
+septiembre el pendant compensó la gravedad de un payload de 1.068 kg que no
+estaba montado. En `smc_710` se ve directamente: `g_robot` de `shoulder_lift`
+**−25.4** frente a **−19.0** en las corridas del 10 de septiembre.
+
+Para `wrist_2` eso es un par que el robot añade y que ninguna masa absorbe:
+**0 en −90°, 0.52 N·m a ±30°**, y con el **signo del desplazamiento** —empuja a
+aumentarlo, como un péndulo invertido—. Su η era 0.237: la perturbación valía
+**2.2× la ganancia de alcance**. No explica por sí sola la fuga (Gazebo, sin
+fantasma, tampoco sigue a `wrist_2` a 0.05 rad/s: `05_smc.md` §7), pero es una
+diferencia real entre aquel robot y la simulación, y **ya no está**. Un barrido
+de `wrist_2` hoy es otro experimento. El limitador de tasa y el `dq_eps` que se
+pusieron por `smc_710` siguen sin validar, ahora con una razón más.
+
+`smc_712` y toda la rampa 713–718 corrieron **ya sin la carga**, así que la
+comparación entre ellas no está confundida por esto.
 
 ---
 
@@ -388,3 +408,15 @@ el codo aguanta `G₃ = 127.5` con los hombros bajos, y su modo secundario tiene
 Que el optimizador se equivocara en los dos extremos a la vez no es casualidad:
 su evaluador no tiene ruido de velocidad *ni* fricción en la planta, que son
 justo las dos cosas que limitan λ por arriba y por abajo.
+
+---
+
+## 8. Antes de cada sesión
+
+- **Payload del pendant = 0 con la brida desnuda**, y borrado de la instalación,
+  no sólo del programa: vuelve solo al recargar (§1.1). Tras la primera corrida
+  de la sesión, `check_pendant_payload.py` sobre su CSV.
+- Calentamiento: `F_v` cae un 9.3 % de frío a rodado (`02` §8.5).
+- Las dos guardas anunciadas en el arranque: `guarda de seguimiento` y
+  `guarda de vibracion`. Si una dice DESACTIVADA, no se lanza.
+- La línea `G = [...]` del banner: ninguna junta por encima de lo probado.
