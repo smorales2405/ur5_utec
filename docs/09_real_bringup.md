@@ -23,7 +23,7 @@ optimizador. Un extremo se quedó sin autoridad y el otro se pasó de ganancia.
 
 ### 1.1 `smc_710` corrió con una carga fantasma de 1.068 kg en el pendant
 
-Descubierto después (`02_friction_real.md` §8.6): del 3 de agosto al 10 de
+Descubierto después (`02_friction_real.md` §8.7): del 3 de agosto al 10 de
 septiembre el pendant compensó la gravedad de un payload de 1.068 kg que no
 estaba montado. En `smc_710` se ve directamente: `g_robot` de `shoulder_lift`
 **−25.4** frente a **−19.0** en las corridas del 10 de septiembre.

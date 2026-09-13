@@ -6,7 +6,7 @@ El UR5e compensa la gravedad por dentro con el payload configurado en el
 pendant (G3: `gravity_in_command = false`). Si ese payload no coincide con lo
 que hay en la brida, el robot empuja con un par que no corresponde a nada
 fisico, y lo absorben nuestro `tau_cmd` y la friccion estatica. Paso de verdad
-(docs/02_friction_real.md 8.6): el payload se puso a 0 para la campana, volvio
+(docs/02_friction_real.md 8.7): el payload se puso a 0 para la campana, volvio
 solo al valor por defecto de la instalacion (1.068 kg) y nadie lo vio en un mes.
 
 Lo que se mira: en las juntas QUIETAS en q_init, lo que el robot ANADE al

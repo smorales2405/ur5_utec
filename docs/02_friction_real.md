@@ -538,7 +538,54 @@ Fricción recalculada (corriente de la campaña × `k` nueva):
 | wrist_2 | 1.85 | **1.35** | 2.68 | **1.96** | **−26.9 %** |
 | wrist_3 | 2.87 | **2.12** | 3.18 | **2.35** | **−26.1 %** |
 
-### 8.6 El payload del pendant volvió solo a 1.068 kg — y no movió la fricción
+### 8.5 `F_v` depende del estado TÉRMICO — declararlo
+
+Repitiendo `shoulder_lift` al final de la sesión, tras seis barridos:
+
+| | 1ª corrida (frío) | 7ª corrida (rodado) | variación |
+|---|---|---|---|
+| `k` | 11.1240 | 11.1189 | **0.05 %** |
+| F_c | 7.294 | 7.239 | 0.76 % |
+| **F_v** | 13.711 | **12.437** | **9.3 %** |
+
+`k` repite a la quinta cifra y `F_c` apenas se mueve; **el viscoso baja un
+9.3 % con el robot caliente**, que es lo que se espera al afinarse el
+lubricante. El Coulomb es contacto seco y no se entera.
+
+Eso explica un desacuerdo que parecía preocupante: la primera corrida daba F_v =
+13.71 frente a los 12.30 de la campaña de agosto, un +11.5 %. La séptima da
+12.44, a **1.1 %** de la campaña. **No era deriva entre sesiones ni una campaña
+equivocada: era el robot frío.**
+
+> **Para el paper.** Un `F_v` sin declarar el estado térmico arrastra un ±10 %
+> que no aparece en ninguna barra de error. Los valores de §8.4 son los de
+> RÉGIMEN, que es la condición en la que ocurre la incisión. El protocolo es
+> descartar los primeros barridos, que es lo que la campaña de agosto hizo sin
+> pretenderlo. `k` y `F_c` no necesitan esa salvedad.
+
+### 8.6 Efecto en las ganancias
+
+Con la fricción nueva y la incertidumbre de `k` bajando de ±8.8 % a ±0.5 %:
+
+| junta | φ mínima | φ configurada | e_ss |
+|---|---|---|---|
+| shoulder_pan | 0.0004 | 0.05 | 0.14° |
+| shoulder_lift | 0.0008 | 0.07 | 0.20° |
+| elbow | 0.0030 | 0.07 | 0.20° |
+| wrist_1 | 0.0021 | 0.07 | 0.20° |
+| wrist_2 | 0.0052 | 0.05 | 0.14° |
+| **wrist_3** | **0.1972** | **0.20** | **0.56°** |
+
+Cinco juntas tienen margen de sobra. **`wrist_3` es la única que cambia**: pasa
+de 0.05 a 0.20. Antes pedía 1.71 con 4.9° de error de filo, porque su `k` era una
+hipótesis con ±8.8 %; medida de verdad, la fricción cae un 26 % y la
+incertidumbre casi desaparece.
+
+> El umbral de chattering de `wrist_3` **no está medido** — Gazebo la congela
+> (`05_smc.md` §7.5) — así que se le supone el de `wrist_1` (1.33). Es el único
+> φ de la lista apoyado en una suposición y no en una medida.
+
+### 8.7 El payload del pendant volvió solo a 1.068 kg — y no movió la fricción
 
 **Qué pasó.** Para la campaña se puso el payload del pendant a 0 kg. En algún
 momento volvió por sí solo al valor por defecto de la instalación (1.068 kg, la
@@ -603,7 +650,7 @@ estática absorbe una parte (por eso `tau_cmd` marca +2.7 y no +5). Afecta a
 lo que se apoye en el valor absoluto de `tau_phys` a lo largo de `q` —no a lo
 que se apoya en la diferencia—. Y afecta al **control**: en `smc_710` el robot
 empujaba a `wrist_2` con hasta 0.52 N·m de gravedad de una masa inexistente,
-2.2× su η. Ver `09_real_bringup.md` §1.
+2.2× su η. Ver `09_real_bringup.md` §1.1.
 
 **Comprobación**, antes y después de cada sesión:
 
@@ -614,53 +661,6 @@ python3 ur5_identification/scripts/check_pendant_payload.py ~/.ros/ur5_dyn_contr
 Lee `g_robot` en las juntas quietas y avisa si se separa de la referencia sin
 carga. Y en el pendant: **Instalación → Payload**, no basta con ponerlo a 0 en
 el programa; hay que borrar la configuración de la instalación.
-
-### 8.5 `F_v` depende del estado TÉRMICO — declararlo
-
-Repitiendo `shoulder_lift` al final de la sesión, tras seis barridos:
-
-| | 1ª corrida (frío) | 7ª corrida (rodado) | variación |
-|---|---|---|---|
-| `k` | 11.1240 | 11.1189 | **0.05 %** |
-| F_c | 7.294 | 7.239 | 0.76 % |
-| **F_v** | 13.711 | **12.437** | **9.3 %** |
-
-`k` repite a la quinta cifra y `F_c` apenas se mueve; **el viscoso baja un
-9.3 % con el robot caliente**, que es lo que se espera al afinarse el
-lubricante. El Coulomb es contacto seco y no se entera.
-
-Eso explica un desacuerdo que parecía preocupante: la primera corrida daba F_v =
-13.71 frente a los 12.30 de la campaña de agosto, un +11.5 %. La séptima da
-12.44, a **1.1 %** de la campaña. **No era deriva entre sesiones ni una campaña
-equivocada: era el robot frío.**
-
-> **Para el paper.** Un `F_v` sin declarar el estado térmico arrastra un ±10 %
-> que no aparece en ninguna barra de error. Los valores de §8.4 son los de
-> RÉGIMEN, que es la condición en la que ocurre la incisión. El protocolo es
-> descartar los primeros barridos, que es lo que la campaña de agosto hizo sin
-> pretenderlo. `k` y `F_c` no necesitan esa salvedad.
-
-### 8.6 Efecto en las ganancias
-
-Con la fricción nueva y la incertidumbre de `k` bajando de ±8.8 % a ±0.5 %:
-
-| junta | φ mínima | φ configurada | e_ss |
-|---|---|---|---|
-| shoulder_pan | 0.0004 | 0.05 | 0.14° |
-| shoulder_lift | 0.0008 | 0.07 | 0.20° |
-| elbow | 0.0030 | 0.07 | 0.20° |
-| wrist_1 | 0.0021 | 0.07 | 0.20° |
-| wrist_2 | 0.0052 | 0.05 | 0.14° |
-| **wrist_3** | **0.1972** | **0.20** | **0.56°** |
-
-Cinco juntas tienen margen de sobra. **`wrist_3` es la única que cambia**: pasa
-de 0.05 a 0.20. Antes pedía 1.71 con 4.9° de error de filo, porque su `k` era una
-hipótesis con ±8.8 %; medida de verdad, la fricción cae un 26 % y la
-incertidumbre casi desaparece.
-
-> El umbral de chattering de `wrist_3` **no está medido** — Gazebo la congela
-> (`05_smc.md` §7.5) — así que se le supone el de `wrist_1` (1.33). Es el único
-> φ de la lista apoyado en una suposición y no en una medida.
 
 ---
 
