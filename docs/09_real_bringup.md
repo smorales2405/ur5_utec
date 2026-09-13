@@ -397,12 +397,102 @@ el codo aguanta `G₃ = 127.5` con los hombros bajos, y su modo secundario tiene
 
 ---
 
+### 6.6 Resultado (2026-09-12, `smc_790`, `719`–`723`): el hombro solo tampoco
+
+Payload comprobado a 0 en la primera y la última corrida (`check_pendant_payload.py`).
+
+**Repetibilidad** (λ = [20, 20, 55, 20, 20, 20], amplitud del modo de 25 Hz, N·m RMS):
+
+| | lift | codo |
+|---|---|---|
+| `715` (10-sep, 3ª corrida) | 0.025 | 0.029 |
+| `790` (12-sep, calentamiento) | 0.022 | 0.020 |
+| `719` (12-sep, línea base) | 0.020 | 0.021 |
+| `723` (12-sep, línea base final) | 0.020 | 0.022 |
+
+Dentro de la sesión, **≤ 5 %**: sin deriva durante la rampa. Entre días, −20 %
+(hombro) y −28 % (codo). Se comparan corridas de la misma sesión.
+
+**Rampa de `shoulder_lift` quieta**, codo en λ₃ = 55:
+
+| test | G₂ | lift 20–35 Hz | codo 20–35 Hz | lift 40–55 Hz | codo 40–55 Hz | rizado máx | sat |
+|---|---|---|---|---|---|---|---|
+| 719 | 86.1 | 0.020 | 0.021 | 0.012 | 0.017 | 0.96 % | 0 |
+| 720 | 119.8 | 0.019 | 0.020 | 0.013 | 0.018 | 0.46 % | 0 |
+| 721 | 150.9 | 0.021 | 0.023 | 0.014 | 0.020 | 0.47 % | 0 |
+| 722 | 189.8 | 0.021 | 0.022 | 0.014 | 0.017 | 0.99 % | 0 |
+
+**Plana.** `G₂` sube 2.2× y el modo de 25 Hz se mueve un 5 %, lo que repite la
+línea base. El ajuste `1/A` no encuentra pérdida de amortiguamiento en ninguna
+banda (r −0.58 / −0.53). A `G₂ = 190`, con el codo excitando a 60.8, el hombro
+**no participa**.
+
+### 6.7 Por qué: una junta quieta no puede cerrar un lazo sobre un modo que no ve
+
+El encoder cuantiza a **5.7 µrad**. El modo de 25 Hz, con amplitud de par `A`,
+mueve la junta `i` una amplitud `x = A / (M_ii·ω²)`. En cuentas de encoder, sobre
+`shoulder_lift`:
+
+| corrida | codo G₃ | A₂₅ (codo) | x_lift / LSB (RMS) |
+|---|---|---|---|
+| rampa del hombro (719–722) | 60.8 | 0.021 | **0.05** |
+| `718` | 127.5 | 0.059 | **0.16** |
+| `712`, 14 s antes de irse | 127.5 | 0.081–0.089 | **~0.23** |
+
+En la rampa el modo era **una veinteava parte de una cuenta**: la q̇ medida del
+hombro es exactamente 0 salvo por saltos aislados de deriva, y con q̇ = 0 su `G`
+—valga 86 o 190— no produce nada. La q̇ de una junta quieta es una **zona
+muerta**, no una señal pequeña.
+
+En `smc_712` se ve el cruce: entre t = 74.0 y 74.5 s el hombro tenía q̇ ≠ 0 en el
+16 % de los ciclos (saltos de una cuenta, deriva); entre 74.5 y 75.0 pasa al
+**85 %, con 3 cuentas por ciclo** — la misma ventana en que arranca el rizado del
+codo (74.83 s). El modo había crecido hasta que el hombro lo resolvió, y a
+partir de ahí `G₂ = 240` convirtió cada cuenta en 0.69 N·m en fase con el
+movimiento.
+
+**Dos regímenes, y un criterio para cada uno:**
+
+1. **Debajo de la zona muerta**, sólo cuenta la junta que se mueve: su `G` fija
+   la amplitud del modo, *linealmente* (§6.4). Con `G₃ ≤ 127.5` el modo queda en
+   ≤ 0.16 cuentas RMS sobre el hombro. Las demás juntas son invisibles para el
+   lazo, valga lo que valga su `G`.
+2. **Cruzada la zona muerta**, la `G` de las juntas quietas decide si el modo se
+   amplifica o no: **86 no lo amplificó** (`718`, picos rozando la cuenta) y
+   **240 sí** (`712`). Entre medias no hay medida.
+
+Que el hombro fuera el que más energía metió en `712` (§6.2) y que su rampa
+saliera plana no se contradicen: metió energía *después* de cruzar la zona
+muerta, y la rampa nunca llegó a cruzarla porque el codo estaba en 60.8.
+
+### 6.8 Dónde deja esto la cota, y las dos formas de cerrarla
+
+Medido limpio, junta a junta: codo hasta **127.5** (sola), hombro hasta **190**
+(sola, modo por debajo de la zona muerta). Medido inestable: la combinación
+**(codo 127.5, hombro 240, base 186)**.
+
+**Opción B — adoptar `G_i ≤ 120` en las seis juntas y re-optimizar.** Por
+debajo de todo lo medido limpio en cada junta; en la junta que se mueve deja el
+modo en ≤ 0.15 cuentas RMS, que es lo que impide que las quietas entren en el
+lazo; y sobre la suma de las tres grandes es 1.5× menos que la combinación que
+falló. Lo que no cubre: el umbral de las juntas quietas *una vez cruzada* la
+zona muerta se sabe sólo que está entre 86 y 240.
+
+**Opción A — medir ese umbral:** codo en su λ del fallo (130.67, modo ya en
+0.16 cuentas, picos rozando una) y rampa del hombro 120 / 151 / 190 (tests
+724–726), con línea base `718`. Es la configuración que falló, reconstruida por
+pasos, con la guarda de vibración armada (corta a los ~60 ms de la primera
+saturación; el operador tardó 3.6 s) y parada en cuanto la banda de 25 Hz
+supere el **85 %** del nivel previo al fallo (parte del 73 %: hay poco margen y
+el experimento es corto). Da el número que la opción B deja abierto; también es
+la corrida con más riesgo de toda la fase.
+
 ## 7. Qué limita λ en cada extremo (resumen)
 
 | | juntas grandes | muñecas |
 |---|---|---|
 | lo que muerde | `G = M·λ + K/φ` contra el ruido de `q̇` y el modo de 35 Hz | `χ = (K/φ)·dt/M` y la autoridad frente a Coulomb |
-| ¿medido? | **no** — un solo punto de fallo | sí, `05_smc.md` §7.6 |
+| ¿medido? | junta a junta sí (codo ≤ 127.5, hombro ≤ 190 limpios); la combinación sólo por el fallo | sí, `05_smc.md` §7.6 |
 | ¿está en el optimizador? | **no** | sí (`g3`, `g5`) |
 
 Que el optimizador se equivocara en los dos extremos a la vez no es casualidad:

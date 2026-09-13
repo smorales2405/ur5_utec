@@ -52,6 +52,15 @@ TAU_MAX_NOMINAL = np.array([150.0, 150.0, 150.0, 28.0, 28.0, 28.0])
 
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow", "wrist_1", "wrist_2", "wrist_3"]
 
+#: diag M(q_init) [kg m^2] y cuanto del encoder (2^20 cuentas/vuelta). Sirven
+#: para traducir la amplitud de PAR del modo a amplitud de POSICION en cada
+#: junta, x = A / (M_ii * w^2), y compararla con una cuenta: una junta quieta no
+#: puede cerrar ningun lazo sobre un modo que su encoder no resuelve
+#: (docs/09_real_bringup.md 6.6). Es la razon de que su G no cuente hasta que
+#: la junta que se mueve haya hecho crecer el modo.
+INERTIA_Q_INIT = np.array([1.0582, 2.5914, 0.8815, 0.02324, 0.00535, 0.00026])
+ENCODER_LSB = 2.0 * np.pi / 2 ** 20      # 5.99e-6 rad nominal; 5.72e-6 medido
+
 #: Amplitud RMS de tau [N.m] en smc_712, t = 60-74 s: los 14 s ANTERIORES a que
 #: el brazo entrase en ciclo limite. Por junta (indice 0..5) y banda.
 REF_PRE_FALLO = {
@@ -111,7 +120,7 @@ def analyze(path, args):
 
     tope = TAU_MAX_NOMINAL * args.tau_scale
     cab = "".join(f"   A {int(f1)}-{int(f2)} Hz        " for f1, f2 in args.bands)
-    print(f"\n  junta          rizado/tope  max sat {cab}")
+    print(f"\n  junta          rizado/tope  max sat {cab}  x/LSB({int(args.bands[0][0])}-{int(args.bands[0][1])})")
     amps = {}
     for j in range(6):
         if args.joint is not None and j != args.joint:
@@ -129,9 +138,14 @@ def analyze(path, args):
             ref = REF_PRE_FALLO.get((f1, f2), {}).get(j)
             pct = f"{100 * a / ref:4.0f}%" if ref else "     "
             cols += f"  {a:6.3f}@{fp:4.1f} {pct}  "
+        # Visibilidad del modo principal en ESTA junta, en cuentas de encoder.
+        f1, f2 = args.bands[0]
+        a0, fp0 = band_rms(tau, dt, f1, f2)
+        xlsb = a0 / (INERTIA_Q_INIT[j] * (2 * np.pi * max(fp0, 1.0)) ** 2) / ENCODER_LSB
         marca = "  <-- VIBRACION" if r > 0.05 or sf.max() > 0.10 else ""
-        print(f"  {JOINTS[j]:<14} {100 * r:7.2f} % {sf.max():7.3f} {cols}{marca}")
-    print("  (% = respecto a smc_712 en los 14 s previos a irse)")
+        print(f"  {JOINTS[j]:<14} {100 * r:7.2f} % {sf.max():7.3f} {cols} {xlsb:6.2f}{marca}")
+    print("  (% = respecto a smc_712 en los 14 s previos a irse; x/LSB = amplitud "
+          "del modo en cuentas de encoder, RMS)")
     return amps
 
 
