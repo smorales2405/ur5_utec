@@ -517,9 +517,10 @@ cota inferior certificada, pero las dos vías coinciden: con `G ≤ 120`, el
 seguimiento cae a **~1.4–2 mm**. Tiene sentido: `G` es la rigidez total frente a
 error de velocidad, y acotarla acota el ancho de banda de seguimiento.
 
-**La corrida no se lanza** hasta decidir qué cede: la tolerancia de TCP
-(`TCP_TOL_MM_DEFAULT` = 1.0, cota *declarada*, 20 % de los 5 mm de profundidad)
-o la de `G` (medida, de seguridad).
+**Decisión (2026-09-24):** cede la tolerancia de TCP, que pasa de 1.0 a
+**2.0 mm** (40 % de los 5 mm de profundidad). Es una cota *declarada*, de
+especificación; la de `G` está medida y es de seguridad. El precio en precisión
+de operar dentro de la región probada es un resultado a reportar.
 
 ## 6. Límites de validez del evaluador
 

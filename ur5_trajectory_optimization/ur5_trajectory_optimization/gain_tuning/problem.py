@@ -153,8 +153,15 @@ CHI_SAFETY_DEFAULT = 0.75
 G_LOOP_MAX = 120.0
 
 #: Tolerancia de seguimiento del TCP en la meseta del corte [mm]. COTA
-#: DECLARADA (20 % de los 5 mm de profundidad de corte), no medida.
-TCP_TOL_MM_DEFAULT = 1.0
+#: DECLARADA, no medida: el 40 % de los 5 mm de profundidad de corte.
+#:
+#: Era 1.0 mm (20 %) hasta que entro g6. Con G <= 120 —la cota de SEGURIDAD
+#: medida en el robot— el minimo alcanzable sobre la incision sale en ~1.4-2 mm
+#: (docs/07_gain_tuning.md §5.8.2), asi que las dos no cabian juntas. Cede esta
+#: porque es una decision de especificacion y la otra es un limite fisico
+#: medido. Decidido el 2026-09-24. El coste en precision de la cota de seguridad
+#: es un resultado a reportar, no algo que esconder bajo una tolerancia.
+TCP_TOL_MM_DEFAULT = 2.0
 
 #: Penalización devuelta cuando la simulación diverge.
 PENALTY = 1e9

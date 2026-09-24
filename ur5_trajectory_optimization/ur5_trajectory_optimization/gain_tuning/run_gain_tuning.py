@@ -528,9 +528,26 @@ def main(argv=None):
                 fh.write(f"{g},{hv},{nn}\n")
         print(f"  guardado → {conv}")
 
+    # Si la seleccion NO es factible, el fichero no se escribe con el nombre que
+    # carga el launch. El `*** INFACTIBLE ***` de la consola no basta: el YAML
+    # se carga TAL CUAL en el robot, y unas ganancias que violan g6 son las que
+    # metieron el brazo en un ciclo limite de 35 Hz (smc_712). Con otro nombre,
+    # `gains_file:=.../selected_gains.yaml` falla con "no existe" en vez de
+    # cargar algo peligroso en silencio.
+    viol_k = [n for n, g in zip(CON_NAMES, G_knee) if g > 0]
+    sel_name = ("selected_gains.yaml" if not viol_k
+                else "selected_gains_INFACTIBLE.yaml")
+    if viol_k:
+        stale = os.path.join(outdir, "selected_gains.yaml")
+        if os.path.exists(stale):
+            os.remove(stale)
+        print(f"\n  *** La seleccion viola {', '.join(viol_k)}: se guarda como "
+              f"{sel_name} y NO como selected_gains.yaml ***")
     _save_selected_yaml(
-        os.path.join(outdir, "selected_gains.yaml"), lam_k, eta_k, phi_k, args.alpha,
-        {"metodo": "knee point sobre frente combinado NSGA-II + ε-restricción",
+        os.path.join(outdir, sel_name), lam_k, eta_k, phi_k, args.alpha,
+        {**({"INFACTIBLE": "viola " + ", ".join(viol_k) + " — NO CARGAR EN EL ROBOT"}
+            if viol_k else {}),
+         "metodo": "knee point sobre frente combinado NSGA-II + ε-restricción",
          "objetivos": f"f1={F_knee[0]:.6g} f2={F_knee[1]:.6g} f3={F_knee[2]:.6g}",
          "TCP_RMSE_mm": f"{r_knee.rmse_tcp_mm:.4f}",
          "chi": f"{np.max(np.asarray(r_knee.chi_joint) / CHI_THRESHOLD):.4f}"
