@@ -399,7 +399,23 @@ el codo aguanta `G₃ = 127.5` con los hombros bajos, y su modo secundario tiene
 
 ### 6.6 Resultado (2026-09-12, `smc_790`, `719`–`723`): el hombro solo tampoco
 
-Payload comprobado a 0 en la primera y la última corrida (`check_pendant_payload.py`).
+Payload comprobado a 0 en la primera y la última corrida (`check_session_config.py`).
+
+> **Esta sesión corrió con G4 activa.** No se llamó a
+> `set_friction_model_parameters` con escalas 0, así que el robot usó sus
+> escalas por defecto y **sumó su compensación de fricción a nuestro
+> feedforward**. Se ve en la parte impar en v de lo que añade el robot al codo
+> barrido (`cur·k − tau_cmd`, por diferencia entre sentidos a q emparejada):
+>
+> | sesión | 0.05 rad/s | 0.2 | 0.5 |
+> |---|---|---|---|
+> | `fl_502`, `smc_713`–`718` (G4 = 0) | −0.01 | −0.02 | ±0.03 |
+> | `smc_790`, `719`–`723` | **+6.23** | **+7.09** | **+8.82** |
+>
+> La fricción física (`cur·k`) no cambia (16.2–16.7 N·m a 0.5 rad/s en todas),
+> como predice `02_friction_real.md` §4; el SMC absorbió el exceso bajando su
+> propio par. Es la **única** diferencia conocida entre 715 y 719 aparte del
+> día: la del payload está descartada (−18.84 frente a −19.02).
 
 **Repetibilidad** (λ = [20, 20, 55, 20, 20, 20], amplitud del modo de 25 Hz, N·m RMS):
 
@@ -411,7 +427,9 @@ Payload comprobado a 0 en la primera y la última corrida (`check_pendant_payloa
 | `723` (12-sep, línea base final) | 0.020 | 0.022 |
 
 Dentro de la sesión, **≤ 5 %**: sin deriva durante la rampa. Entre días, −20 %
-(hombro) y −28 % (codo). Se comparan corridas de la misma sesión.
+(hombro) y −28 % (codo) **en el comando** — pero eso es G4, no repetibilidad:
+con el robot aportando parte del par, nuestro `tau_cmd` lleva menos. En par
+físico (`cur·k`) el hombro va en sentido contrario, ver §6.7.
 
 **Rampa de `shoulder_lift` quieta**, codo en λ₃ = 55:
 
@@ -427,48 +445,48 @@ línea base. El ajuste `1/A` no encuentra pérdida de amortiguamiento en ninguna
 banda (r −0.58 / −0.53). A `G₂ = 190`, con el codo excitando a 60.8, el hombro
 **no participa**.
 
-### 6.7 Por qué: una junta quieta no puede cerrar un lazo sobre un modo que no ve
+### 6.7 Por qué no amplificó: el hombro se movía, pero no con el modo
 
-El encoder cuantiza a **5.7 µrad**. El modo de 25 Hz, con amplitud de par `A`,
-mueve la junta `i` una amplitud `x = A / (M_ii·ω²)`. En cuentas de encoder, sobre
-`shoulder_lift`:
+> **Corrección.** La primera versión de esta sección decía que en la rampa la
+> q̇ medida del hombro era «exactamente 0» y que por eso su `G` no producía
+> nada. Era falso para 719–722: medí la amplitud del modo en `tau_cmd`, y con
+> G4 activa el robot se reparte el par con nosotros. En `719`–`722` la q̇ del
+> hombro es ≠ 0 en el **~35 %** de los ciclos.
 
-| corrida | codo G₃ | A₂₅ (codo) | x_lift / LSB (RMS) |
-|---|---|---|---|
-| rampa del hombro (719–722) | 60.8 | 0.021 | **0.05** |
-| `718` | 127.5 | 0.059 | **0.16** |
-| `712`, 14 s antes de irse | 127.5 | 0.081–0.089 | **~0.23** |
+q̇ medida de `shoulder_lift` (quieta), y su coherencia con el par del codo en la
+banda del modo:
 
-En la rampa el modo era **una veinteava parte de una cuenta**: la q̇ medida del
-hombro es exactamente 0 salvo por saltos aislados de deriva, y con q̇ = 0 su `G`
-—valga 86 o 190— no produce nada. La q̇ de una junta quieta es una **zona
-muerta**, no una señal pequeña.
+| corrida | G4 | G₂ | q̇ ≠ 0 | RMS < 5 Hz | RMS 20–35 Hz | coherencia con τ₃ |
+|---|---|---|---|---|---|---|
+| `715` | 0 | 86 | 3.3 % | 2.7e-6 | 2.8e-6 | 0.23 |
+| `718` | 0 | 86 | 11.1 % | 1.2e-5 | 1.3e-5 | 0.17 |
+| `719` | default | 86 | 34.8 % | **1.2e-4** | 5.0e-5 | 0.23 |
+| `722` | default | 190 | 32.2 % | 3.7e-5 | 3.6e-5 | 0.31 |
+| **`712`**, 14 s antes de irse | 0 | 240 | 13.5 % | 2.6e-5 | 2.3e-5 | **0.65** |
 
-En `smc_712` se ve el cruce: entre t = 74.0 y 74.5 s el hombro tenía q̇ ≠ 0 en el
-16 % de los ciclos (saltos de una cuenta, deriva); entre 74.5 y 75.0 pasa al
-**85 %, con 3 cuentas por ciclo** — la misma ventana en que arranca el rizado del
-codo (74.83 s). El modo había crecido hasta que el hombro lo resolvió, y a
-partir de ahí `G₂ = 240` convirtió cada cuenta en 0.69 N·m en fase con el
-movimiento.
+Tres cosas:
 
-**Dos regímenes, y un criterio para cada uno:**
+1. **Con G4 activa el hombro deriva** —su compensación de Coulomb sobre una
+   junta parada—: 10× más movimiento lento que con G4 = 0. Subir `G₂` de 86 a
+   190 lo **frena** (1.2e-4 → 3.7e-5): la ganancia hace su trabajo.
+2. **Tenía más movimiento en la banda del modo que `712`** (3.6e-5 frente a
+   2.3e-5) y aun así `G₂ = 190` no hizo crecer nada. Lo que no tenía era
+   **coherencia**: 0.23–0.31 frente a **0.65**. En 719–722 el hombro vibraba por
+   su cuenta; en 712 vibraba *con* el codo.
+3. Con G4 = 0 (715, 718) el hombro casi no se mueve, y la zona muerta del
+   encoder sí describe bien lo que ve.
 
-1. **Debajo de la zona muerta**, sólo cuenta la junta que se mueve: su `G` fija
-   la amplitud del modo, *linealmente* (§6.4). Con `G₃ ≤ 127.5` el modo queda en
-   ≤ 0.16 cuentas RMS sobre el hombro. Las demás juntas son invisibles para el
-   lazo, valga lo que valga su `G`.
-2. **Cruzada la zona muerta**, la `G` de las juntas quietas decide si el modo se
-   amplifica o no: **86 no lo amplificó** (`718`, picos rozando la cuenta) y
-   **240 sí** (`712`). Entre medias no hay medida.
-
-Que el hombro fuera el que más energía metió en `712` (§6.2) y que su rampa
-saliera plana no se contradicen: metió energía *después* de cruzar la zona
-muerta, y la rampa nunca llegó a cruzarla porque el codo estaba en 60.8.
+**Lo que queda medido:** `shoulder_lift` sola, hasta `G₂ = 190`, no amplifica el
+modo de 25 Hz — en condiciones (G4 activa, hombro derivando) que le daban *más*
+velocidad a la que aplicar su ganancia que la que tuvo en 712. Lo que distingue
+el fallo es que el codo, a `G₃ = 127.5` y con `shoulder_pan` en 186, arrastraba
+al hombro **en fase**. El mecanismo exacto de ese acoplamiento queda abierto: con
+estas corridas no se puede separar la contribución de `shoulder_pan`.
 
 ### 6.8 Dónde deja esto la cota, y las dos formas de cerrarla
 
-Medido limpio, junta a junta: codo hasta **127.5** (sola), hombro hasta **190**
-(sola, modo por debajo de la zona muerta). Medido inestable: la combinación
+Medido limpio, junta a junta: codo hasta **127.5** (sola, G4 = 0), hombro hasta
+**190** (sola, con G4 activa — §6.6). Medido inestable: la combinación
 **(codo 127.5, hombro 240, base 186)**.
 
 **Opción B — adoptar `G_i ≤ 120` en las seis juntas y re-optimizar.** Por
@@ -504,8 +522,18 @@ justo las dos cosas que limitan λ por arriba y por abajo.
 ## 8. Antes de cada sesión
 
 - **Payload del pendant = 0 con la brida desnuda**, y borrado de la instalación,
-  no sólo del programa: vuelve solo al recargar (§1.1). Tras la primera corrida
-  de la sesión, `check_pendant_payload.py` sobre su CSV.
+  no sólo del programa: vuelve solo al recargar (§1.1).
+- **G4 a 0.0 por servicio**, con el driver ya arriba y **antes** del primer
+  ensayo. No persiste: cada vez que se relanza el driver vuelven las escalas por
+  defecto (§6.6).
+  ```bash
+  ros2 service call /friction_model_controller/set_friction_model_parameters \
+    ur_msgs/srv/SetFrictionModelParameters \
+    "{parameters: {viscous_scale: [0.0,0.0,0.0,0.0,0.0,0.0],
+                   coulomb_scale: [0.0,0.0,0.0,0.0,0.0,0.0]}}"
+  ```
+- Tras la primera corrida, `check_session_config.py` sobre su CSV: comprueba
+  las dos cosas y sale con código 1 si alguna no cuadra.
 - Calentamiento: `F_v` cae un 9.3 % de frío a rodado (`02` §8.5).
 - Las dos guardas anunciadas en el arranque: `guarda de seguimiento` y
   `guarda de vibracion`. Si una dice DESACTIVADA, no se lanza.

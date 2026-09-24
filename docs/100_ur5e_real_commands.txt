@@ -1,0 +1,32 @@
+Plan de comandos
+Paso 0 — teach pendant: payload a 0 (ahora está en 0.167 con la brida vacía), velocidad reducida, paro de emergencia a mano.
+Terminal A — driver (déjalo abierto todas las pruebas):
+ros2 launch ur_robot_driver ur_control.launch.py \
+    ur_type:=ur5e robot_ip:=192.168.0.102 launch_rviz:=false \
+    initial_joint_controller:=scaled_joint_trajectory_controller
+Arranca External Control en el pendant. Lleva el robot a q_init = [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416].
+Terminal B — escalas G4 a cero (se pierden al reiniciar el driver):
+ros2 service call /friction_model_controller/set_friction_model_parameters \
+  ur_msgs/srv/SetFrictionModelParameters \
+  "{parameters: {viscous_scale: [0.0,0.0,0.0,0.0,0.0,0.0],
+                 coulomb_scale: [0.0,0.0,0.0,0.0,0.0,0.0]}}"
+Variables comunes para los pasos siguientes:
+G=/home/utec/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v4_g5/selected_gains.yaml
+FV="13.64 11.55 13.74 1.28 1.35 2.12"
+FC="6.85 6.76 7.46 1.78 1.96 2.35"
+
+Comandos
+Con el driver arriba, las escalas G4 a cero y las variables ya definidas, añade:
+P=$(ros2 pkg prefix ur5_dyn_control)/share/ur5_dyn_control/config/sweep_smc_params.yaml
+Y una corrida por junta, en este orden — de menos a más consecuencia:
+# 1 · wrist_2  (movimiento contenido, la menos comprometida)
+ros2 launch ur5_dyn_control ur5e_real.launch.py controller:=smc \
+    params_file:=$P gains_file:=$G trajectory_type:=joint_sweep \
+    sweep_joint:=4 test_num:=710 tau_scale:=0.30 tool_mounted:=false \
+    friction_compensation:=viscous_coulomb friction_f_v:="$FV" friction_f_c:="$FC"
+
+# 2 · wrist_1   -> sweep_joint:=3  test_num:=711
+# 3 · elbow     -> sweep_joint:=2  test_num:=712
+# 4 · shoulder_lift -> sweep_joint:=1  test_num:=713
+# 5 · shoulder_pan  -> sweep_joint:=0  test_num:=714
+# 6 · wrist_3   -> sweep_joint:=5  test_num:=715

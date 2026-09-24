@@ -655,7 +655,7 @@ empujaba a `wrist_2` con hasta 0.52 N·m de gravedad de una masa inexistente,
 **Comprobación**, antes y después de cada sesión:
 
 ```bash
-python3 ur5_identification/scripts/check_pendant_payload.py ~/.ros/ur5_dyn_control/smc_<n>.csv
+python3 ur5_identification/scripts/check_session_config.py ~/.ros/ur5_dyn_control/smc_<n>.csv
 ```
 
 Lee `g_robot` en las juntas quietas y avisa si se separa de la referencia sin

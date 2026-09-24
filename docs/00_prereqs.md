@@ -22,7 +22,7 @@ Ninguna fase posterior puede empezar sin cerrar estas compuertas.
 | G1 — PolyScope | ✅ **5.25.2** — cumple todos los umbrales | FASE 9 |
 | G2 — Distro y driver | ✅ Ruta (a): `ros-humble-ur` **2.13.2** instalado y verificado | FASE 9 |
 | G3 — Gravedad fuera del comando | ✅ Implementada y testeada (8/8) | FASE 9 (y §7) |
-| G4 — Fricción interna | ✅ Ajuste de operación decidido: `1.0 / 1.0` (ver aviso) | FASES 2, 9 |
+| G4 — Fricción interna | ✅ Ajuste de operación: **`0.0 / 0.0`** desde 2026-08-05 (ver *ACTUALIZADO*), fijado por servicio en **cada** sesión | FASES 2, 9 |
 | G5 — Qué se puede medir | ✅ Verificado en el sistema instalado | FASES 2, 9, 10 |
 | G6 — Seguridad (§7) | ⚠️ Firmado salvo el watchdog (entregable de la FASE 3) | FASE 9 |
 
