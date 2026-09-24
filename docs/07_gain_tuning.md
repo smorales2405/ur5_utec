@@ -475,6 +475,52 @@ su capa límite.
 
 ---
 
+## 5.8 `g6` — la ganancia derivativa, y por qué 1 mm deja de ser alcanzable
+
+Tras el incidente `smc_712` (`09_real_bringup.md`) las ganancias de
+`smc_v4_g5` quedan **retiradas del robot real**. Cumplían `g1`–`g5` y metieron el
+brazo entero en un ciclo límite de 35 Hz, porque la ley deriva la velocidad
+medida con ganancia
+
+```
+G_i = M_ii·λ_i + K_i/φ_i          [N·m por rad/s]
+```
+
+y el UR5e cuantiza el encoder: su q̇ tiene un escalón de 2.86e-3 rad/s, **570×**
+el suelo de ruido de Gazebo que usa este evaluador. Sin esa cuantización subir
+λ sólo mejora el seguimiento, así que el optimizador la llevó a 37–168.
+
+**`g6: max_i max_t G_i / G_max − 1 ≤ 0`**, con `G_max = 120` (`G_LOOP_MAX`),
+medido en el robot (`09` §6.8–6.9). `G` sale de la propia ley en cada paso
+(`SmcLaw` la devuelve en `info["G"]`); un test comprueba por diferencias finitas
+que es literalmente `−∂τ_i/∂q̇_i`. `g6` acopla λ y φ, que hasta ahora se
+acotaban por separado.
+
+### 5.8.1 Sobre la incisión, `smc_v4_g5` da `G` = [528, 336, 128]
+
+No los 179 / 234 / 128 de `q_init`: con el brazo extendido la inercia de la base
+se triplica. El 90 % de ese `G` es `M·λ` en régimen, no transitorios.
+
+### 5.8.2 Con `G ≤ 120` la tolerancia de 1 mm probablemente no se alcanza
+
+Antes de lanzar la corrida se buscó el mínimo de TCP bajo `g6`:
+
+| sonda | TCP [mm] | `g6` |
+|---|---|---|
+| `smc_v4_g5` tal cual | 0.457 | +3.40 |
+| λ recortada por bisección a `G ≤ 110` (η, φ fijas) | 2.116 | −0.09 |
+| ídem con φ_lift = 1.0 | 3.620 | −0.09 |
+| SLSQP, mín. TCP s.a. `g1–g3, g5, g6`, 18 variables, 18 iteraciones | **1.33–1.54** en los puntos casi factibles | +0.02 … +0.10 |
+
+SLSQP no convergió limpio —rebota entre zonas infactibles—, así que no es una
+cota inferior certificada, pero las dos vías coinciden: con `G ≤ 120`, el
+seguimiento cae a **~1.4–2 mm**. Tiene sentido: `G` es la rigidez total frente a
+error de velocidad, y acotarla acota el ancho de banda de seguimiento.
+
+**La corrida no se lanza** hasta decidir qué cede: la tolerancia de TCP
+(`TCP_TOL_MM_DEFAULT` = 1.0, cota *declarada*, 20 % de los 5 mm de profundidad)
+o la de `G` (medida, de seguridad).
+
 ## 6. Límites de validez del evaluador
 
 Declarados en el encabezado de `closed_loop.py` y verificados contra Gazebo:

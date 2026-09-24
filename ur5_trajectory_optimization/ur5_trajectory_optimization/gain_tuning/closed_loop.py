@@ -308,7 +308,13 @@ class SmcLaw:
         # integrador duplicaria una crba por ciclo. Esta evaluada en el estado
         # RETARDADO que ve la ley, un paso por detras del de la planta; a 2 ms
         # la diferencia en M es despreciable frente a lo que cuesta repetirla.
-        return tau, s, {"chi": (K / self.phi) / np.diag(M), "M": M}
+        # `G`: ganancia derivativa que la ley aplica a la velocidad MEDIDA,
+        # dtau_i/dq_i dentro de la capa limite (docs/09_real_bringup.md §2).
+        # `M*lambda` sale de `M @ ddq_r` con ddq_r = ddq_ref - lambda*dq_e, y
+        # `K/phi` del termino conmutado, porque s contiene dq_e con peso 1. Es
+        # el numero que entro en ciclo limite en el robot real (smc_712).
+        G = np.diag(M) * self.lam + K / self.phi
+        return tau, s, {"chi": (K / self.phi) / np.diag(M), "M": M, "G": G}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -363,6 +369,12 @@ class EvalResult:
     #: muñeca.
     chi_joint: np.ndarray = field(
         default_factory=lambda: np.zeros(6))
+    #: max_t de G_i = M_ii*lambda_i + K_i/phi_i, POR JUNTA [N.m por rad/s]. Es
+    #: la ganancia derivativa sobre la velocidad medida, y la que acota g6: el
+    #: UR5e cuantiza el encoder y su q_punto tiene un escalon de 2.86e-3 rad/s
+    #: que este evaluador —con el suelo de ruido de Gazebo, 570x menor— no ve.
+    g_joint: np.ndarray = field(
+        default_factory=lambda: np.zeros(6))
 
 
 #: Desviación típica del ruido de velocidad articular [rad/s], MEDIDA sobre las
@@ -413,6 +425,7 @@ def simulate(law, ref: Reference, plant: Plant,
 
     chi_max = 0.0
     chi_joint = np.zeros(6)
+    g_joint = np.zeros(6)
     # Cola del retardo de tubería: la ley ve el estado de hace `delay_steps`.
     from collections import deque
     hist: deque = deque([(q.copy(), dq.copy())] * (delay_steps + 1),
@@ -431,6 +444,8 @@ def simulate(law, ref: Reference, plant: Plant,
             chi_i = np.asarray(info["chi"], dtype=float) * dt
             chi_joint = np.maximum(chi_joint, chi_i)
             chi_max = max(chi_max, float(chi_i.max()))
+        if "G" in info:
+            g_joint = np.maximum(g_joint, np.asarray(info["G"], dtype=float))
         # `n_sat` mide cuando el CONTROLADOR pide mas par del que el actuador
         # entrega, asi que se evalua sobre la salida de la ley y nada mas. La
         # friccion no interviene aqui: no la manda nadie y ningun limite de
@@ -458,7 +473,7 @@ def simulate(law, ref: Reference, plant: Plant,
         if not np.all(np.isfinite(ddq)) or np.abs(dq).max() > 1e3:
             return EvalResult(np.inf, np.inf, np.inf, np.inf, np.inf,
                               np.inf, np.inf, np.inf, True, n_sat, chi_max,
-                              chi_joint)
+                              chi_joint, g_joint)
         # Semi-implícito (simpléctico): mismo esquema que un integrador de
         # física, más estable que Euler explícito al mismo dt.
         dq = dq + ddq * dt
@@ -500,7 +515,8 @@ def simulate(law, ref: Reference, plant: Plant,
         rmse_q=float(np.sqrt((e_q[m] ** 2).mean())),
         rmse_tcp_mm=float(1e3 * np.sqrt((e_p[m] ** 2).mean())),
         s_max=float(np.abs(s_hist[m]).max()),
-        diverged=False, n_sat=n_sat, chi_max=chi_max, chi_joint=chi_joint)
+        diverged=False, n_sat=n_sat, chi_max=chi_max, chi_joint=chi_joint,
+        g_joint=g_joint)
 
 
 def default_urdf() -> str:

@@ -490,7 +490,8 @@ Medido limpio, junta a junta: codo hasta **127.5** (sola, G4 = 0), hombro hasta
 **(codo 127.5, hombro 240, base 186)**.
 
 **Opción B — adoptar `G_i ≤ 120` en las seis juntas y re-optimizar.** Por
-debajo de todo lo medido limpio en cada junta; en la junta que se mueve deja el
+debajo de lo medido limpio en el codo y en el hombro (**no** en la base: ver
+§6.9); en la junta que se mueve deja el
 modo en ≤ 0.15 cuentas RMS, que es lo que impide que las quietas entren en el
 lazo; y sobre la suma de las tres grandes es 1.5× menos que la combinación que
 falló. Lo que no cubre: el umbral de las juntas quietas *una vez cruzada* la
@@ -504,6 +505,36 @@ saturación; el operador tardó 3.6 s) y parada en cuanto la banda de 25 Hz
 supere el **85 %** del nivel previo al fallo (parte del 73 %: hay poco margen y
 el experimento es corto). Da el número que la opción B deja abierto; también es
 la corrida con más riesgo de toda la fase.
+
+### 6.9 La base de `G`: el máximo sobre la trayectoria, no `q_init`
+
+Hasta aquí todas las `G` se calcularon en `q_init`. Pero `M_ii` depende de las
+juntas **distales**, así que la del hombro cambia cuando el codo se mueve, y
+todas cambian a lo largo de la incisión. El optimizador (`g6`) y el banner del
+nodo usan ahora el **máximo sobre la referencia que se ejecuta**, y en esa base
+la región probada es:
+
+| corrida | pan | lift | codo | |
+|---|---|---|---|---|
+| `718` | 30 | 99 | **128** | limpio |
+| `722` | 30 | **238** | 61 | limpio |
+| `712` | 179 | **301** | 128 | ciclo límite |
+
+(en `q_init`: 718 = [29, 84, 128], 722 = [29, 188, 61], 712 = [179, 234, 128])
+
+Dos consecuencias:
+
+- **`shoulder_pan` sólo está probada hasta 30.** Nunca se subió su λ salvo en el
+  fallo. `G ≤ 120` es región probada para codo y hombro, y **extrapolación** para
+  la base.
+- **La incisión con `smc_v4_g5` habría sido peor que el barrido.** Con el brazo
+  extendido `M₁₁` pasa de 1.06 a 3.2 kg·m², y sobre la referencia de la incisión
+  esas ganancias dan `G` = **[528, 336, 128]** en el evaluador (sin herramienta)
+  y **[547, 347, 136]** en Gazebo (con ella). El banner viejo, evaluado en
+  `q_init`, habría mostrado 186 / 240. El nuevo avisa en las tres juntas.
+
+La herramienta sube `G` un 3–5 % (más inercia y más gravedad en la muñeca). El
+evaluador no la lleva: un `G = 120` suyo es ≤ 125.5 en el robot con bisturí.
 
 ## 7. Qué limita λ en cada extremo (resumen)
 
@@ -537,4 +568,6 @@ justo las dos cosas que limitan λ por arriba y por abajo.
 - Calentamiento: `F_v` cae un 9.3 % de frío a rodado (`02` §8.5).
 - Las dos guardas anunciadas en el arranque: `guarda de seguimiento` y
   `guarda de vibracion`. Si una dice DESACTIVADA, no se lanza.
-- La línea `G = [...]` del banner: ninguna junta por encima de lo probado.
+- La línea `G = ... MAXIMO sobre la referencia` del banner: ninguna junta por
+  encima de lo probado (§6.9). Si alguna lo supera, el nodo lo dice con un WARN
+  por junta.

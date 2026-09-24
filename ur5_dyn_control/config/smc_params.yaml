@@ -142,6 +142,11 @@ gz_smc_control_node:
     # alpha en (0,1]: fraccion de los terminos nominales que se asume incierta.
     # Estudio de sensibilidad del plan: 0.1 / 0.3 / 0.5 / 1.0.
     alpha: 0.3
+    # Region de G = M_ii*lambda_i + K_i/phi_i PROBADA en el UR5e real
+    # (docs/09_real_bringup.md §6.8). Solo hace que el nodo AVISE al arrancar si
+    # alguna junta la supera en algun punto de la referencia. Tiene que valer lo
+    # mismo que G_LOOP_MAX del optimizador: lo comprueba test_gain_tuning.py.
+    g_loop_max: 120.0
     # sign -> chattering maximo, s -> 0 exacto en tiempo finito
     # sat  -> chattering suprimido, |s| acotada por O(phi)
     switching_function: "sat"

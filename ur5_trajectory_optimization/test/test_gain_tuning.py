@@ -23,8 +23,8 @@ from ur5_trajectory_optimization.gain_tuning.closed_loop import (  # noqa: E402
 from ur5_trajectory_optimization.gain_tuning.optimize import (  # noqa: E402
     _cubic_features, _pool_recipe, alpha_sensitivity, seed_points)
 from ur5_trajectory_optimization.gain_tuning.problem import (  # noqa: E402
-    CHI_THRESHOLD, GainEvaluator, SmcParameterization, disturbance_bound,
-    friction_residual_bound)
+    CHI_THRESHOLD, G_LOOP_MAX, GainEvaluator, SmcParameterization,
+    disturbance_bound, friction_residual_bound)
 
 URDF = "/home/utec/ur5_ws/install/ur5_kinematics/share/ur5_kinematics/ur5e.urdf"
 INERTIA = np.array([1.05823, 2.59146, 0.881455, 0.0232406, 0.00535152, 0.00025756])
@@ -378,7 +378,8 @@ def test_g5_impone_la_condicion_de_alcance():
     eta = d * 1.5
     eta[3] = 0.1 * d[3]
     assert ev.constraints(param.encode(np.full(6, 20.0), eta, 0.3))[4] > 0.0
-    assert ev.constraints(param.encode(np.full(6, 20.0), eta, 0.3)).shape == (5,)
+    assert ev.constraints(param.encode(np.full(6, 20.0), eta, 0.3)).shape == \
+        (GainEvaluator.N_CON,)
 
 
 @pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
@@ -403,3 +404,93 @@ def test_la_receta_del_pool_lleva_todo_lo_que_usan_las_restricciones():
         "d_bound no viaja en la receta del pool"
     for attr in ("chi_safety", "tcp_tol_mm", "alpha"):
         assert getattr(ev, attr) in receta, f"{attr} no viaja en la receta"
+
+    # g6 y la friccion: con un valor que NO es el default, para que un hijo
+    # que lo reconstruya con el default no pase el test por casualidad.
+    fr = JointFriction(f_v=np.ones(6), f_c=np.ones(6))
+    ev2 = GainEvaluator(param, ref, plant, force=None, alpha=0.3, d_bound=d,
+                        g_max=97.0, friction=fr)
+    receta2 = _pool_recipe(ev2, URDF, "/no/existe.csv")
+    assert 97.0 in receta2, "g_max no viaja en la receta: g6 valdria el default en los hijos"
+    assert any(c is fr for c in receta2), \
+        "friction no viaja en la receta: con -j N los hijos simularian planta ideal"
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_smclaw_G_es_la_ganancia_derivativa_sobre_la_velocidad_medida():
+    """
+    G_i = M_ii*lambda_i + K_i/phi_i, y es LITERALMENTE dtau_i/ddq_i dentro de
+    la capa limite: se comprueba por diferencias finitas sobre la propia ley,
+    no contra la formula. Es la magnitud que entro en ciclo limite en smc_712.
+    """
+    plant = Plant(URDF)
+    lam = np.array([161.2, 78.0, 130.7, 139.7, 167.8, 37.3])
+    eta = np.array([1.531, 3.930, 2.194, 0.820, 0.237, 0.042])
+    phi = np.array([0.187, 0.310, 0.654, 0.569, 0.248, 0.883])
+    law = SmcLaw(lam=lam, eta=eta, phi=phi, alpha=0.3)
+    q = Q_INIT.copy()
+    z = np.zeros(6)
+    tau0, s0, info = law(plant.model, plant.data, q, z, q, z, z)
+    assert np.all(np.abs(s0) < phi), "el punto de prueba tiene que estar dentro de la capa"
+    h = 1e-7
+    for i in range(6):
+        dq = z.copy()
+        dq[i] = h
+        tau1, _, _ = law(plant.model, plant.data, q, dq, q, z, z)
+        # K depende de dq a traves de b y de ddq_r; en s = 0 esa derivada
+        # multiplica a s/phi y se anula, asi que queda exactamente G.
+        np.testing.assert_allclose(-(tau1[i] - tau0[i]) / h, info["G"][i],
+                                   rtol=2e-3)
+    # Las ganancias de smc_v4_g5 en q_init, SIN herramienta (la planta del
+    # evaluador no la lleva): la tabla de docs/09_real_bringup.md §2.0. El
+    # banner del nodo imprimio [186.4 240.0 134.5] porque aquella corrida de
+    # Gazebo llevaba los 0.182 kg del bisturi en el modelo.
+    np.testing.assert_allclose(info["G"][:3], [178.8, 234.4, 127.9], rtol=0.01)
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_g6_rechaza_las_ganancias_que_sacudieron_el_robot():
+    """
+    REGRESION de smc_712. Las ganancias de smc_v4_g5 cumplian g1..g5 y daban
+    G = [186, 240, 134] en las juntas grandes: el brazo entero entro en un
+    ciclo limite de 35 Hz. g6 tiene que rechazarlas, y aceptar las mismas con
+    lambda baja.
+    """
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant)
+    param = SmcParameterization(inertia=INERTIA, mode="full_phi")
+    eta = np.array([1.531, 3.930, 2.194, 0.820, 0.237, 0.042])
+    phi = np.array([0.187, 0.310, 0.654, 0.569, 0.248, 0.883])
+    ev = GainEvaluator(param, ref, plant, force=None, alpha=0.3)
+    assert ev.g_max == G_LOOP_MAX
+
+    g_malo = ev.constraints(param.encode(
+        np.array([161.2, 78.0, 130.7, 139.7, 167.8, 37.3]), eta, phi))
+    assert g_malo[5] > 0.5, f"g6 = {g_malo[5]:.3f}: deberia estar ~100 % por encima"
+
+    g_bueno = ev.constraints(param.encode(np.full(6, 20.0), eta, phi))
+    assert g_bueno[5] <= 0.0, f"lambda = 20 con estas phi es G ~ 86 y g6 = {g_bueno[5]:.3f}"
+
+    # Normalizada: el mismo punto con la cota a la mitad sale infactible.
+    ev_estricto = GainEvaluator(param, ref, plant, force=None, alpha=0.3,
+                                g_max=G_LOOP_MAX / 2)
+    assert ev_estricto.constraints(param.encode(np.full(6, 20.0), eta, phi))[5] > 0.0
+
+
+def test_g_loop_max_del_nodo_coincide_con_el_optimizador():
+    """
+    La cota de G vive en dos sitios: G_LOOP_MAX (g6 del optimizador) y el
+    parametro `g_loop_max` del nodo, que avisa al arrancar. Una constante
+    duplicada con un lado sin actualizar es el fallo que mas veces se ha
+    repetido en este proyecto; aqui falla en voz alta.
+    """
+    import yaml
+    cfg = os.path.join(os.path.dirname(__file__), "..", "..", "ur5_dyn_control",
+                       "config")
+    if not os.path.isdir(cfg):
+        pytest.skip("ur5_dyn_control no esta junto a este paquete")
+    for nombre in ("smc_params.yaml", "sweep_smc_params.yaml"):
+        with open(os.path.join(cfg, nombre)) as fh:
+            p = yaml.safe_load(fh)["gz_smc_control_node"]["ros__parameters"]
+        assert p["g_loop_max"] == G_LOOP_MAX, \
+            f"{nombre}: g_loop_max = {p['g_loop_max']} y G_LOOP_MAX = {G_LOOP_MAX}"

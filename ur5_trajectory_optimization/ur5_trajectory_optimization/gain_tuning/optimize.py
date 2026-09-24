@@ -39,7 +39,7 @@ _WORKER: dict = {}
 
 
 def _worker_init(urdf, ref_path, mode, alpha, f_cut, chi_safety, tcp_tol_mm,
-                 d_bound):
+                 d_bound, g_max, friction):
     """
     Reconstruye el evaluador en cada proceso hijo.
 
@@ -47,11 +47,14 @@ def _worker_init(urdf, ref_path, mode, alpha, f_cut, chi_safety, tcp_tol_mm,
     viajar en esta receta. `d_bound` se olvido al anadir g5 y el sintoma habria
     sido invisible: en los hijos la cota valdria cero, g5 se cumpliria siempre y
     la condicion de alcance solo se impondria en las evaluaciones en serie.
+    `g_max` (g6) y `friction` tienen el mismo riesgo: `friction` faltaba desde
+    que existe, y con `--friction -j N` los hijos habrian simulado planta ideal.
     """
     _WORKER["ev"] = make_evaluator(
         load_reference(ref_path), Plant(urdf), mode=mode, alpha=alpha,
         f_cut=f_cut, chi_safety=chi_safety, tcp_tol_mm=tcp_tol_mm,
-        d_bound=np.asarray(d_bound, dtype=float))
+        d_bound=np.asarray(d_bound, dtype=float), g_max=float(g_max),
+        friction=friction)
 
 
 def _worker_eval(x):
@@ -68,7 +71,8 @@ def _pool_recipe(evaluator: GainEvaluator, urdf: str, ref_path: str) -> tuple:
     return (urdf, ref_path, evaluator.param.mode, evaluator.alpha,
             evaluator.force.f_cut if evaluator.force else 0.0,
             evaluator.chi_safety, evaluator.tcp_tol_mm,
-            tuple(np.asarray(evaluator.d_bound, dtype=float)))
+            tuple(np.asarray(evaluator.d_bound, dtype=float)),
+            evaluator.g_max, evaluator.friction)
 
 
 class _PooledProblem(Problem):
@@ -229,7 +233,13 @@ def seed_points(evaluator: GainEvaluator, d_bound: np.ndarray,
     dt = evaluator.ref.dt if dt is None else dt
     lo_phi, hi_phi = p.phi_bounds
     pts = [p.encode(np.full(6, 20.0), p.inertia * 1.0, 0.05)]   # FASE 5
+    # λ se recorta POR JUNTA a lo que g6 admite, con `K/φ` fuera de la cuenta
+    # (aun no se conoce) y un 20 % de holgura para ella. Sin el recorte las
+    # semillas de 100 y 250 nacerian infactibles en las tres juntas grandes, que
+    # es justo donde g6 muerde: 250 en shoulder_lift son G = 648.
+    lam_cap = 0.8 * evaluator.g_max / p.inertia
     for lam in (30.0, 100.0, 250.0):
+        lam_v = np.minimum(lam, lam_cap)
         for margin in (1.1, 1.5, 2.5):
             eta = d_bound * margin + p.inertia * 0.5
             # φ mínimo que respeta χ en la junta que más aprieta, con holgura.
@@ -241,7 +251,7 @@ def seed_points(evaluator: GainEvaluator, d_bound: np.ndarray,
                 (evaluator.chi_safety * CHI_THRESHOLD * p.inertia),
                 lo_phi, hi_phi)
             phi = phi_j if p.mode == "full_phi" else float(np.max(phi_j))
-            pts.append(p.encode(np.full(6, lam), eta, phi))
+            pts.append(p.encode(lam_v, eta, phi))
     # Se recortan a la caja: el `η` de la FASE 5 en `wrist_3` (2.6e-4 N·m) cae
     # POR DEBAJO de la cota inferior anclada al actuador (1e-4·τ_max = 2.8e-3),
     # así que sin recortar la semilla saldría del dominio de búsqueda.
@@ -387,8 +397,8 @@ def run_epsilon_constraint(evaluator: GainEvaluator, pareto_F: np.ndarray,
 #: están ACTIVAS. Sin esto habría que comparar N·m con rad/s y con un número
 #: adimensional usando la misma tolerancia, que no significa nada.
 #:
-#: g1 N·m · g2 rad/s · g3 adimensional · g4 mm · g5 N·m
-_CON_SCALE = np.array([150.0, np.pi, 1.0, 1.0, 10.0])
+#: g1 N·m · g2 rad/s · g3 adimensional · g4 mm · g5 N·m · g6 adimensional
+_CON_SCALE = np.array([150.0, np.pi, 1.0, 1.0, 10.0, 1.0])
 
 # La longitud tiene que seguir a N_CON. Estaba escrita a mano y al anadir g5 el
 # concatenate reventaba con "shapes (5,) (4,)" — a los 8 minutos de corrida, en

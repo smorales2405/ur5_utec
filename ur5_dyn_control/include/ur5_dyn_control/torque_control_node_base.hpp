@@ -77,6 +77,11 @@ protected:
 
   Ur5Dynamics & dyn() { return *dyn_; }
   const Vector6d & qInit() const { return q_init_; }
+  /// Tabla de referencia que se va a ejecutar (nullptr hasta que se construye,
+  /// en el constructor de esta base). Solo lectura: las leyes la usan para
+  /// informar de magnitudes que dependen de la POSE, que en la incision no es
+  /// q_init — la inercia de la base se triplica con el brazo extendido.
+  const JointReferenceTable * referenceTable() const { return ref_gen_.get(); }
 
   /**
    * Torque que se COMANDA al hardware a partir del torque de la ley (G3):

@@ -35,14 +35,19 @@ from .optimize import (alpha_sensitivity, certify_kkt, hv_reference_point,
                        run_epsilon_constraint, run_nsga2,
                        run_weighted_sum_baseline, seed_points)
 from .problem import (CHI_SAFETY_DEFAULT, CHI_THRESHOLD,
-                      FRICTION_REAL_G4_0, PENALTY,
-                      TCP_TOL_MM_DEFAULT, disturbance_bound,
+                      FRICTION_REAL_G4_0, G_LOOP_MAX, PENALTY,
+                      TCP_TOL_MM_DEFAULT, GainEvaluator, disturbance_bound,
                       friction_residual_bound, make_evaluator)
 from .problem import SmcParameterization  # noqa: E402
 
 DEFAULT_REF = os.path.expanduser("~/.ros/ur5_dyn_control/incision_ref.csv")
 OBJ_NAMES = ["f1_iae_m_s", "f2_effort_N2m2s", "f3_tv_Nm"]
-CON_NAMES = ["g1_tau", "g2_dq", "g3_chi", "g4_tcp", "g5_alcance"]
+CON_NAMES = ["g1_tau", "g2_dq", "g3_chi", "g4_tcp", "g5_alcance", "g6_G"]
+# Los nombres van a la cabecera del CSV del frente y se ZIPean con las
+# restricciones: con uno de menos, la ultima columna se perderia sin error.
+assert len(CON_NAMES) == GainEvaluator.N_CON, (
+    f"CON_NAMES tiene {len(CON_NAMES)} nombres y hay {GainEvaluator.N_CON} "
+    "restricciones")
 
 
 def _default_urdf() -> str:
@@ -189,6 +194,10 @@ def main(argv=None):
     ap.add_argument("--tcp-tol-mm", type=float, default=TCP_TOL_MM_DEFAULT,
                     help="g4: RMSE de TCP admisible en la meseta del corte "
                          "(cota DECLARADA, no medida)")
+    ap.add_argument("--g-max", type=float, default=G_LOOP_MAX,
+                    help="g6: cota de G_i = M_ii*lambda_i + K_i/phi_i en las "
+                         "seis juntas [N.m por rad/s]. Region PROBADA en el "
+                         "UR5e real (docs/09_real_bringup.md §6.8)")
     ap.add_argument("-j", "--jobs", type=int, default=1)
     ap.add_argument("--test", type=int, default=None)
     ap.add_argument("--no-baseline", action="store_true")
@@ -244,7 +253,7 @@ def main(argv=None):
     ev = make_evaluator(ref, plant, mode=args.mode, alpha=args.alpha,
                         f_cut=args.f_cut, chi_safety=args.chi_safety,
                         tcp_tol_mm=args.tcp_tol_mm, friction=friction,
-                        d_bound=d_bound)
+                        d_bound=d_bound, g_max=args.g_max)
     param = ev.param
 
     print(f"referencia : {ref.n} muestras · dt={ref.dt:.4f} s · {ref.n * ref.dt:.1f} s")
@@ -254,6 +263,8 @@ def main(argv=None):
           f"RMSE TCP ≤ {args.tcp_tol_mm} mm · fuerza de corte = {args.f_cut} N")
     print(f"             umbral_i = {np.array2string(CHI_THRESHOLD, precision=2)}"
           f"  ->  limite = {np.array2string(args.chi_safety * CHI_THRESHOLD, precision=3)}")
+    print(f"             G_i = M_ii·λ_i + K_i/φ_i ≤ {args.g_max:g} N·m/(rad/s) "
+          f"en las seis juntas (probado en el robot real)")
     if friction is None:
         print("fricción   : NINGUNA — planta ideal, NO predice el robot real")
     elif True:
@@ -524,6 +535,8 @@ def main(argv=None):
          "TCP_RMSE_mm": f"{r_knee.rmse_tcp_mm:.4f}",
          "chi": f"{np.max(np.asarray(r_knee.chi_joint) / CHI_THRESHOLD):.4f}"
                 f" del umbral (limite {args.chi_safety})",
+         "G": "[" + " ".join(f"{v:.1f}" for v in r_knee.g_joint) + "]"
+              f" N.m/(rad/s), limite {args.g_max:g} (g6)",
          "semilla": args.seed, "parametrizacion": args.mode,
          "fuerza_corte_N": args.f_cut,
          "AVISO": "evaluador offline sin retardo de tuberia ni ruido de q̇: "
@@ -533,7 +546,7 @@ def main(argv=None):
         "run": {"controller": args.controller, "mode": args.mode, "seed": args.seed,
                 "pop_size": args.pop, "n_gen": args.gen, "alpha": args.alpha,
                 "f_cut_N": args.f_cut, "chi_safety": args.chi_safety,
-                "chi_threshold": CHI_THRESHOLD.tolist(),
+                "chi_threshold": CHI_THRESHOLD.tolist(), "g_max": args.g_max,
                 "reference": args.ref, "urdf": urdf, "jobs": args.jobs,
                 "weights": list(w)},
         "cost": {"sec_per_eval": nsga["sec_per_eval"], "n_eval_nsga2": nsga["n_eval"],
@@ -547,7 +560,8 @@ def main(argv=None):
         "selected": {"x": x_knee, "lambda": lam_k, "eta": eta_k, "phi": np.atleast_1d(phi_k).tolist(),
                      "F": F_knee, "norm_dist_utopia": dist,
                      "tcp_rmse_mm": r_knee.rmse_tcp_mm, "rmse_q": r_knee.rmse_q,
-                     "s_max": r_knee.s_max, "chi": r_knee.chi_max},
+                     "s_max": r_knee.s_max, "chi": r_knee.chi_max,
+                     "G_joint": np.asarray(r_knee.g_joint).tolist()},
         "min_f1_extreme": {"F": F_ref_front[i_best],
                            "tcp_rmse_mm": r_best.rmse_tcp_mm,
                            "chi": r_best.chi_max},

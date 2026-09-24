@@ -28,6 +28,16 @@ Restricciones (≤ 0 factible)
   g3: max_i(χ_i/umbral_i) − chi_safety      umbral de chattering, POR JUNTA
   g4: RMSE_TCP(meseta) − tcp_tol            la incisión se ejecuta de verdad
   g5: max_i(d_i − η_i)                      CONDICIÓN DE ALCANCE frente a `d`
+  g6: max_i max_t G_i / G_max − 1           ganancia derivativa, PROBADA en el robot
+
+`g6` se añadió tras el incidente `smc_712` (docs/09_real_bringup.md). La ley
+deriva la velocidad MEDIDA con ganancia `G_i = M_ii·λ_i + K_i/φ_i`, y el UR5e
+cuantiza el encoder: su q̇ tiene un escalón de 2.86e-3 rad/s, 570× el suelo de
+ruido de Gazebo que usa este evaluador. Las ganancias de `smc_v4_g5` daban
+`G` = [186, 240, 134] en las juntas grandes y llevaron el brazo entero a un
+ciclo límite de 35 Hz. El evaluador no lo podía ver: sin ruido de cuantización,
+subir λ solo mejora el seguimiento. `G_max` es una cota MEDIDA en el robot, no
+un modelo: se opera por debajo de lo probado limpio en cada junta.
 
 `g5` se añadió tras las dos primeras corridas, y su ausencia las invalidó. La
 cota `d` solo se usaba para SEMBRAR la población. Como el evaluador simula una
@@ -116,6 +126,31 @@ CHI_THRESHOLD = np.array([0.22, 0.22, 0.32, 0.99, 0.99, 0.99])
 #: criterios independientes convergen ahí, así que 0.75 deja la configuración
 #: actual factible con algo de holgura.
 CHI_SAFETY_DEFAULT = 0.75
+
+#: Cota de la ganancia derivativa G_i = M_ii·λ_i + K_i/φ_i [N·m por rad/s],
+#: en las SEIS juntas. MEDIDA en el UR5e real, como MAXIMO sobre la referencia
+#: ejecutada —la misma base que usa g6— (docs/09_real_bringup.md §6.9):
+#:
+#:                                      pan    lift   codo
+#:     smc_718 (codo solo) limpio       30      99    128
+#:     smc_722 (lift sola) limpio       30     238     61
+#:     smc_712 ciclo limite 35 Hz      179     301    128
+#:
+#: 120 queda por debajo de lo probado limpio en el codo y en shoulder_lift. NO
+#: en shoulder_pan: solo se ha probado hasta 30. Y ninguna combinacion con dos
+#: juntas altas a la vez esta probada salvo la que fallo. Es la region probada
+#: para dos juntas y una extrapolacion para la tercera, no un umbral de
+#: estabilidad; las ganancias que salgan hay que verificarlas en el robot junta
+#: a junta antes de la incision.
+#:
+#: OJO con la herramienta: la planta de este evaluador NO lleva el bisturi
+#: (0.182 kg), y con el montado M_ii y la gravedad suben. Medido en q_init con
+#: las ganancias de smc_v4_g5: G sube de [178.8 234.4 127.9] a [186.5 240.0
+#: 134.5], un 3-5 %. Un G = 120 aqui es <= 125.5 en el robot con bisturi:
+#: todavia por debajo de los 127.5 probados limpios, pero sin mas holgura. Si se
+#: baja la cota por otro motivo, no hace falta tocar esto; si se sube, hay que
+#: descontarlo.
+G_LOOP_MAX = 120.0
 
 #: Tolerancia de seguimiento del TCP en la meseta del corte [mm]. COTA
 #: DECLARADA (20 % de los 5 mm de profundidad de corte), no medida.
@@ -248,7 +283,8 @@ class GainEvaluator:
                  chi_safety: float = CHI_SAFETY_DEFAULT,
                  tcp_tol_mm: float = TCP_TOL_MM_DEFAULT, cache_size: int = 4096,
                  friction: JointFriction | None = None,
-                 d_bound: np.ndarray | None = None):
+                 d_bound: np.ndarray | None = None,
+                 g_max: float = G_LOOP_MAX):
         self.param = param
         self.ref = ref
         self.plant = plant
@@ -266,6 +302,10 @@ class GainEvaluator:
         self.alpha = float(alpha)
         self.chi_safety = float(chi_safety)
         self.tcp_tol_mm = float(tcp_tol_mm)
+        #: Cota de G (g6). Viaja en `_pool_recipe`: si no, los hijos la
+        #: reconstruirian con el default y un `--g-max` distinto se ignoraria
+        #: en silencio en toda la parte NSGA-II.
+        self.g_max = float(g_max)
         self._cache: OrderedDict = OrderedDict()
         self._cache_size = cache_size
         self.n_eval = 0
@@ -309,10 +349,10 @@ class GainEvaluator:
             return np.full(3, PENALTY)
         return np.array([r.f1_iae, r.f2_effort, r.f3_chatter])
 
-    N_CON = 5
+    N_CON = 6
 
     def constraints(self, x: np.ndarray) -> np.ndarray:
-        """[g1, g2, g3, g4, g5] ≤ 0 factible."""
+        """[g1, g2, g3, g4, g5, g6] ≤ 0 factible."""
         r = self.result(x)
         if r.diverged:
             return np.full(self.N_CON, PENALTY)
@@ -325,8 +365,11 @@ class GainEvaluator:
         # modelo, asi que es `eta` y no `K` quien tiene que superar la friccion.
         lam_, eta_, phi_ = self.param.gains(x)
         g5 = float(np.max(self.d_bound - eta_))
+        # g6 — GANANCIA DERIVATIVA. Normalizada: 0.5 significa un 50 % por
+        # encima de la region probada en el robot, en la junta que peor esta.
+        g6 = float(np.max(np.asarray(r.g_joint))) / self.g_max - 1.0
         return np.array([r.g1_tau, r.g2_dq, chi_rel - self.chi_safety,
-                         r.rmse_tcp_mm - self.tcp_tol_mm, g5])
+                         r.rmse_tcp_mm - self.tcp_tol_mm, g5, g6])
 
     def evaluate(self, x: np.ndarray) -> tuple:
         return self.objectives(x), self.constraints(x)
@@ -390,14 +433,15 @@ def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
                    tcp_tol_mm: float = TCP_TOL_MM_DEFAULT,
                    q_ref: np.ndarray | None = None,
                    friction: JointFriction | None = None,
-                   d_bound: np.ndarray | None = None) -> GainEvaluator:
+                   d_bound: np.ndarray | None = None,
+                   g_max: float = G_LOOP_MAX) -> GainEvaluator:
     """Atajo: construye parametrización + evaluador con los valores del plan."""
     inertia = plant.inertia_diag(Q_INIT if q_ref is None else q_ref)
     param = SmcParameterization(inertia=inertia, mode=mode)
     force = CuttingForce(f_cut=f_cut) if f_cut > 0 else None
     return GainEvaluator(param, ref, plant, force=force, alpha=alpha,
                          chi_safety=chi_safety, tcp_tol_mm=tcp_tol_mm,
-                         friction=friction, d_bound=d_bound)
+                         friction=friction, d_bound=d_bound, g_max=g_max)
 
 
 #: Dispersión relativa de la identificación entre las TRES campañas reales
