@@ -525,6 +525,11 @@ def alpha_sensitivity(evaluator: GainEvaluator, x: np.ndarray,
             evaluator.alpha = float(a)
             evaluator._cache.clear()      # α cambia la ley: la caché ya no vale
             r = evaluator.result(x)
+            # Factibilidad con `constraints()`, no con un criterio propio. Aqui
+            # habia uno en linea que solo miraba g1-g3: al anadir g4, g5 y g6 no
+            # se actualizo, y con alpha = 0.5 daba "factible" a ganancias que
+            # violan g6 —K sube con alpha, y con el G la ganancia derivativa—.
+            G = evaluator.constraints(x)
             rows.append({
                 "alpha": float(a),
                 "f1_iae": r.f1_iae, "f2_effort": r.f2_effort,
@@ -532,10 +537,9 @@ def alpha_sensitivity(evaluator: GainEvaluator, x: np.ndarray,
                 "tcp_rmse_mm": r.rmse_tcp_mm, "rmse_q": r.rmse_q,
                 "s_max": r.s_max, "chi": r.chi_max,
                 "g1_tau": r.g1_tau, "g2_dq": r.g2_dq,
-                "feasible": bool(r.g1_tau <= 0 and r.g2_dq <= 0
-                                 and np.max(np.asarray(r.chi_joint) /
-                                            CHI_THRESHOLD)
-                                 <= evaluator.chi_safety),
+                "G_max": float(np.max(np.asarray(r.g_joint))),
+                "violated": [f"g{j + 1}" for j in range(len(G)) if G[j] > 0],
+                "feasible": bool(np.all(G <= 0)),
             })
     finally:
         evaluator.alpha = alpha_0

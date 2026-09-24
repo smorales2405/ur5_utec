@@ -23,8 +23,8 @@ from ur5_trajectory_optimization.gain_tuning.closed_loop import (  # noqa: E402
 from ur5_trajectory_optimization.gain_tuning.optimize import (  # noqa: E402
     _cubic_features, _pool_recipe, alpha_sensitivity, seed_points)
 from ur5_trajectory_optimization.gain_tuning.problem import (  # noqa: E402
-    CHI_THRESHOLD, G_LOOP_MAX, GainEvaluator, SmcParameterization,
-    disturbance_bound, friction_residual_bound)
+    CHI_THRESHOLD, FRICTION_DQ_EPS, G_LOOP_MAX, GainEvaluator,
+    SmcParameterization, disturbance_bound, friction_residual_bound)
 
 URDF = "/home/utec/ur5_ws/install/ur5_kinematics/share/ur5_kinematics/ur5e.urdf"
 INERTIA = np.array([1.05823, 2.59146, 0.881455, 0.0232406, 0.00535152, 0.00025756])
@@ -494,3 +494,51 @@ def test_g_loop_max_del_nodo_coincide_con_el_optimizador():
             p = yaml.safe_load(fh)["gz_smc_control_node"]["ros__parameters"]
         assert p["g_loop_max"] == G_LOOP_MAX, \
             f"{nombre}: g_loop_max = {p['g_loop_max']} y G_LOOP_MAX = {G_LOOP_MAX}"
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_sensibilidad_a_alpha_usa_todas_las_restricciones():
+    """
+    REGRESION: la tabla de alpha tenia su propio criterio de factibilidad, en
+    linea, que solo miraba g1-g3. Al anadir g4-g6 no se actualizo y daba
+    "factible" a ganancias que violan g6. Tiene que coincidir con constraints()
+    en cada alpha.
+    """
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant)
+    param = SmcParameterization(inertia=INERTIA, mode="full_phi")
+    ev = GainEvaluator(param, ref, plant, force=None, alpha=0.3, g_max=60.0)
+    eta = np.array([1.531, 3.930, 2.194, 0.820, 0.237, 0.042])
+    phi = np.array([0.187, 0.310, 0.654, 0.569, 0.248, 0.883])
+    x = param.encode(np.full(6, 20.0), eta, phi)
+    rows = alpha_sensitivity(ev, x, alphas=(0.1, 1.0))
+    for r in rows:
+        ev.alpha = r["alpha"]
+        ev._cache.clear()
+        assert r["feasible"] == bool(np.all(ev.constraints(x) <= 0.0)), r["alpha"]
+    ev.alpha = 0.3
+    # Y con alpha = 1.0 K se dispara: g6 (cota baja a proposito) tiene que caer.
+    assert "g6" in rows[-1]["violated"]
+
+
+def test_dq_eps_del_optimizador_coincide_con_el_de_la_incision():
+    """
+    REGRESION: el nodo subio friction.dq_eps de 1e-5 a 1e-2 tras smc_710 y el
+    optimizador siguio con 1e-5. Con las ganancias de smc_v5_g6 la base, que en
+    el corte va a 0.0023 rad/s, quedaba compensada al 23 % y se clavaba: 15.9 mm
+    de TCP en Gazebo, y g5 —que dimensiona eta con este eps— sin verlo.
+    """
+    import yaml
+    cfg = os.path.join(os.path.dirname(__file__), "..", "..", "ur5_dyn_control",
+                       "config", "smc_params.yaml")
+    if not os.path.exists(cfg):
+        pytest.skip("ur5_dyn_control no esta junto a este paquete")
+    with open(cfg) as fh:
+        p = yaml.safe_load(fh)["gz_smc_control_node"]["ros__parameters"]
+    assert float(p["friction"]["dq_eps"]) == FRICTION_DQ_EPS, (
+        f"smc_params.yaml usa dq_eps = {p['friction']['dq_eps']} y el optimizador "
+        f"{FRICTION_DQ_EPS}")
+    # Con eps pequeno, el limitador de tasa es lo que protege a las munecas.
+    if FRICTION_DQ_EPS < 1e-3:
+        assert float(p["friction"]["ff_dv_max"]) > 0.0, \
+            "dq_eps pequeno sin limitador de tasa es la configuracion de smc_710"

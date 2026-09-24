@@ -1,0 +1,153 @@
+/usr/lib/python3/dist-packages/scipy/__init__.py:146: UserWarning: A NumPy version >=1.17.3 and <1.25.0 is required for this version of SciPy (detected version 1.26.4
+  warnings.warn(f"A NumPy version >={np_minversion} and <{np_maxversion}"
+========================================================================
+FASE 7 — sintonía multiobjetivo · controlador=smc · parametrización=full_phi
+========================================================================
+referencia : 14717 muestras · dt=0.0020 s · 29.4 s
+inercia    : diag M(q_init) = [1.05823e+00 2.59146e+00 8.81455e-01 2.32406e-02 5.35152e-03 2.57560e-04]
+variables  : 18  ['log10_lambda1', 'log10_lambda2', 'log10_lambda3', 'log10_lambda4', 'log10_lambda5', 'log10_lambda6', 'log10_eta1', 'log10_eta2', 'log10_eta3', 'log10_eta4', 'log10_eta5', 'log10_eta6', 'phi1', 'phi2', 'phi3', 'phi4', 'phi5', 'phi6']
+restricción: χ_i ≤ 0.75 · umbral_i · RMSE TCP ≤ 2.0 mm · fuerza de corte = 5.0 N
+             umbral_i = [0.22 0.22 0.32 0.99 0.99 0.99]  ->  limite = [0.165 0.165 0.24  0.742 0.742 0.742]
+             G_i = M_ii·λ_i + K_i/φ_i ≤ 120 N·m/(rad/s) en las seis juntas (probado en el robot real)
+fricción   : NINGUNA — planta ideal, NO predice el robot real
+
+FASE 5 (λ=20, η=I·1.0, φ=0.05): f=[7.9088e+00 6.5095e+04 1.3524e+05]
+  g=[-24.793    1.4283   1.1684 513.4666   0.8358   3.1346]  INFACTIBLE  ·  TCP=515.467 mm  χ=1.899
+coste por evaluación: 0.78 s
+
+cota de perturbación:
+  fuerza de corte |Jᵀw| = [6.1267e-01 3.2593e+00 1.2519e+00 6.4760e-01 2.1058e-01 2.0765e-16]
+  friccion residual     = [0.207  0.1679 0.4192 0.0234 0.     0.0281]
+  TOTAL                 = [0.8196 3.4272 1.6712 0.671  0.2106 0.0281]
+población inicial: 10 semillas derivadas + LHS
+
+── NSGA-II (pop=40, gen=60, seed=42, jobs=8) ──
+==========================================================================================
+n_gen  |  n_eval  | n_nds  |     cv_min    |     cv_avg    |      eps      |   indicator  
+==========================================================================================
+     1 |       40 |      1 |  4.2478544835 |  2.874433E+02 |             - |             -
+     2 |       80 |      1 |  4.2478544835 |  1.157603E+01 |             - |             -
+     3 |      120 |      1 |  3.4384399758 |  6.3769543041 |             - |             -
+     4 |      160 |      1 |  2.6147105857 |  4.6439864743 |             - |             -
+     5 |      200 |      1 |  1.3059392161 |  3.5428859174 |             - |             -
+     6 |      240 |      1 |  1.1776825984 |  2.6496520333 |             - |             -
+     7 |      280 |      1 |  0.8608911404 |  1.8484331048 |             - |             -
+     8 |      320 |      1 |  0.6757672348 |  1.3785449992 |             - |             -
+     9 |      360 |      1 |  0.4386426947 |  1.0428704522 |             - |             -
+    10 |      400 |      1 |  0.3651799738 |  0.8187529496 |             - |             -
+    11 |      440 |      1 |  0.2398326103 |  0.6289026546 |             - |             -
+    12 |      480 |      1 |  0.2395016690 |  0.5157701001 |             - |             -
+    13 |      520 |      1 |  0.1834926598 |  0.4356515189 |             - |             -
+    14 |      560 |      1 |  0.1834926598 |  0.3563713529 |             - |             -
+    15 |      600 |      1 |  0.1744882059 |  0.2687138254 |             - |             -
+    16 |      640 |      1 |  0.1255256920 |  0.2105061560 |             - |             -
+    17 |      680 |      1 |  0.1055413745 |  0.1801642460 |             - |             -
+    18 |      720 |      1 |  0.0885080080 |  0.1543018459 |             - |             -
+    19 |      760 |      1 |  0.0103219867 |  0.1222299012 |             - |             -
+    20 |      800 |      1 |  0.000000E+00 |  0.0942897773 |             - |             -
+    21 |      840 |      2 |  0.000000E+00 |  0.0649931563 |  1.0000000000 |         ideal
+    22 |      880 |      3 |  0.000000E+00 |  0.0343317421 |  0.2562635518 |         ideal
+    23 |      920 |      7 |  0.000000E+00 |  0.0127506476 |  0.3502523265 |         ideal
+    24 |      960 |     13 |  0.000000E+00 |  0.0047489003 |  0.4241716866 |         ideal
+    25 |     1000 |     21 |  0.000000E+00 |  0.000000E+00 |  0.0417301155 |         ideal
+    26 |     1040 |     31 |  0.000000E+00 |  0.000000E+00 |  0.0541548611 |         nadir
+    27 |     1080 |     40 |  0.000000E+00 |  0.000000E+00 |  0.5340904188 |         nadir
+    28 |     1120 |     40 |  0.000000E+00 |  0.000000E+00 |  0.1598083057 |         ideal
+    29 |     1160 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0254791806 |             f
+    30 |     1200 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0251590618 |         ideal
+    31 |     1240 |     40 |  0.000000E+00 |  0.000000E+00 |  0.2715033961 |         ideal
+    32 |     1280 |     40 |  0.000000E+00 |  0.000000E+00 |  0.3036655793 |         nadir
+    33 |     1320 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0226838840 |             f
+    34 |     1360 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0141947343 |         nadir
+    35 |     1400 |     40 |  0.000000E+00 |  0.000000E+00 |  0.1235734132 |         ideal
+    36 |     1440 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0404093012 |         ideal
+    37 |     1480 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0668320530 |         ideal
+    38 |     1520 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0033493562 |         ideal
+    39 |     1560 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0559132377 |         ideal
+    40 |     1600 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0119885770 |         ideal
+    41 |     1640 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0576817978 |         ideal
+    42 |     1680 |     40 |  0.000000E+00 |  0.000000E+00 |  0.1773230371 |         ideal
+    43 |     1720 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0738705090 |         nadir
+    44 |     1760 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0795725498 |         nadir
+    45 |     1800 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0062726901 |         ideal
+    46 |     1840 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0306933032 |         nadir
+    47 |     1880 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0295494597 |         nadir
+    48 |     1920 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0201134639 |         ideal
+    49 |     1960 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0077204050 |         nadir
+    50 |     2000 |     40 |  0.000000E+00 |  0.000000E+00 |  0.1227619610 |         nadir
+    51 |     2040 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0389965354 |         nadir
+    52 |     2080 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0079550855 |         ideal
+    53 |     2120 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0179599159 |             f
+    54 |     2160 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0135204143 |         ideal
+    55 |     2200 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0082483365 |         ideal
+    56 |     2240 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0178005745 |         nadir
+    57 |     2280 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0069983026 |         ideal
+    58 |     2320 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0136360881 |             f
+    59 |     2360 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0084637600 |             f
+    60 |     2400 |     40 |  0.000000E+00 |  0.000000E+00 |  0.0048677749 |         ideal
+  40 soluciones no dominadas · 2400 evaluaciones · 6.8 min (0.17 s/eval)
+  punto de referencia HV = [3.0832e-02 7.2767e+04 2.8558e+03]
+
+── ε-restricción + SLSQP (12 niveles sobre f1) ──
+/usr/lib/python3/dist-packages/scipy/optimize/_optimize.py:284: RuntimeWarning: Values in x were outside bounds during a minimize step, clipping to bounds
+  warnings.warn("Values in x were outside bounds during a "
+  ε[01/12] = 0.0255569  falló  (15 iter)  [Iteration limit reached]
+  ε[02/12] = 0.0257817  falló  (15 iter)  [Iteration limit reached]
+  ε[03/12] = 0.0260065  falló  (15 iter)  [Iteration limit reached]
+  ε[04/12] = 0.0262313  falló  (15 iter)  [Iteration limit reached]
+  ε[05/12] = 0.0264561  falló  (15 iter)  [Iteration limit reached]
+  ε[06/12] = 0.0266809  falló  (15 iter)  [Iteration limit reached]
+  ε[07/12] = 0.0269056  falló  (15 iter)  [Iteration limit reached]
+  ε[08/12] = 0.0271304  falló  (15 iter)  [Iteration limit reached]
+  ε[09/12] = 0.0273552  falló  (15 iter)  [Iteration limit reached]
+  ε[10/12] = 0.02758  falló  (15 iter)  [Iteration limit reached]
+  ε[11/12] = 0.0278048  falló  (15 iter)  [Iteration limit reached]
+  ε[12/12] = 0.0280295  falló  (15 iter)  [Iteration limit reached]
+  0/12 convergieron · 124.6 min
+
+factibles: NSGA-II 40/40 · ε-restricción 0/12
+
+── Métricas de frente ──
+  hv_nsga2                         74045.15682880222
+  hv_epsilon                       74576.62735222839
+  hv_combined                      74045.15682880222
+  igd_nsga2                        0.0
+  igd_epsilon                      744.4327426514026
+  coverage_nsga2_over_epsilon      0.0
+  coverage_epsilon_over_nsga2      0.35
+
+── Punto de rodilla ──
+  λ   = [ 29.544   10.5169  45.3008  49.8318 177.4878  26.7847]
+  η   = [1.998789 3.460146 2.80225  1.043026 0.380395 0.037709]
+  φ   = [0.3374 0.2261 0.2327 0.5379 0.5497 0.9541]   ·  dist. utopía (norm.) = 0.6733
+  f   = [2.64426e-02 6.61475e+04 1.17918e+03]
+  TCP = 1.8772 mm · RMSE q = 1.812e-03 · max|s| = 0.28169 · χ = 0.307
+  g   = [-2.5313e+01 -2.9329e+00 -4.3996e-01 -1.2276e-01 -9.6364e-03 -1.8977e-03]  FACTIBLE
+  [extremo min-f1 del frente: f1 = 0.025557, TCP = 1.8089 mm, χ = 0.320]
+
+── Certificación KKT (problema de ε-restricción resuelto por SLSQP) ──
+  eps_level                0.02645606983376711
+  slsqp_success            False
+  stationarity_residual    0.07252825184472562
+  stationarity_relative    0.0019719645309565627
+  max_violation            0.0012314670836894859
+  complementarity          0.0003243620808403655
+  active                   ['eps', 'g5', 'g6']
+  multipliers              {'eps': 0.7642357390098912, 'g5': 0.014848537007962532, 'g6': 0.24034258401168554}
+
+── Sensibilidad a α (ganancias fijas del knee) ──
+      α     TCP mm    max|s|       χ       TV(τ)  factible
+    0.1     4.1979   0.28282   0.307       857.1  sí
+    0.3     1.8772   0.28169   0.307      1179.2  sí
+    0.5     1.2331   0.27971   0.324      2436.2  sí
+    1.0     1.0918   2.14692   1.204    412712.0  NO
+
+── Salidas ──
+  guardado → /home/utec/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v5_g6/pareto.csv  (40 filas, método=nsga2)
+  guardado → /home/utec/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v5_g6/pareto.csv  (12 filas, método=epsilon)
+  guardado → /home/utec/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v5_g6/convergence.csv
+  guardado → /home/utec/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v5_g6/selected_gains.yaml
+  guardado → /home/utec/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v5_g6/metrics.yaml
+
+Total: 132.3 min
+rc=0

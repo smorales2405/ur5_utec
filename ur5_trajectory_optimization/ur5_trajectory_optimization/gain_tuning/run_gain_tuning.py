@@ -464,11 +464,11 @@ def main(argv=None):
     # ── Sensibilidad a alpha ─────────────────────────────────────────────────
     print("\n── Sensibilidad a α (ganancias fijas del knee) ──")
     alpha_rows = alpha_sensitivity(ev, x_knee)
-    print(f"  {'α':>5}{'TCP mm':>11}{'max|s|':>10}{'χ':>8}{'TV(τ)':>12}  factible")
+    print(f"  {'α':>5}{'TCP mm':>11}{'max|s|':>10}{'χ':>8}{'TV(τ)':>12}{'G max':>9}  factible")
     for r in alpha_rows:
         print(f"  {r['alpha']:5.1f}{r['tcp_rmse_mm']:11.4f}{r['s_max']:10.5f}"
-              f"{r['chi']:8.3f}{r['f3_chatter']:12.1f}  "
-              f"{'sí' if r['feasible'] else 'NO'}")
+              f"{r['chi']:8.3f}{r['f3_chatter']:12.1f}{r['G_max']:9.1f}  "
+              f"{'sí' if r['feasible'] else 'NO (' + ', '.join(r['violated']) + ')'}")
 
     # ── Línea base: suma ponderada sobre sustituto cúbico ────────────────────
     baseline = None

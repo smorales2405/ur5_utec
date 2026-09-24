@@ -471,9 +471,15 @@ FRICTION_REL_ERR_F_C = np.array([0.023, 0.006, 0.044, 0.007, 0.005, 0.009])
 FRICTION_REL_ERR_K = 0.005
 
 #: Ancho del `tanh` del feedforward, y por tanto de la banda que NO se compensa.
-#: Tiene que ser el MISMO que `friction.dq_eps` de `ur5_dyn_control`
-#: (smc_params.yaml y sweep_params.yaml): si divergen, el optimizador dimensiona
-#: `eta` para una banda sin compensar que el nodo no tiene, o al reves.
+#: Tiene que ser el MISMO que `friction.dq_eps` de `ur5_dyn_control/config/
+#: smc_params.yaml` —la configuracion de la INCISION, que es lo que se optimiza—:
+#: si divergen, el optimizador dimensiona `eta` para una banda sin compensar que
+#: el nodo no tiene, o al reves. Ahora lo comprueba un test.
+#:
+#: Paso dos veces. La primera, la funcion tenia 1e-3 por defecto mientras el
+#: nodo usaba 1e-5. La segunda, el nodo subio a 1e-2 tras smc_710 y esto se
+#: quedo en 1e-5: con las ganancias de smc_v5_g6 la base se clavaba en el corte
+#: (TCP 15.9 mm en Gazebo) y g5 no podia verlo (docs/07_gain_tuning.md §5.8.4).
 #:
 #: Paso: la funcion tenia 1e-3 por defecto mientras el nodo ya usaba 1e-5, y la
 #: cota salia 30x mayor de lo que corresponde — con `wrist_3` exigiendo una phi

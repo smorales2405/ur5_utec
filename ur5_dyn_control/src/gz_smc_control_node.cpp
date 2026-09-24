@@ -187,9 +187,11 @@ public:
       for (int i = 0; i < 6; ++i) {
         if (Gmax[i] > g_loop_max_) {
           RCLCPP_WARN(get_logger(),
-                      "  G de %s = %.1f en t = %.2f s: POR ENCIMA de la region "
-                      "probada en el robot real (%.0f). Ver docs/09_real_bringup.md "
-                      "§6.8 — smc_712 entro en ciclo limite con [186 240 128].",
+                      "  G de %s = %.1f en t = %.2f s: por encima de g_loop_max = "
+                      "%.0f, la cota de DISENO del optimizador. Lo probado limpio y "
+                      "el fallo, junta a junta, en docs/09_real_bringup.md §6.9 "
+                      "(smc_712 entro en ciclo limite con [179 301 128]). Con el "
+                      "bisturi montado G sube un 3-5 %%.",
                       kJointNames[static_cast<std::size_t>(i)].c_str(), Gmax[i],
                       tab ? kmax[i] * tab->dt() : 0.0, g_loop_max_);
         }

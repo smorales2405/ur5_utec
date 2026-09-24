@@ -173,13 +173,33 @@ gz_smc_control_node:
       # compensar de wrist_1 cae a 0.021 N.m (chi 0.04).
       #
       # NO bajar esto con dq_source = "measured": ahi conmutaria sobre el ruido.
-      # 1e-2 y no 1e-5. Bajarlo encoge la banda sin compensar, pero en una junta
-      # ligera lo que importa es la DERIVADA: con 1e-5 el tanh es un escalon y
-      # salta ~1 N.m entre ciclos consecutivos, que sobre M_55 = 0.00535 kg m2
-      # son 184 rad/s2. Fugo wrist_2 162 grados en el robot real (smc_710). A
-      # las velocidades de trabajo (0.05-0.5 rad/s) 1e-2 da tanh > 0.99, o sea
-      # compensacion practicamente plena.
-      dq_eps: 1.0e-2
+      #
+      # 1e-5 en la INCISION, y el limitador de tasa de abajo como proteccion de
+      # las juntas ligeras. Historia, porque este numero ya ha ido y vuelto:
+      #
+      #  - Tras smc_710 (fuga de wrist_2 en el robot) se subio a 1e-2, SIN
+      #    validar: con 1e-5 el tanh es un escalon de ~1 N.m entre ciclos, 184
+      #    rad/s2 sobre M_55 = 0.00535. Pero smc_710 corrio ademas con un payload
+      #    FANTASMA de 1.068 kg que empujaba a wrist_2 2.2x su eta
+      #    (docs/09_real_bringup.md §1.1), y la fuga no se reprodujo en Gazebo.
+      #  - 1e-2 rompe la incision: la base se mueve a 0.0023 rad/s durante el
+      #    corte, tanh(0.23) compensa el 23 % del Coulomb y la junta se CLAVA.
+      #    Medido en Gazebo con las ganancias de smc_v5_g6 (docs/07 §5.8.4):
+      #        eps 1e-2 (smc_602)  TCP 15.9 mm, base pegada el 100 % del corte
+      #        eps 1e-5 (smc_603)  TCP 0.375 mm, ni un ciclo pegada
+      #    Las ganancias viejas lo tapaban con rigidez bruta (G = 528 en la base),
+      #    que es justo lo que el robot real no aguanta.
+      #
+      # El escalon en las juntas ligeras lo acota `ff_dv_max`, que se diseno para
+      # eso: el paso maximo es ff_dv_max*M_ii/dt, 0.027 N.m por ciclo en wrist_2
+      # y 5.3 en la base, donde no estorba. smc_603 corrio con el activo.
+      #
+      # Los barridos (sweep_*.yaml) siguen en 1e-2: allí la velocidad minima es
+      # 0.05 rad/s, tanh(5) = 1, y es lo que se ensayo en el robot (713-723).
+      #
+      # El optimizador dimensiona `eta` con este mismo valor (FRICTION_DQ_EPS de
+      # problem.py); un test comprueba que coinciden.
+      dq_eps: 1.0e-5
       # Limite de tasa del feedforward [rad/s por ciclo]. Es la defensa de fondo:
       # acota el escalon aunque eps se vuelva a bajar. 0 = sin limite.
       ff_dv_max: 0.01

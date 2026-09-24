@@ -522,6 +522,81 @@ error de velocidad, y acotarla acota el ancho de banda de seguimiento.
 especificación; la de `G` está medida y es de seguridad. El precio en precisión
 de operar dentro de la región probada es un resultado a reportar.
 
+### 5.8.3 Resultado: `smc_v5_g6` (2026-09-24)
+
+`full_phi`, población 40, 60 generaciones, semilla 42, `-j 8` — la configuración
+de `smc_v4_g5` más `g6 ≤ 120` y tolerancia de TCP 2.0 mm. 132 min.
+
+| | NSGA-II | ε-restricción |
+|---|---|---|
+| factibles | **40 / 40** | **0 / 12** |
+| tiempo | 6.8 min | 124.6 min |
+
+**La ε-restricción no convergió en ningún nivel** (SLSQP agota las 15
+iteraciones), así que la selección sale sólo del frente NSGA-II y las métricas
+de comparación entre métodos (HV, IGD, cobertura) de esta corrida **no son
+reportables**: los 12 puntos ε son infactibles. Queda pendiente, y no bloquea
+las ganancias.
+
+Punto de rodilla, **factible**:
+
+| | pan | lift | codo | w1 | w2 | w3 |
+|---|---|---|---|---|---|---|
+| λ | 29.5 | 10.5 | 45.3 | 49.8 | 177.5 | 26.8 |
+| η | 2.00 | 3.46 | 2.80 | 1.04 | 0.380 | 0.038 |
+| φ | 0.337 | 0.226 | 0.233 | 0.538 | 0.550 | 0.954 |
+| **G** (evaluador, sin bisturí) | 101.9 | **119.8** | 78.1 | 4.2 | 1.7 | 0.0 |
+| **G** (banner Gazebo, con bisturí) | 104.8 | 122.1 | 81.4 | 4.5 | 2.2 | 0.0 |
+
+TCP 1.877 mm en el evaluador, χ al 31 % del umbral. KKT aproximado en el punto
+(estacionariedad relativa 0.002, violación 0.001) con **`g6` activa,
+multiplicador 0.24**: el coste de la cota de seguridad, cuantificado.
+
+Frente a `smc_v4_g5`: TCP 0.457 → 1.877 mm en el evaluador. El hombro pone su `G`
+en la mitad conmutada (λ = 10.5, φ = 0.226), no en `M·λ`.
+
+**Sensibilidad a α — corregida.** La tabla que imprime la corrida decía
+«factible» con α = 0.1 y 0.5: su criterio, escrito en línea, sólo miraba
+`g1`–`g3`. Con `constraints()`:
+
+| α | TCP [mm] | χ | G máx | |
+|---|---|---|---|---|
+| 0.1 | 4.198 | 0.307 | 101.4 | **viola g4** |
+| 0.3 | 1.877 | 0.307 | 119.8 | factible |
+| 0.5 | 1.233 | 0.324 | 165.0 | **viola g6** |
+| 1.0 | 1.092 | 1.204 | 314.5 | viola g3, g6 |
+
+Estas ganancias sólo son factibles con el α = 0.3 con el que se optimizaron. El
+`gains_file` lo fija; **no se cambia α sin re-optimizar**. (`metrics.yaml` de esta
+corrida conserva la tabla con el criterio viejo; no se edita a mano.)
+
+### 5.8.4 Verificación en Gazebo — y un `dq_eps` que rompía la incisión
+
+Incisión con la fricción real inyectada y compensada, como `smc_601`:
+
+| corrida | `dq_eps` | TCP meseta | base pegada | |
+|---|---|---|---|---|
+| `smc_601` (v4, 26-ago) | 1e-5 | 0.105 mm | 0 % | |
+| `smc_602` (v5) | **1e-2** | **15.9 mm** | **100 %** | |
+| `smc_603` (v5) | 1e-5 por launch | 0.375 mm | 0 % | |
+| `smc_604` (v5) | 1e-5, YAML nuevo | **0.368 mm** | 0 % | |
+
+En el corte la base gira a **0.0023 rad/s**. Con `dq_eps` = 1e-2 —subido tras
+`smc_710`, sin validar— `tanh(0.23)` compensa el 23 % del Coulomb: la base se
+clava, el error crece en rampa y el término conmutado (K ≈ 2 N·m) no la despega.
+Las ganancias viejas lo tapaban con `G` = 528. El optimizador seguía en 1e-5
+(`FRICTION_DQ_EPS`), así que `g5` no podía verlo: otra constante duplicada.
+
+El YAML de la incisión vuelve a 1e-5, con `ff_dv_max` como protección de las
+muñecas (acota el escalón a `ff_dv_max·M_ii/dt`: 0.027 N·m por ciclo en `wrist_2`,
+5.3 en la base). Los barridos siguen en 1e-2, donde la velocidad mínima es 0.05
+rad/s y es lo ensayado en el robot. Un test ata `FRICTION_DQ_EPS` al YAML.
+
+> Gazebo no tiene fuerza de corte; el evaluador sí (5 N). Por eso Gazebo da
+> 0.37 mm y el evaluador 1.88: no es que el evaluador sea pesimista, es que
+> mide otra cosa. Para el corte real la predicción relevante es la del
+> evaluador.
+
 ## 6. Límites de validez del evaluador
 
 Declarados en el encabezado de `closed_loop.py` y verificados contra Gazebo:

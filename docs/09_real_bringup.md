@@ -550,6 +550,21 @@ justo las dos cosas que limitan λ por arriba y por abajo.
 
 ---
 
+## 7.1 Ganancias `smc_v5_g6`: lo que falta antes de la incisión real
+
+Optimizadas con `g6` y verificadas en Gazebo (`07` §5.8.3–5.8.4). En el robot,
+con el bisturí, `G` ≈ [105, 122, 81]. Frente a lo probado (§6.9):
+
+| junta | G (v5) | probado limpio | |
+|---|---|---|---|
+| shoulder_pan | 105 | **30** | **sin probar: 3.5×** |
+| shoulder_lift | 122 | 238 | dentro |
+| elbow | 81 | 128 | dentro |
+
+Y la combinación de tres juntas altas a la vez sólo está probada en el fallo.
+Antes de cortar: barrido de cada junta grande con estas ganancias (la base
+primero), y después la incisión en vacío.
+
 ## 8. Antes de cada sesión
 
 - **Payload del pendant = 0 con la brida desnuda**, y borrado de la instalación,
