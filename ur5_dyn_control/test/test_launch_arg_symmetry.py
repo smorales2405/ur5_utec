@@ -69,7 +69,7 @@ def test_argumentos_de_control_declarados_en_ambos():
     "lambda_joint", "phi_joint", "phi", "alpha",
     "watchdog_q_err_max", "watchdog_sat_frac_max", "watchdog_sat_window",
     "friction_dq_eps", "friction_ff_dv_max", "friction_dq_source",
-    "tau_scale",
+    "tau_scale", "sweep_joint", "sweep_q_fixed", "sweep_amplitude",
 ])
 def test_argumentos_criticos_presentes(arg):
     """Los que han costado una corrida, fijados por nombre."""

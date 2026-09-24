@@ -71,6 +71,9 @@ def launch_setup(context, *args, **kwargs):
     sweep_joint = LaunchConfiguration("sweep_joint").perform(context).strip()
     if sweep_joint:
         overrides["sweep.joint"] = int(sweep_joint)
+    sweep_amp = LaunchConfiguration("sweep_amplitude").perform(context).strip()
+    if sweep_amp:
+        overrides["sweep.amplitude"] = float(sweep_amp)
     sw = LaunchConfiguration("switching_function").perform(context).strip()
     if sw:
         overrides["switching_function"] = sw
@@ -107,6 +110,7 @@ def launch_setup(context, *args, **kwargs):
                      ("friction_f_c", "friction.f_c"),
                      ("phi_joint", "phi_joint"),
                      ("lambda_joint", "lambda"),
+                     ("sweep_q_fixed", "sweep.q_fixed"),
                      ("initial_offset", "initial_offset")):
         raw = LaunchConfiguration(arg).perform(context).strip()
         if raw:
@@ -186,6 +190,12 @@ def generate_launch_description():
             description="error de seguimiento [rad] que dispara SAFE_HOLD. "
                         "0 = desactivado. Un umbral de seguridad que no se "
                         "puede fijar desde el launch no sirve de nada"),
+        DeclareLaunchArgument(
+            "sweep_q_fixed", default_value="",
+            description="6 valores [rad]: pose de las juntas NO barridas"),
+        DeclareLaunchArgument(
+            "sweep_amplitude", default_value="",
+            description="semiamplitud del barrido [rad]"),
         DeclareLaunchArgument(
             "tau_scale", default_value="",
             description="'' = usar el params_file; si no, fraccion en (0,1] "

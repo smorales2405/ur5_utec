@@ -562,8 +562,39 @@ con el bisturí, `G` ≈ [105, 122, 81]. Frente a lo probado (§6.9):
 | elbow | 81 | 128 | dentro |
 
 Y la combinación de tres juntas altas a la vez sólo está probada en el fallo.
-Antes de cortar: barrido de cada junta grande con estas ganancias (la base
-primero), y después la incisión en vacío.
+
+**Un barrido en `q_init` no prueba esto.** Allí `M₁₁` = 1.06 y en la incisión
+llega a 3.2: con las mismas ganancias, barrer la base en `q_init` da `G` ≈ 37.
+Hay que probar en la pose de la incisión.
+
+La pose de la incisión con la `G` de la base máxima (t = 15.28 s de la
+referencia) tiene **en reposo** las tres juntas grandes en su máximo de toda la
+incisión a la vez:
+
+```
+q = [1.4034, -0.6969, 1.0838, -1.9577, -1.5708, 2.9742]     G = [101, 119, 77]
+```
+
+La base es vertical: barrerla ±15° desde ahí mueve la brida en horizontal, sin
+cambiar su altura.
+
+**Plan (bisturí sin montar en los tres pasos):**
+
+| paso | test | qué | `G` esperada (sin bisturí) | τ máx / tope |
+|---|---|---|---|---|
+| 1 | 740 | codo en `q_init`: primer contacto con v5, y `check_session_config` | ≈ [37, 75, 79] | 36 % |
+| 2 | 741 | base ±15° en la pose de arriba | ≈ [109, 118, 77] | 47 % |
+| 3 | 742 | incisión en vacío | ≈ [102, 120, 78] | 29 % |
+
+Ensayados en Gazebo (`smc_751`, `750`, `604`): los tres completan sin disparar
+guardas. La brida no baja de **18.8 cm** sobre la mesa en ninguno, aproximación
+incluida. En el paso 2 recorre x ±0.21 m, y 0.49–0.80 m (delante del robot):
+esa zona tiene que estar despejada. `τ máx / tope` es `|τ − g(q)|` en Gazebo
+contra el tope al 30 %: nada debería saturar de forma legítima.
+
+Parar si dispara una guarda, o si `analyze_vibration.py` marca `VIBRACION`. En
+los pasos 2 y 3 las columnas `%` y `x/LSB` del analizador **no aplican**: están
+referidas a la pose de `q_init`.
 
 ## 8. Antes de cada sesión
 

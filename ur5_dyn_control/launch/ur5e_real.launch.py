@@ -139,6 +139,7 @@ def launch_setup(context, *args, **kwargs):
                            ("t_sim", "t_sim", float),
                            ("switching_function", "switching_function", str),
                            ("sweep_joint", "sweep.joint", int),
+                           ("sweep_amplitude", "sweep.amplitude", float),
                            ("trajectory_type", "trajectory_type", str),
                            ("friction_compensation", "friction_compensation", str),
                            ("friction_dq_source", "friction.dq_source", str),
@@ -163,6 +164,7 @@ def launch_setup(context, *args, **kwargs):
                      ("friction_f_c", "friction.f_c"),
                      ("phi_joint", "phi_joint"),
                      ("lambda_joint", "lambda"),
+                     ("sweep_q_fixed", "sweep.q_fixed"),
                      ("q_init", "q_init")):
         raw = LaunchConfiguration(arg).perform(context).strip()
         if raw:
@@ -271,6 +273,16 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "switching_function", default_value="",
             description="SMC: sign | sat"),
+        DeclareLaunchArgument(
+            "sweep_q_fixed", default_value="",
+            description="6 valores [rad]: pose en la que se sostienen las juntas "
+                        "NO barridas. '' = la del params_file (q_init). Hace "
+                        "falta para probar una junta en la pose de la INCISION: "
+                        "M_11 vale 1.06 en q_init y 3.2 con el brazo extendido, "
+                        "asi que la misma lambda da una G tres veces mayor"),
+        DeclareLaunchArgument(
+            "sweep_amplitude", default_value="",
+            description="semiamplitud del barrido [rad]. '' = params_file"),
         DeclareLaunchArgument(
             "watchdog_sat_frac_max", default_value="",
             description="fraccion de ciclos con el par SATURADO en la ventana "

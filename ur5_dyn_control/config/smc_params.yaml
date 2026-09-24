@@ -155,6 +155,13 @@ gz_smc_control_node:
     # Solo se activa pasando `friction_compensation` y los coeficientes; aqui se
     # fija dq_source y dq_eps, que son las dos decisiones de diseno.
     friction:
+      # Coeficientes MEDIDOS (docs/02_friction_real.md 8.4), los mismos que en
+      # sweep_smc_params.yaml. Estaban solo alli: la incision dependia de lo que
+      # hubiera en $FV/$FC. No hacen nada sin `friction_compensation`, y
+      # `friction_f_v:=`/`friction_f_c:=` los siguen pisando. Aviso termico
+      # (8.5): F_v cae un 9.3 % de robot frio a rodado.
+      f_v: [13.64, 11.55, 13.74, 1.28, 1.35, 2.12]
+      f_c: [6.85, 6.76, 7.46, 1.78, 1.96, 2.35]
       # `desired`: el feedforward se alimenta de la velocidad de REFERENCIA. Con
       # la medida, F_c*tanh(dq/eps) se anula justo cuando la junta esta clavada
       # y no la desbloquea nunca (docs/05_smc.md 7.1: 314x de diferencia).
