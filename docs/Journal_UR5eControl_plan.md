@@ -1,6 +1,6 @@
 # Plan actualizado — Incisión con UR5e por par: LQR-SDRE vs SMC optimizado
 
-- **Fecha:** 2026-10-27 · **Revisión 6** — **B0 cerrado** (§2.6); cuatro rondas de respuestas del usuario, §9, y la
+- **Fecha:** 2026-10-27 · **Revisión 7** — B0 cerrado (§2.6); cinco rondas de respuestas del usuario, §9, y la
   escena real del laboratorio, §2.5)
 - **Sustituye como hoja de ruta a:** `Documents/UTEC/Journal Q2/PLAN_INCISION_UR5e.md`
   (se conserva como histórico; la numeración de FASES original se cita para
@@ -48,7 +48,11 @@ con el **Computed Torque (CT)** como línea base natural.
 | D15 | Los modelos de pedestal y mesa del mundo **estaban desactualizados**; se sustituyen por los medidos sobre los reales (`ur5_base_table_dimensions.pdf` + OBJ del CAD) | §2.5 y V13: pedestal de 0.816 m (spawn a `z` = 0.816), tablero a `z` = −0.046 en `base_link`; hecho antes de B0 |
 | D16 | El robot está **centrado** sobre el mounting base; la cara del mounting base que mira a la mesa está a **5 cm** de ella (modificable si conviene) | Borde interior del fondo de la U a `base_y` = 0.376 + 0.050 = **0.426 m**; así está en `lab_incision_world.sdf` (V13) |
 | D17 | Bandeja de la fijación de **2 mm** | Altura común `surface_z` = −0.046 + 0.002 + 0.040 = **−0.004 m** (§3.5 c) |
-| D18 | La dirección del corte la fija el **filo**: con `wrist_3` en π el filo mira a la base, así que el corte va de lejos a cerca de la base | Verificado (malla + FK): filo y avance alineados a 0.000°. Recta del corte en `x` = −0.1333 = −d4: `wrist_3` = π y la base **quieta** en todo el corte (V13, §2.6) |
+| D18 | La dirección del corte la fija el **filo**: con `wrist_3` en π el filo mira a la base, así que el corte va de lejos a cerca de la base | Verificado (malla + FK): filo y avance alineados a 0.000°. Recta del corte en `x` = −0.1333 = −d4: `wrist_3` = π y la base **quieta** en todo el corte (V13, §2.6). **Confirmado** por el usuario |
+| D19 | El mounting base está **centrado lateralmente** en la abertura de la U | La escena (`u_table` en `y` = 0) coincide con el laboratorio |
+| D20 | Pinocchio 4.1 (actualizado desde 3.1 hace unos meses) se **retiene** | Hecho: `apt-mark hold` de `robotpkg-{,py310-}pinocchio` 4.1.0 y de lo que lleva compilado dentro, `robotpkg-{,py310-}coal` 3.0.4, `robotpkg-py310-eigenpy` 3.13.0, `robotpkg-{,py310-}casadi` 3.7.2. Para actualizar: `sudo apt-mark unhold <paquete>` y re-verificar (test cruzado de B0.4) |
+| D21 | Muestras aún sin comprar: el usuario las conseguirá según las **dimensiones recomendadas** | §3.5 (h) |
+| D22 | **Trabajo futuro**, tras el corte recto: corte **curvo** con la hoja tangente a la trayectoria | B10 |
 
 ### 0.2 Cambios respecto al plan original
 
@@ -99,7 +103,7 @@ cambiando solo parámetros.
    el robot; la incisión del SMC en el robot tampoco (V10).
 5. **Una sola muestra por material** fija el número de cortes posibles. La
    panceta irá en bloque (D14); falta la capacidad de Ecoflex y zapallo antes de
-   sintonizar (§9.5 R2).
+   sintonizar (§9.6 R2).
 
 **Ruta crítica** (calendario en §10)
 
@@ -440,8 +444,8 @@ lo hará la fuerza de corte (B2–B3), como ya decía V3.
 
 - `ur5e_real.launch.py` **no tiene `lqr_sdre`** (solo `gravity_comp`, `fl`,
   `smc`): el LQR-SDRE no se puede correr hoy en el robot. Entra en B4/B7.1.
-- Pinocchio **no** está retenido (§9.5 R7).
-- `smc_1.csv` quedó sobrescrito por los `dry_run` de esta sesión (§9.5 R8). Los
+- Pinocchio no estaba retenido: ya lo está, con sus dependencias (D20).
+- `smc_1.csv` quedó sobrescrito por los `dry_run` de esta sesión (§9.6 R8). Los
   tests y `dry_run` escriben ahora en directorios temporales con `test_num`
   propios.
 - `closed_loop.py` conserva en su docstring "sin retardo de tubería / estado
@@ -546,21 +550,22 @@ mm` en la del corte**:
 |---|---|---|---|---|---|
 | EVA | 400 × 250 × 40 | corte a lo largo de 250, carriles a lo largo de 400 (fuera de la zona de las asas) | ~19 | 14 | ✅ |
 | panceta | ~~200 × 50 × 40~~ → **bloque ≥ 150 × 130 × 40** (D14; p. ej. 200 × 150) | carriles a lo largo de ≥ 150, corte en ≥ 130 | 9 (12 con 200) | 9 | ✅ |
-| Ecoflex | por confirmar | — | — | 11 → ≥ 180 × 130 mm | ? |
-| zapallo | por confirmar | — | — | 9 → ≥ 150 × 130 mm | ? |
+| Ecoflex | **250 × 150 × 40** recomendado (§3.5 h) | corte a lo largo de 150, carriles a lo largo de 250 | 15 | 11 | ✅ |
+| zapallo | **2 bloques de 150 × 105 × 40** recomendados (§3.5 h) | corte a lo largo de 150, carriles a lo largo de 2 × 105 | 2 × 6 = 12 | 9 | ✅ |
 
 **Panceta resuelta con un bloque (D14).** Las alternativas (tiras de 200 × 50
 lado a lado, o acortar el trazo para todos los materiales a 30–40 mm medidos)
-quedan descartadas. Falta la capacidad de Ecoflex y zapallo (§9.5 R2), que hay
+quedan descartadas. Falta la capacidad de Ecoflex y zapallo (§9.6 R2), que hay
 que tener **antes de B5**, porque la sintonía depende de la referencia.
 
 **(b) La misma referencia para todos los cortes.** **Fijación indexada** (D13)
 que desplaza la muestra un paso `p` entre cortes en la dirección de los carriles
 (perpendicular al trazo, `base_x`), con pasadores o topes cada 15 mm: la
 trayectoria del robot es **byte a byte la misma** en todos los cortes, todas las
-leyes y —con la altura común de (c)— todos los materiales. Recorrido necesario:
-hasta 13 × 15 = 195 mm (EVA), así que la placa base de la fijación mide al menos
-el largo de la muestra más ese recorrido. Hay espacio de sobra: el fondo de la U
+leyes y —con la altura común de (c)— todos los materiales. Recorrido necesario,
+con los carriles de reserva de (h): hasta 16 × 15 = 240 mm (EVA), así que la
+placa base de la fijación mide al menos el ancho de la muestra más ese
+recorrido. Hay espacio de sobra: el fondo de la U
 mide 2.205 m en esa dirección (V13). La posición del carril se registra en el CSV
 (B0.5).
 
@@ -579,6 +584,21 @@ en `base_link` (V13), así que con la bandeja de 2 mm (D17) `surface_z` =
 **(d) Fijación.** La muestra no puede deslizar con la fuerza tangencial: bandeja
 con paredes + cinta doble cara (Ecoflex, EVA) o pasadores/mordazas laterales
 fuera de los carriles (panceta, zapallo).
+
+**(h) Dimensiones recomendadas para conseguir las muestras (D21).** Salen de
+(a): el trazo de 100 mm más 15 mm de margen a cada lado pide **130 mm** en la
+dirección del corte (se recomiendan **150**, para ±10 mm de colocación), y `n`
+carriles piden `2·15 + (n−1)·15` mm en la otra. A los carriles de campaña se
+suman **3 de reserva** por material (una corrida que aborta, un carril que el
+corte anterior deforma). Espesor **40 mm** = la altura común de (c); los
+naturales se compran más gruesos y se recortan planos.
+
+| material | conseguir (largo × ancho × espesor) | carriles | notas |
+|---|---|---|---|
+| **panceta** | bloque de **200 × 150**, espesor ≥ 45 mm para dejarlo en 40, de **una sola pieza**; + una pieza aparte de ~150 × 100 para los pilotos (D9) | 12 (9 + 3) | Piel arriba, cara superior recortada plana (D11). Si sale más delgada (30–40 mm), sirve con suplementos debajo: la hoja solo entra 5 mm. Todos los cortes en la misma dirección respecto a la pieza (anotar si van a lo largo o a lo ancho de la fibra) |
+| **zapallo** | **dos bloques de 150 × 105 × 40** de pulpa, sin cáscara y con caras planas, del **mismo** zapallo; + uno aparte para los pilotos | 2 × 6 = 12 | Un único bloque de 200 mm de ancho no sale de una pared curva: al aplanar se pierde la flecha (21 mm para 150 × 105 en un zapallo de Ø 40 cm). Conviene un **zapallo macre grande (Ø ≥ 40 cm) con pulpa ≥ 6 cm**. Si la pulpa no da, bloques de 25–30 mm sobre suplementos |
+| **Ecoflex 00-30** | placa colada de **250 × 150 × 40** (≈ 1.6 kg); + una de 150 × 100 × 40 para los pilotos (≈ 0.65 kg) | 15 (11 + 4) | Total ≈ 2.3 kg: basta un kit de 1 galón (≈ 3.6 kg). Molde nivelado para que la superficie libre, que es la de corte, salga plana; el molde puede ser la propia bandeja de la fijación |
+| **EVA** | la tabla que ya hay, **400 × 250 × 40** | hasta 25 a lo largo de 400 (17 = 14 + 3 necesarios) | Corte a lo largo de 250; carriles fuera de la zona de las asas: hacen falta 270 mm libres |
 
 **(e) Perecibles.** Panceta y zapallo cambian con las horas (secado,
 temperatura). Toda su campaña en **una sola sesión**, el día de compra o
@@ -804,7 +824,7 @@ bloque (o sub-bloque si es grande).
 | # | entregable |
 |---|---|
 | B0.0 | *(Previo, hecho el 2026-10-27: escena con los modelos reales y la holgura medida, §2.5, D16.)* **No hay reubicación**: el borde de la mesa está a 0.426 m. `cut_center_y` = 0.65 en el YAML común (sustituye al 0.85). En el laboratorio: comprobar que los planos de seguridad del pendant admiten el corte en 0.65 y la superficie en −0.004. La muestra y la fijación **no** se añaden a Gazebo como bloques rígidos (la hoja penetra 5 mm y chocaría): van con el modelo de contacto de B3. Documentar `smc_605`, `smc_732–737`; corregir `100_ur5e_real_commands.txt`. |
-| B0.1 | **Geometría del corte congelada:** `cut_center_y` 0.65, `surface_z` −0.004 (D17), trazo de 100 mm, paso `p` y margen `m` de 15 mm. Con la fijación indexada la referencia no depende del material: las medidas de Ecoflex y zapallo (§9.5 R2) solo fijan cuántos carriles caben, salvo que obliguen a acortar el trazo para todos. Esto fija la referencia de B5. |
+| B0.1 | **Geometría del corte congelada:** `cut_center_y` 0.65, `surface_z` −0.004 (D17), trazo de 100 mm, paso `p` y margen `m` de 15 mm. Con la fijación indexada la referencia no depende del material: las medidas de Ecoflex y zapallo (§9.6 R2) solo fijan cuántos carriles caben, salvo que obliguen a acortar el trazo para todos. Esto fija la referencia de B5. |
 | B0.2 | **YAML común** `config/incision_common.yaml` (`/**:`: trayectoria, herramienta, fricción, límites, IK) cargado por las tres leyes; los YAML por ley quedan solo con ganancias. Test: los tres nodos producen la **misma** tabla (hash). |
 | B0.3 | La tabla de referencia lleva la **etiqueta de fase** por muestra (`approach/contact/penetration/cut/withdraw` + `plateau`). Evaluador y análisis leen ventanas de ahí; fuera los tiempos cosidos de `closed_loop.py`. *(Toca `IncisionTrajectory`/`JointReferenceTable`: cambio de interfaz que se avisa.)* |
 | B0.4 | Evaluador: `Plant` con `tcp_offset_z = 0.162686` y la inercia del acople (igual que `Ur5Dynamics::appendBodyToJoint`), `Q_INIT` actual. Test cruzado C++↔Python de `M`, `g`, `C` en configuraciones aleatorias (< 1e-9). |
@@ -935,6 +955,32 @@ p-valores por celda.
 
 Fuera de esta fecha (D8).
 
+### B10 — Trabajo futuro: corte curvo con la hoja tangente (D22)
+
+Después de cerrar la campaña del corte recto. El trazo pasa a ser una curva
+plana sobre la superficie (arco, clotoide o spline) y la hoja tiene que ir
+**tangente a la trayectoria** con el filo por delante, como hoy en la recta
+(D18): el ángulo de guiñada del TCP sigue al de la tangente, `ψ(s)`, y lo
+absorbe sobre todo `wrist_3`.
+
+Lo que cambia respecto a lo que hay:
+
+- **Levanta el supuesto A4** (orientación constante). `IncisionTrajectory`
+  necesita `orientation(t)`, y `JointReferenceGenerator` el bloque angular de
+  `ẋ` y `ẍ`, que hoy fija a cero (`ω = ψ̇ ẑ`, `ω̇ = ψ̈ ẑ`). La IK ya resuelve con
+  la orientación de cada muestra.
+- **Métricas nuevas:** error de orientación del filo respecto a la tangente
+  (guiñada), además del de posición; error lateral respecto a la curva.
+- **Límites de la geometría:** el giro total de `wrist_3` (±2π en el UR5e) y la
+  **curvatura mínima**: la hoja, con longitud `l` dentro del material, barre
+  lateralmente `l²/(8R)`; con `l` ≈ 10 mm y `R` = 50 mm son 0.25 mm. Hay que
+  fijar `R_min` con pilotos.
+- **Control:** `wrist_3` deja de estar parada en el corte, así que vuelve su
+  fricción a baja velocidad (la junta que más costó en la FASE 2 real). La
+  comparación de las tres leyes se repite con la misma metodología (B5–B8).
+- **Paper:** hoy se declara que el trabajo no demuestra seguimiento de
+  orientación bajo par (A4); B10 sería esa demostración.
+
 ---
 
 ## 7. Datos físicos pendientes (no se inventan)
@@ -942,7 +988,7 @@ Fuera de esta fecha (D8).
 | dato | para qué | cómo |
 |---|---|---|
 | ~~distancia del eje del robot a la mesa~~ | — | **medida: 5 cm de holgura, borde a 0.426 (D16)** |
-| dimensiones de Ecoflex y zapallo | capacidad de carriles (§3.5 a) | regla/calibrador (§9.5 R2) |
+| dimensiones de Ecoflex y zapallo | capacidad de carriles (§3.5 a) | regla/calibrador (§9.6 R2) |
 | ~~espesor de la bandeja~~ | — | **2 mm (D17)** |
 | `surface_z` de cada carril | profundidad real del corte | toque con la punta en 3 puntos antes de cortar |
 | masa del acople | A1, gravedad en muñeca | báscula |
@@ -1003,15 +1049,19 @@ R3 robot centrado en el mounting base; 5 cm de holgura medida con la mesa,
 modificable (D16) · R4 bandeja de 2 mm (D17) · R5 iniciar B0 tras las
 modificaciones, con el cambio de escena en un commit aparte · R2 aún sin medidas.
 
-### 9.5 Pendiente
+### 9.5 Quinta ronda (2026-10-27) → §0.1
+
+R7 retener Pinocchio si hace falta: retenido con sus dependencias (D20) · R6
+centrado lateralmente: sí (D19) · R2 sin materiales aún: se piden dimensiones
+recomendadas para los cuatro (D21, §3.5 h) · R9 trazo confirmado; el corte curvo
+con la hoja tangente queda como trabajo futuro (D22, B10).
+
+### 9.6 Pendiente
 
 | # | pregunta | por qué importa |
 |---|---|---|
-| **R7** | **Retener Pinocchio**: `sudo apt-mark hold robotpkg-pinocchio robotpkg-py310-pinocchio` (no está retenido; un `apt upgrade` cambiaría la dinámica de los tres controladores y del evaluador sin aviso). | B0.6; requiere sudo |
+| **R2** | Conseguir las muestras según §3.5 (h) y confirmar sus medidas reales al tenerlas. | Fija N por material; la referencia no cambia salvo que obligue a acortar el trazo |
 | **R8** | ¿Lanzaste tú `smc_605` hoy a las 12:01? ¿Y había una corrida tuya en `smc_1.csv`? Los `dry_run` de esta sesión la sobrescribieron con un CSV vacío (test_num por defecto). | Trazabilidad (§2.4) |
-| **R9** | Confirmar D18: recta del corte en `x` = −0.1333 (q6 = π, la base quieta) en vez de `x` = 0. | Fija la referencia de B5 |
-| **R2** | Dimensiones de Ecoflex y zapallo. Necesarias: Ecoflex ≥ 180 × 130 mm de cara útil (11 carriles), zapallo ≥ 150 × 130 mm (9 carriles); espesor ≥ 40 mm o suplementos. | Solo fija N salvo que obligue a acortar el trazo (B0.1) |
-| **R6** | ¿El mounting base está centrado **lateralmente** en la abertura de la U (≈ 12.65 cm a cada lado)? La escena lo supone. | Holgura lateral de la escena; no afecta al corte |
 
 ---
 
