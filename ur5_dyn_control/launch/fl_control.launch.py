@@ -66,6 +66,10 @@ def launch_setup(context, *args, **kwargs):
     node = Node(
         package="ur5_dyn_control",
         executable="gz_fl_control_node",
+        # Con nombre: los overrides de abajo se escriben como `/<nodo>:` y no como
+        # `/**:`, y ganan a los YAML (rclcpp da prioridad a la seccion con nombre
+        # sobre las comodin). Sin el, se ignoraban en silencio (2026-10-27).
+        name="gz_fl_control_node",
         output="screen",
         # B0.2: incision_common.yaml delante si el params_file es de incision
         # (incision_params.yaml); fl_control_params.yaml y sweep_params.yaml no

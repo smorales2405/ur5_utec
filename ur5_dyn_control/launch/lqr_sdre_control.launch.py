@@ -92,6 +92,10 @@ def launch_setup(context, *args, **kwargs):
     node = Node(
         package="ur5_dyn_control",
         executable="gz_lqr_sdre_control_node",
+        # Con nombre: los overrides de abajo se escriben como `/<nodo>:` y no como
+        # `/**:`, y ganan a los YAML (rclcpp da prioridad a la seccion con nombre
+        # sobre las comodin). Sin el, se ignoraban en silencio (2026-10-27).
+        name="gz_lqr_sdre_control_node",
         output="screen",
         parameters=params + [
             {

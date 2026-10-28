@@ -18,7 +18,14 @@
 #      --params-file <share>/config/smc_params.yaml
 # ============================================================================
 
-gz_smc_control_node:
+# Seccion `/**` (comodin), como incision_common.yaml, y NO `<nodo>:`. En rclcpp
+# una seccion con el nombre del nodo gana a TODAS las comodin, y los overrides
+# de los launches y los `-p` de linea de comandos son comodin: con `<nodo>:` aqui
+# se ignoraban EN SILENCIO (medido 2026-10-27 con `lambda` y `lqr.wn`).
+# Entre comodines gana el ultimo cargado: comun < esta ley < -p. Los
+# launches nombran el Node, asi que sus overrides llevan el nombre y ganan a todo,
+# tambien al gains_file (que lleva `gz_smc_control_node:`).
+/**:
   ros__parameters:
     # Hace que los launches carguen incision_common.yaml antes de este fichero.
     trajectory_type: "incision"

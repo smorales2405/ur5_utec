@@ -204,6 +204,10 @@ def launch_setup(context, *args, **kwargs):
     return [Node(
         package="ur5_dyn_control",
         executable=EXECUTABLES[controller],
+        # Con nombre: los overrides de abajo se escriben como `/<nodo>:` y no como
+        # `/**:`, y ganan a los YAML (rclcpp da prioridad a la seccion con nombre
+        # sobre las comodin). Sin el, se ignoraban en silencio (2026-10-27).
+        name=EXECUTABLES[controller],
         output="screen",
         emulate_tty=True,
         parameters=params + [real, optional, session_overrides(context)],

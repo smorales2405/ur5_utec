@@ -280,3 +280,46 @@ def test_el_filo_va_por_delante_y_wrist3_en_pi(tablas):
     np.testing.assert_allclose(q[plateau, 5], np.pi, atol=1e-3)
     assert np.ptp(q[plateau, 0]) < 1e-6
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Precedencia de parametros (regresion de B0, 2026-10-27)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _sidecar_params(path):
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh)
+    (section,) = doc.values()
+    return section["ros__parameters"]
+
+
+def test_override_con_nombre_gana_al_yaml_y_al_gains_file(tmp_path):
+    """Los launches nombran el Node, asi que launch_ros escribe sus overrides
+    como `/<nodo>:`. Tienen que ganar al YAML de la ley y al gains_file. Con el
+    YAML de la ley en `<nodo>:` y el comun `/**` delante, un override comodin se
+    ignoraba en silencio (lambda_joint, phi, wn de los launches)."""
+    gains = os.path.join(_PKG, "..", "ur5_trajectory_optimization", "results",
+                         "gain_tuning", "smc_v5_g6", "selected_gains.yaml")
+    if not os.path.exists(gains):
+        pytest.skip("no esta el fichero de ganancias smc_v5_g6")
+    over = tmp_path / "launch_override.yaml"
+    over.write_text("/gz_smc_control_node:\n  ros__parameters:\n"
+                    "    lambda: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]\n")
+    proc = _dry_run(_executable("gz_smc_control_node"),
+                    [os.path.join(_CONFIG, "incision_common.yaml"),
+                     os.path.join(_CONFIG, "smc_params.yaml"), gains, str(over)],
+                    str(tmp_path), 9300)
+    _wait({"smc": proc})
+    p = _sidecar_params(glob.glob(proc[2])[0])
+    assert p["lambda"] == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+
+
+def test_p_de_linea_de_comandos_gana_al_yaml_de_la_ley(tmp_path):
+    """Un `-p` (comodin) tiene que pisar una clave del YAML de la ley."""
+    proc = _dry_run(_executable("gz_lqr_sdre_control_node"),
+                    [os.path.join(_CONFIG, "incision_common.yaml"),
+                     os.path.join(_CONFIG, "lqr_sdre_params.yaml")],
+                    str(tmp_path), 9301, extra=(("lqr.wn", "7.5"),))
+    _wait({"lqr": proc})
+    p = _sidecar_params(glob.glob(proc[2])[0])
+    assert p["lqr.wn"] == 7.5
