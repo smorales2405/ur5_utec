@@ -10,6 +10,8 @@
 
 #include <ur5_kinematics/kinematics.hpp>
 
+#include "ur5_dyn_control/incision_trajectory.hpp"
+
 namespace ur5_dyn_control
 {
 
@@ -80,6 +82,8 @@ bool JointReferenceGenerator::build(double dt, std::string & error_msg)
 {
   dt_ = dt;
   table_.clear();
+  segment_.clear();
+  plateau_.clear();
   diag_ = TrajectoryDiagnostics();
   diag_.sigma_min = std::numeric_limits<double>::infinity();
   diag_.manipulability_min = std::numeric_limits<double>::infinity();
@@ -199,6 +203,19 @@ bool JointReferenceGenerator::build(double dt, std::string & error_msg)
 
     table_.push_back(ref);
     q_prev = ref.q;
+  }
+
+  // B0.3: etiqueta de fase por muestra, con el MISMO t que se uso arriba. Solo
+  // la incision tiene fases; para el resto de trayectorias queda vacia.
+  if (const auto inc = std::dynamic_pointer_cast<IncisionTrajectory>(traj_)) {
+    const auto & cut = inc->phase(IncisionPhaseId::CUT);
+    segment_.reserve(table_.size());
+    plateau_.reserve(table_.size());
+    for (std::size_t k = 0; k < table_.size(); ++k) {
+      const double t = std::min(t0 + static_cast<double>(k) * dt, tN);
+      segment_.emplace_back(toString(inc->phaseAt(t)));
+      plateau_.push_back((t >= cut.plateau_t0 && t <= cut.plateau_t1) ? 1 : 0);
+    }
   }
 
   error_msg.clear();

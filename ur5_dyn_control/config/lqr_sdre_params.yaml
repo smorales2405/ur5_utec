@@ -1,66 +1,22 @@
 # ============================================================================
-#  LQR-SDRE sobre la trayectoria de INCISION — FASE 4 del plan (Journal Q2)
+#  LQR-SDRE sobre la trayectoria de INCISION — pesos de la ley (FASE 4)
 #
-#  Controlador: gz_lqr_sdre_control_node. MISMA trayectoria de incision que el
-#  FL y el SMC, para que la comparacion del paper sea a igualdad de referencia.
-#  Solo cambian la ley y sus pesos.
+#  Controlador: gz_lqr_sdre_control_node. La trayectoria, la herramienta, la
+#  friccion y los limites NO estan aqui: viven en incision_common.yaml, que los
+#  launches cargan ANTES de este fichero porque declara
+#  `trajectory_type: incision` (launch/param_layers.py). Solo cambian la ley y
+#  sus pesos. Ver docs/04_lqr_sdre.md.
 #
-#  Geometria (frame base_link; en Gazebo z_mundo = z + 0.816):
-#
-#      z
-#    0.35 ┤ ●  start_pose = FK(q_init)
-#         │  \
-#    0.06 ┤   ●───────────────●          z_above    = surface_z + approach_height
-#         │   │               ↑
-#    0.03 ┤   ●━━━━━━━━━━━━━━━┿━━━━━━━    plano de corte nominal (surface_z)
-#    0.025┤   ●───────────────●           z_cut = surface_z - cut_depth
-#         └───┴───────────────┴──────→ world_x  (= base_y)
-#          0.80  0.79       0.71  0.70   (sentido -1: decreciente)
-#          approach → contact → penetration → cut → withdraw
-#          trazo total 100 mm; los 80 mm centrales a feed constante (medidos)
-#
-#  Supuestos vigentes: A1 (sin masa de herramienta), A2 (punta de hoja =
-#  gripper_tcp), A3 (metricas en base_link), A4 (orientacion TCP constante).
-#  Ver docs/00_assumptions.md y docs/04_lqr_sdre.md.
+#  Ejecucion directa (sin launch): pasar los DOS ficheros, el comun primero:
+#    ros2 run ur5_dyn_control gz_lqr_sdre_control_node --ros-args \
+#      --params-file <share>/config/incision_common.yaml \
+#      --params-file <share>/config/lqr_sdre_params.yaml
 # ============================================================================
 
 gz_lqr_sdre_control_node:
   ros__parameters:
-    use_sim_time: true
-
-    control_rate: 500.0
-
-    urdf_path: ""
-    gravity: 9.8
-    q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
-
-    # G3 — true en Gazebo; false en el UR5e real (docs/00_prereqs.md).
-    gravity_in_command: true
-
-    # A2 / A1 (docs/00_assumptions.md)
-    tcp_offset_z: 0.162686               # punta de la hoja (malla del acople)
-    # A1 LEVANTADO: el acople porta-bisturi va montado en la planta
-    # (urdf/scalpel_tool.xacro) y estos valores lo meten en el modelo de
-    # Pinocchio del controlador. Los dos van juntos o el controlador compensa
-    # una gravedad que no es la de la planta.
-    # physical_properites_toolscalpel.png: 0.182 kg, CoG (-2.227, 2.134,
-    # 29.398) mm desde tool0; aqui en el frame TCP (= CoG - [0,0,tcp_offset_z]).
-    tool_mass: 0.182                     # [kg]
-    tool_com: [-0.002227, 0.002134, -0.133288]           # [m] en el frame TCP
-    tool_inertia: [2.39199e-4, 2.54858e-4, 1.19620e-4,   # [kg m^2] resp. al CoM
-                   -8.80e-7, -3.820e-6, -7.570e-6]       # [Ixx,Iyy,Izz,Ixy,Ixz,Iyz]
-
-    command_topic: "/forward_effort_controller/commands"
-    controller_manager: "/controller_manager"
-    activate_controllers: ["joint_state_broadcaster", "forward_effort_controller"]
-    perform_switch: true
-    perform_unpause: true
-    world_name: "default"
-
-    hold_start_duration: 1.0
-    transition_duration: 3.0
-    t_sim: 2.0
-    skip_trajectory: false
+    # Hace que los launches carguen incision_common.yaml antes de este fichero.
+    trajectory_type: "incision"
 
     # -- Pesos del LQR-SDRE (FASE 4) -----------------------------------------
     #
@@ -137,80 +93,3 @@ gz_lqr_sdre_control_node:
     # tiempos que pide el plan.
     lqr.diag_csv: true
     lqr.diag_decimation: 1
-
-    tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
-
-    # -- Trayectoria ---------------------------------------------------------
-    trajectory_type: "incision"
-
-    # A4 — orientacion del TCP constante, gripper hacia abajo.
-    tcp_orientation_rpy: [3.14159265, 0.0, 3.14159265]
-
-    incision:
-      # Pose de partida: FK(q_init), para que la rampa inicial sea minima.
-      start_pose: [-0.1333, 0.4919, 0.3469]
-
-      surface_z: 0.03             # [m] plano de corte nominal.
-      # NO hay muestra de tejido en el mundo: el trazo se hace en aire y este
-      # valor solo fija la ALTURA. Se subio de 0.02 a 0.03 para dejar 25 mm de
-      # holgura entre la punta de la hoja y la mesa (antes 15 mm), que es el
-      # margen con el que se valida en el robot real. Si algun dia se apoya una
-      # muestra, este valor pasa a ser su espesor y hay que anadir el modelo al
-      # mundo, porque hoy la simulacion NO tiene fuerza de contacto.
-      # OJO con los nombres: NO siguen al eje. En incision_trajectory.cpp,
-      #   cut_axis "y" -> punto = (cut_x, cut_center_y + offset)   -> cut_x FIJO
-      #   cut_axis "x" -> punto = (cut_x + offset, cut_center_y)   -> cut_x CENTRO
-      # Con eje X, cut_x es el CENTRO del trazo y cut_center_y la coordenada fija.
-      # La base del robot esta girada -90 deg en el mundo (ver el spawn en
-      # ur5e_effort_gz.launch.py), asi que base_link tambien: world_x = base_y,
-      # world_y = -base_x. El trazo se describe en BASE_LINK, y estos valores
-      # son los que lo dejan en world x[0.70, 0.80], y = 0 — encima de la mesa,
-      # exactamente donde estaba antes de girar la base.
-      cut_x: 0.0                  # [m] coordenada FIJA en x (base_link)
-      cut_center_y: 0.75          # [m] centro del trazo (eje Y de base_link)
-      # El trazo recorre X. Antes recorria Y "manipulabilidad ~constante": al
-      # ir en X cambia la distancia radial a la base, asi que la
-      # manipulabilidad SI varia a lo largo del corte. Medido: sigma_min(J) =
-      # 0.2168 (umbral 0.05) frente a 0.2432 del trazo en Y, asi que hay
-      # margen de sobra; pero al interpretar el error de seguimiento hay que
-      # tener presente que puede variar a lo largo del trazo por geometria y
-      # no por el controlador.
-      cut_axis: "y"
-      # Sentido del recorrido a lo largo de cut_axis: +1 o -1.
-      #   +1 -> base_y CRECIENTE (world_x 0.70 -> 0.80): se ALEJA
-      #   -1 -> base_y DECRECIENTE (world_x 0.80 -> 0.70): se ACERCA
-      # Invierte las CINCO fases: aproximacion, contacto y penetracion
-      # pasan al extremo por el que ahora se empieza, y la retirada al otro.
-      cut_direction: -1
-      cut_length: 0.08            # [m] 80 mm MEDIDOS, integros a feed constante
-      cut_lead: 0.010             # [m] entrada/salida a cada lado (rampas)
-      cut_depth: 0.005            # [m] 5 mm
-      approach_height: 0.03       # [m] cota de aproximacion sobre la superficie
-
-      v_approach: 0.10
-      v_contact: 0.015
-      v_penetration: 0.005
-      v_cut: 0.010                # FEED del corte: 10 mm/s
-      v_withdraw: 0.05
-
-      ramp_fraction_move: 0.5
-      dwell: 0.3                  # [s] reposo entre fases
-
-    # -- IK (QP de ur5_kinematics, target gripper_tcp) ------------------------
-    ik_seed: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
-    ik_max_iterations: 450
-    ik_alpha: 0.5
-    ik_weight_pos: 1.0
-    ik_weight_orient: 1.0
-    ik_fk_tol: 0.005
-    q_jump_tol: 0.15
-
-    # -- Validacion de la tabla de referencias (FASE 1) ----------------------
-    dq_max:  [3.14159, 3.14159, 3.14159, 3.14159, 3.14159, 3.14159]
-    ddq_max: [5.0, 5.0, 5.0, 5.0, 5.0, 5.0]
-    sigma_min_threshold: 0.05
-    manipulability_threshold: 0.0     # 0 = desactivado (se registra igualmente)
-
-    csv_output_dir: ""
-    test_num: 1
-    csv_hold_decimation: 10

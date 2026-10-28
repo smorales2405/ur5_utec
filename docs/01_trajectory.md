@@ -8,11 +8,21 @@ Cierre de la FASE 1 del plan `PLAN_INCISION_UR5e.md`.
 
 ---
 
+> **Geometría vigente desde B0 (2026-10-27).** Las tablas de abajo son las de la
+> FASE 1. La de la campaña vive en `config/incision_common.yaml`, común a las
+> tres leyes (B0.2 de `Journal_UR5eControl_plan.md`): recta del corte en
+> `x = −0.1333` (q6 = π y la base quieta en todo el corte, D18), centro en
+> `base_y = 0.65` (de 0.70 a 0.60, hacia la base), superficie en `z = −0.004`
+> (tablero real a −0.046 + bandeja de 2 mm + muestra de 40 mm), mismos 80 mm a
+> 10 mm/s y 5 mm de profundidad. σ_min = 0.2014, w_min = 0.0819, 28.25 s, meseta
+> de 8.00 s. La tabla exportada (`reference_table_out`) lleva por muestra la
+> fase (`approach` … `withdraw`) y la columna `plateau` (B0.3).
+
 ## 1. Parámetros de la incisión (decisiones del usuario)
 
 | Parámetro | Valor | Justificación |
 |---|---|---|
-| Superficie del tejido | `z = 0.02 m` (base_link) | La mesa de cirugía queda exactamente en `z = 0.00`: pedestal del robot y mesa miden ambos 0.63 m. Es el espesor de una muestra fina apoyada sobre ella. **Desde el 2026-10-27 la escena usa las medidas reales** (pedestal 0.816 m, tablero 0.770 m): el tablero queda en `z = −0.046` y este valor se revisa en la geometría congelada (B0.1 de `Journal_UR5eControl_plan.md`). |
+| Superficie del tejido | `z = 0.02 m` (base_link) | La mesa de cirugía queda exactamente en `z = 0.00`: pedestal del robot y mesa miden ambos 0.63 m. Es el espesor de una muestra fina apoyada sobre ella. **Desde el 2026-10-27 la escena usa las medidas reales** (pedestal 0.816 m, tablero 0.770 m): el tablero queda en `z = −0.046`, y la geometría congelada (B0.1) pone la superficie en `z = −0.004`. |
 | Longitud del corte **medida** | **80 mm** | Largo frente a la repetibilidad del UR5e (±0.03 mm) y a los ~0.03 mm de RMSE del lazo. Se recorre **íntegra** a feed constante. |
 | Entrada / salida (`cut_lead`) | **10 mm** a cada lado | Las rampas de aceleración y frenado ocurren aquí, fuera del tramo medido. Trazo total de material: **100 mm**. |
 | Profundidad | **5 mm** | Medible con calibrador; alcanzable en los 4 materiales. |

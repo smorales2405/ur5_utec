@@ -245,7 +245,8 @@ def main(argv=None):
     # La cota se calcula ANTES del evaluador: g5 la necesita. Antes se calculaba
     # despues y solo servia para sembrar, que es lo que invalido las dos
     # primeras corridas.
-    _force = CuttingForce(f_cut=args.f_cut) if args.f_cut > 0 else None
+    _force = (CuttingForce.from_reference(ref, f_cut=args.f_cut)
+              if args.f_cut > 0 else None)
     d_force = (disturbance_bound(plant, ref, _force)
                if _force is not None else np.zeros(6))
     d_fric = friction_residual_bound(ref, FRICTION_REAL_G4_0)

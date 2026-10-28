@@ -45,7 +45,36 @@ import pinocchio as pin
 
 TAU_MAX = np.array([150.0, 150.0, 150.0, 28.0, 28.0, 28.0])
 DQ_MAX = np.full(6, np.pi)
-Q_INIT = np.array([0.0, -np.pi / 2, np.pi / 2, -np.pi / 2, -np.pi / 2, 0.0])
+#: q_init de la incisión, el mismo que `q_init` de
+#: ur5_dyn_control/config/incision_common.yaml (lo comprueba un test).
+Q_INIT = np.array([1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416])
+#: q_init de la FASE 5, con el que se dimensionó el `eta` de smc_params.yaml
+#: (diag M sin herramienta). Solo para reproducir aquello.
+Q_INIT_FASE5 = np.array([0.0, -np.pi / 2, np.pi / 2, -np.pi / 2, -np.pi / 2, 0.0])
+
+#: tool0 -> punta de la hoja (`tcp_offset_z` de incision_common.yaml).
+TCP_OFFSET = 0.162686
+#: TCP de antes del acople (FASE 1-7). Solo para reproducir resultados viejos.
+TCP_OFFSET_FASE5 = 0.141
+
+
+@dataclass(frozen=True)
+class Tool:
+    """Inercia de la herramienta en el frame TCP, como `ToolInertia` en C++.
+
+    `inertia` = [Ixx, Iyy, Izz, Ixy, Ixz, Iyz] respecto al CoM, el mismo orden
+    que `tool_inertia` en los YAML.
+    """
+    mass: float
+    com: tuple
+    inertia: tuple
+
+
+#: Acople porta-bisturí (A1 levantado): `tool_*` de incision_common.yaml.
+TOOL_SCALPEL = Tool(
+    mass=0.182,
+    com=(-0.002227, 0.002134, -0.133288),
+    inertia=(2.39199e-4, 2.54858e-4, 1.19620e-4, -8.80e-7, -3.820e-6, -7.570e-6))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -58,19 +87,36 @@ class Reference:
     q: np.ndarray        # (N, 6)
     dq: np.ndarray
     ddq: np.ndarray
-    phase: np.ndarray    # (N,) etiquetas
+    phase: np.ndarray    # (N,) fase de la incisión (approach ... withdraw)
+    #: (N,) bool: meseta de feed constante del corte (columna `plateau`).
+    #: None = tabla sin etiquetas (anterior a B0.3).
+    plateau: np.ndarray | None = None
 
     @property
     def n(self) -> int:
         return len(self.q)
 
     def cut_plateau_mask(self) -> np.ndarray:
-        """Muestras del régimen del corte (donde se miden las métricas)."""
-        # La etiqueta la pone el generador; para la incisión el nodo emite
-        # "TRACK", así que se cae a la ventana temporal documentada en
-        # docs/01_trajectory.md.
-        t = np.arange(self.n) * self.dt
-        return (t >= 15.90) & (t <= 23.90)
+        """Muestras del régimen del corte (donde se miden las métricas).
+
+        Sale de la columna `plateau` que exporta el nodo (B0.3). Antes era una
+        ventana de tiempos escrita a mano (15.90-23.90 s), cosida a la
+        trayectoria de julio: con la de septiembre caía 1.7 s antes del corte
+        (V5 del plan). Una tabla sin etiquetas es un error, no un fallback.
+        """
+        if self.plateau is None:
+            raise ValueError(
+                "la referencia no trae la columna `plateau`: regenerarla con "
+                "reference_table_out (ur5_dyn_control, B0.3)")
+        return np.asarray(self.plateau, dtype=bool)
+
+    def phase_window(self, name: str) -> tuple:
+        """(t_inicio, t_fin) de la fase `name` en la tabla, en segundos."""
+        idx = np.flatnonzero(self.phase == name)
+        if idx.size == 0:
+            raise ValueError(f"la referencia no tiene la fase {name!r} "
+                             f"(fases: {sorted(set(self.phase))})")
+        return float(idx[0] * self.dt), float(idx[-1] * self.dt)
 
 
 def load_reference(path: str) -> Reference:
@@ -91,8 +137,10 @@ def load_reference(path: str) -> Reference:
     d = np.genfromtxt(path, delimiter=",", names=True, dtype=None,
                       encoding="utf-8", skip_header=n_meta)
     col = lambda p: np.column_stack([d[p % i] for i in range(1, 7)])  # noqa: E731
+    plateau = (np.asarray(d["plateau"], dtype=int) == 1
+               if "plateau" in d.dtype.names else None)
     return Reference(dt=dt, q=col("q%d"), dq=col("dq%d"), ddq=col("ddq%d"),
-                     phase=np.asarray(d["phase"], dtype=str))
+                     phase=np.asarray(d["phase"], dtype=str), plateau=plateau)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,16 +162,30 @@ class CuttingForce:
     f_cut: float = 5.0          # [N] meseta de fuerza de corte
     noise_std: float = 0.5      # [N] rugosidad del material
     seed: int = 0
-    t_penetration: tuple = (11.60, 13.60)
-    t_cut: tuple = (13.90, 25.90)
+    # Ventanas [s] de la penetración y del corte. Sin default: salen de las
+    # etiquetas de la tabla con `from_reference` (B0.3). Las de antes estaban
+    # escritas a mano, (11.60, 13.60) y (13.90, 25.90), y la fuerza actuaba
+    # 1.7 s antes de que la punta llegara a la profundidad de corte (V5).
+    t_penetration: tuple | None = None
+    t_cut: tuple | None = None
     # Fuerza que el ROBOT ejerce sobre el tejido (`simulate` aplica la reacción
     # −Jᵀw sobre el brazo): normal hacia dentro del tejido (−z, mantiene la
     # profundidad) más arrastre a lo largo del avance (+y, el eje del trazo).
     direction: np.ndarray = field(
         default_factory=lambda: np.array([0.0, 1.0, -1.0]) / np.sqrt(2.0))
 
+    @classmethod
+    def from_reference(cls, ref: "Reference", **kw) -> "CuttingForce":
+        """Fuerza con las ventanas de las fases `penetration` y `cut` de la
+        tabla: actúa exactamente mientras la punta penetra y corta."""
+        return cls(t_penetration=ref.phase_window("penetration"),
+                   t_cut=ref.phase_window("cut"), **kw)
+
     def wrench(self, t: float, rng: np.random.Generator) -> np.ndarray:
         """Wrench 6D en el TCP (LOCAL_WORLD_ALIGNED), [f; tau]."""
+        if self.t_penetration is None or self.t_cut is None:
+            raise ValueError("CuttingForce sin ventanas: usar "
+                             "CuttingForce.from_reference(ref, ...)")
         f = 0.0
         if self.t_penetration[0] <= t < self.t_penetration[1]:
             a, b = self.t_penetration
@@ -327,19 +389,34 @@ class Plant:
 
     Existe porque `simulate` se llama miles de veces desde el optimizador:
     reconstruir el modelo desde el URDF en cada evaluación costaba más que
-    varios pasos de integración. Es el mismo modelo, la misma gravedad y el
-    mismo offset de TCP que `Ur5Dynamics` en C++.
+    varios pasos de integración. Es el mismo modelo, la misma gravedad, el
+    mismo TCP y la misma herramienta que `Ur5Dynamics` en C++ con la
+    configuración de la incisión; lo comprueba un test cruzado contra el C++
+    (ur5_dyn_control/test/test_dynamics_cross.py) en configuraciones
+    aleatorias. Hasta B0 era el brazo sin acople y con el TCP de 0.141 m (V2 del
+    plan): `tcp_offset=TCP_OFFSET_FASE5, tool=None` lo reproduce.
     """
 
     def __init__(self, urdf: str, gravity: float = 9.8,
-                 tcp_frame: str = "gripper_tcp", tcp_offset: float = 0.141):
+                 tcp_frame: str = "gripper_tcp", tcp_offset: float = TCP_OFFSET,
+                 tool: Tool | None = TOOL_SCALPEL):
         self.model = pin.buildModelFromUrdf(urdf)
         self.model.gravity.linear = np.array([0.0, 0.0, -gravity])
         f0 = self.model.frames[self.model.getFrameId("tool0")]
+        tcp_placement = f0.placement * pin.SE3(np.eye(3),
+                                               np.array([0, 0, tcp_offset]))
+        # Igual que Ur5Dynamics: la inercia del acople se cuelga del joint de
+        # tool0 con el placement del TCP, y `com` va en el frame TCP.
+        if tool is not None and tool.mass > 0.0:
+            xx, yy, zz, xy, xz, yz = tool.inertia
+            inertia = np.array([[xx, xy, xz], [xy, yy, yz], [xz, yz, zz]])
+            self.model.appendBodyToJoint(
+                f0.parentJoint,
+                pin.Inertia(tool.mass, np.array(tool.com, dtype=float), inertia),
+                tcp_placement)
         self.tcp = self.model.addFrame(pin.Frame(
             tcp_frame, f0.parentJoint, self.model.getFrameId("tool0"),
-            f0.placement * pin.SE3(np.eye(3), np.array([0, 0, tcp_offset])),
-            pin.OP_FRAME))
+            tcp_placement, pin.OP_FRAME))
         self.data = self.model.createData()
 
     def inertia_diag(self, q) -> np.ndarray:

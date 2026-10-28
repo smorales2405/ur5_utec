@@ -168,6 +168,30 @@ tau_sat, s, xyz, xyz_des, wrench, state`.
 > `skip_header`. Ha mordido dos veces en este proyecto; está documentado en
 > `csv_logger.hpp` y cubierto por un test de regresión.
 
+### Bloque común de la incisión y trazabilidad (B0)
+
+Las tres leyes de la comparación (CT = `gz_fl_control_node` con
+`incision_params.yaml`, LQR-SDRE y SMC) ejecutan **la misma tabla**: la
+trayectoria, la herramienta, la fricción y los límites viven en
+`config/incision_common.yaml`, y el YAML de cada ley solo lleva sus ganancias y
+`trajectory_type: "incision"`. Los launches (sim y real) anteponen el común
+cuando el YAML de la ley declara ese tipo (`launch/param_layers.py`); el nodo se
+niega a arrancar una incisión sin él. Con `ros2 run`, dos `--params-file`, el
+común primero. `test_incision_common.py` arranca los tres nodos en `dry_run` y
+compara sus tablas byte a byte.
+
+Cada corrida deja, junto a `<prefijo>_<n>.csv`, **`<prefijo>_<n>.params.yaml`**
+con todos los parámetros efectivos, recargable con `--params-file` para
+repetirla. La cabecera del CSV lleva `git_sha` y `git_dirty` (regenerados en
+cada build, `cmake/git_version.cmake`), `incision_common` y los campos de
+sesión, que se pasan como argumentos de launch en sim y en real: `material`,
+`lane`, `surface_z_measured`, `minutes_open`, `blade_uses`, `table_clearance`.
+
+La tabla exportada (`reference_table_out`) lleva por muestra la fase de la
+incisión (`approach` … `withdraw`) y `plateau` = 1 en la meseta de feed
+constante; el evaluador offline lee de ahí las ventanas de la fuerza de corte y
+de las métricas.
+
 ### Parámetros añadidos por las fases posteriores
 
 | Parámetro | Fase | Para qué |
@@ -301,10 +325,20 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   integrador, el caso **defectivo** (`ζ = 1`, polo doble) que rompe el método de
   autovectores, MIMO aleatorio, estabilizabilidad del par SDC del UR5e y la
   regresión del escalado por inercia de `Q`.
+- `test_launch_arg_symmetry.py` — los launches del SMC en sim y en real declaran
+  los mismos argumentos de control.
+- `test_incision_common.py` (B0) — los tres nodos en `dry_run` producen la
+  misma tabla; fases y meseta del corte; el filo por delante del avance con
+  `wrist_3` en π; el fichero lateral repite la corrida; una incisión sin el
+  bloque común no arranca.
+- `test_dynamics_cross.py` (B0) — `M`, `g` y `C` del nodo (C++, ejecutable de
+  prueba `dump_dynamics`) contra la `Plant` del evaluador offline (Python), con
+  el acople, en configuraciones aleatorias (< 1e-9; hoy coinciden exactamente).
 
-Total: **72 tests** en 6 ejecutables de `ur5_dyn_control`, + 19 pytest en
-`ur5_identification` y 18 en `ur5_trajectory_optimization` (**109** en el
-workspace).
+Total (2026-10-27, B0): **80 gtest** en 6 ejecutables y **24 pytest** en
+`ur5_dyn_control`, + 19 pytest en `ur5_identification` y 32 en
+`ur5_trajectory_optimization`: **155** (164 en `colcon test-result`, que cuenta
+además los 9 envoltorios de CTest).
 
 ## Seguridad del lazo (FASE 3)
 

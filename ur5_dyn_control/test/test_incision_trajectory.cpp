@@ -31,7 +31,8 @@ using ur5_dyn_control::ScurveProfile;
 namespace
 {
 
-/// Parametros de la campana (los mismos que config/incision_params.yaml).
+/// Parametros de la FASE 1 (NO los de la campana, que viven en
+/// config/incision_common.yaml): estos tests prueban la clase, no la geometria.
 IncisionParams defaultParams()
 {
   IncisionParams p;

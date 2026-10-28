@@ -1,6 +1,6 @@
 # Plan actualizado — Incisión con UR5e por par: LQR-SDRE vs SMC optimizado
 
-- **Fecha:** 2026-10-27 · **Revisión 5** (incorpora cuatro rondas de respuestas del usuario, §9, y la
+- **Fecha:** 2026-10-27 · **Revisión 6** — **B0 cerrado** (§2.6); cuatro rondas de respuestas del usuario, §9, y la
   escena real del laboratorio, §2.5)
 - **Sustituye como hoja de ruta a:** `Documents/UTEC/Journal Q2/PLAN_INCISION_UR5e.md`
   (se conserva como histórico; la numeración de FASES original se cita para
@@ -48,6 +48,7 @@ con el **Computed Torque (CT)** como línea base natural.
 | D15 | Los modelos de pedestal y mesa del mundo **estaban desactualizados**; se sustituyen por los medidos sobre los reales (`ur5_base_table_dimensions.pdf` + OBJ del CAD) | §2.5 y V13: pedestal de 0.816 m (spawn a `z` = 0.816), tablero a `z` = −0.046 en `base_link`; hecho antes de B0 |
 | D16 | El robot está **centrado** sobre el mounting base; la cara del mounting base que mira a la mesa está a **5 cm** de ella (modificable si conviene) | Borde interior del fondo de la U a `base_y` = 0.376 + 0.050 = **0.426 m**; así está en `lab_incision_world.sdf` (V13) |
 | D17 | Bandeja de la fijación de **2 mm** | Altura común `surface_z` = −0.046 + 0.002 + 0.040 = **−0.004 m** (§3.5 c) |
+| D18 | La dirección del corte la fija el **filo**: con `wrist_3` en π el filo mira a la base, así que el corte va de lejos a cerca de la base | Verificado (malla + FK): filo y avance alineados a 0.000°. Recta del corte en `x` = −0.1333 = −d4: `wrist_3` = π y la base **quieta** en todo el corte (V13, §2.6) |
 
 ### 0.2 Cambios respecto al plan original
 
@@ -195,9 +196,10 @@ de Gazebo, sin fricción de planta; TCP en la punta y ventanas alineadas con
 | w_min | 0.0819 | 0.0476 |
 | `G` máx (pan, lift, codo) | 104.8, 122.1, 81.4 | **135.5, 142.2**, 81.5 |
 
-`smc_605` (2026-10-01, Gazebo, `git a6381f2`, **sin documentar**) corrió esa
-geometría: **RMSE de TCP 132.5 mm** en TRACK, frente a 0.343 mm de `smc_604` con
-0.75. Las demás YAML (FL, LQR, `sweep_smc`) siguen en 0.75.
+`smc_605` (Gazebo, **2026-10-27 de 12:01 a 13:45**; la cabecera dice
+`git a6381f2`, pero es el SHA rancio de configure-time que B0.5 corrigió: el HEAD
+era `7e4526c`) corrió esa geometría: **RMSE de TCP 132.5 mm** en TRACK, frente a
+0.343 mm de `smc_604` con 0.75. (La Rev. 1 la fechaba el 1-oct por error.) Las demás YAML (FL, LQR, `sweep_smc`) siguen en 0.75.
 
 **V5 — Desalineaciones del evaluador offline (FASE 7).**
 
@@ -303,7 +305,8 @@ en la Rev. 4, `surface_z` = −0.001; con la de 2 mm medida, D17, −0.004):
 | 0.70 | −0.001 | 29.22 s | 0.1854 | 0.0819 | 92.3 / 113.3 / 81.4 |
 | 0.75 | −0.001 | 29.85 s | 0.1590 | 0.0819 | 105.6 / 122.4 / 81.4 |
 | 0.60 | −0.004 | 28.24 s | 0.2106 † | 0.0810 | 68.8 / 95.9 / 81.4 |
-| **0.65** | **−0.004** | 28.70 s | **0.2061** | **0.0819** | **80.1 / 104.5 / 81.4** — **referencia de la campaña** |
+| 0.65 | −0.004 | 28.70 s | 0.2061 | 0.0819 | 80.1 / 104.5 / 81.4 (recta `x` = 0: q6 = 2.92–2.95, la base gira) |
+| **0.65, `x` = −0.1333** | **−0.004** | **28.25 s** | **0.2014** | **0.0819** | **83.1 / 106.7 / 81.4** — **referencia de la campaña** (D18) |
 | 0.65 | 0.045 (Rev. 3) | 27.95 s | 0.2015 | 0.0819 | 78.4 / 103.5 / 81.5 |
 
 Bajar la superficie 46 mm alarga el descenso (+0.7 s) y apenas mueve σ_min y `G`;
@@ -319,11 +322,23 @@ interior del fondo de la U: **0.426** (D16).
 | `docs/100_ur5e_real_commands.txt` | notas del operador (719, `lambda_joint`) | Inocuo. Las `G=`/`P=` apuntan a `smc_v4_g5`, **retiradas del robot** (`07` §5.8): corregir. |
 | `ur5_pick_place/*` | rviz, params, `.m` | Fuera de alcance; no se toca. |
 
-### 2.4 Corridas sin documentar
+### 2.4 Corridas que no estaban documentadas (B0.0)
 
-`smc_605` (V4) y `smc_732`–`smc_737` (2026-09-10 y 09-24, SHAs `7b12351`,
-`9bc216a`, `8f17876`, `43c25a4`) no aparecen en ningún doc. Hay que anotar qué
-eran o marcarlas como descartadas.
+Todas de **Gazebo** (sin wrench; en simulación la columna `cur` lleva el par de
+la junta). Lo que dicen sus CSV y el commit compilado:
+
+| corrida | fecha | commit | qué es |
+|---|---|---|---|
+| `smc_605` | 2026-10-27 12:01 | (`7e4526c`; cabecera rancia `a6381f2`) | incisión con `cut_center_y` 0.85 sin commitear: TCP 132.3 mm, casi singular (V4). Quedó 100 min en HOLD_END. **Descartada** |
+| `smc_732` | 2026-09-10 14:43 | `7b12351` | barrido a 0.05 rad/s (`SWEEP_0.050_POS`), tras el arreglo de Pinocchio 4.1 |
+| `smc_733`, `734` | 2026-09-10 14:46 | `9bc216a` | el mismo barrido con la guarda de vibración |
+| `smc_735` | 2026-09-10 14:50 | `8f17876` | el mismo barrido con el banner de `λ` y `G` corregido |
+| `smc_736` | 2026-09-24 11:44 | `43c25a4` | incisión en 0.75: TCP 0.030 mm en TRACK |
+| `smc_737` | 2026-09-24 11:45 | `43c25a4` | barrido a 0.05 rad/s en los dos sentidos |
+
+`smc_732`–`737` son comprobaciones en Gazebo de cada commit de la FASE 9: no
+alimentan ningún resultado del paper. La intención se deduce del commit
+adyacente; no hay nota del operador.
 
 ### 2.5 Escena real del laboratorio (2026-10-27, antes de B0)
 
@@ -398,6 +413,40 @@ Tres hallazgos de esta verificación que afectan al resto del plan:
   `world_defaults.py`.
 
 
+
+### 2.6 B0 — cerrado (2026-10-27)
+
+| # | hecho | verificación |
+|---|---|---|
+| B0.0 | Escena real (§2.5); el borde de la mesa ya está a 0.426 (D16): **no hay reubicación**. Corridas documentadas (§2.4). `100_ur5e_real_commands.txt` apunta a `smc_v5_g6` (en el árbol, sin commitear: va sobre tus notas). | — |
+| B0.1 | Geometría congelada en `config/incision_common.yaml`: recta `x` = −0.1333 (D18), centro 0.65, `surface_z` −0.004, trazo de 100 mm (80 medidos a 10 mm/s), 5 mm. | σ_min 0.2014, w_min 0.0819, 28.25 s, meseta 8.00 s |
+| B0.2 | YAML común `/**:` + YAML por ley solo con ganancias; `launch/param_layers.py` lo antepone si el YAML declara `trajectory_type: incision` (sim y real); el nodo **se niega** a arrancar una incisión sin él. | `test_incision_common.py`: los tres nodos producen la misma tabla **byte a byte** |
+| B0.3 | La tabla exportada lleva `phase` (`approach` … `withdraw`) y `plateau`; el evaluador lee de ahí la fuerza (`CuttingForce.from_reference`) y la meseta. Fuera los tiempos cosidos; una tabla sin etiquetas es un error. La columna `state` del CSV sigue en TRACK. | fases en orden; meseta contigua de cut_length/v_cut |
+| B0.4 | `Plant` con TCP 0.162686, el acople y `Q_INIT` actual (la de la FASE 5, explícita). | `test_dynamics_cross.py`: `M`, `g`, `C` de C++ y Python **idénticos** (diferencia 0.0 en 200 configuraciones); el evaluador da ahora la `G` que imprime el nodo (186.4 / 240.0 / 134.5) |
+| B0.5 | `<prefijo>_<n>.params.yaml` con todos los parámetros efectivos, recargable; `git_sha` y `git_dirty` regenerados en **cada build** (antes el SHA se fijaba al configurar y quedaba rancio, §2.4); campos de sesión como argumentos de launch, iguales en sim y real. | recargar el fichero lateral reproduce la tabla exacta |
+| B0.6 | `00_assumptions` (A3 altura, A4 filo/D18), `01_trajectory` (geometría vigente), README (bloque común, trazabilidad, tests). | — |
+
+**De punta a punta en Gazebo** (launches normales, aire, sin fricción): las tres
+leyes cargan el común, recorren base_y 0.700 → 0.600 con `wrist_3` = π y la
+base quieta, y acaban en el mismo instante. TCP en la meseta: SMC (`smc_v5_g6`)
+**0.0030 mm**, CT (kp 100, kd 20) **0.0068 mm**, LQR-SDRE (wn 20, fixed)
+**0.049 mm** (`smc_98816`, `fl_98818`, `lqr_98817`). En aire no discriminan:
+lo hará la fuerza de corte (B2–B3), como ya decía V3.
+
+**Tests:** 164 en verde (80 gtest + 24 pytest en `ur5_dyn_control`, 19 en
+`ur5_identification`, 32 en `ur5_trajectory_optimization`, + 9 envoltorios).
+
+**Hallazgos de B0 que afectan a lo que sigue:**
+
+- `ur5e_real.launch.py` **no tiene `lqr_sdre`** (solo `gravity_comp`, `fl`,
+  `smc`): el LQR-SDRE no se puede correr hoy en el robot. Entra en B4/B7.1.
+- Pinocchio **no** está retenido (§9.5 R7).
+- `smc_1.csv` quedó sobrescrito por los `dry_run` de esta sesión (§9.5 R8). Los
+  tests y `dry_run` escriben ahora en directorios temporales con `test_num`
+  propios.
+- `closed_loop.py` conserva en su docstring "sin retardo de tubería / estado
+  exacto", que ya no es cierto (`PIPELINE_DELAY_STEPS` = 1, ruido de `q̇`): se
+  corrige con B4.3.
 
 ---
 
@@ -750,7 +799,7 @@ los alcanzados con su causa (p. ej. el modo estructural, que Gazebo no tiene).
 Cada bloque: entregables · criterio de cierre · dependencias. Un commit por
 bloque (o sub-bloque si es grande).
 
-### B0 — Reubicación, escena y coherencia
+### B0 — Reubicación, escena y coherencia (**cerrado el 2026-10-27: §2.6**)
 
 | # | entregable |
 |---|---|
@@ -958,6 +1007,9 @@ modificaciones, con el cambio de escena en un commit aparte · R2 aún sin medid
 
 | # | pregunta | por qué importa |
 |---|---|---|
+| **R7** | **Retener Pinocchio**: `sudo apt-mark hold robotpkg-pinocchio robotpkg-py310-pinocchio` (no está retenido; un `apt upgrade` cambiaría la dinámica de los tres controladores y del evaluador sin aviso). | B0.6; requiere sudo |
+| **R8** | ¿Lanzaste tú `smc_605` hoy a las 12:01? ¿Y había una corrida tuya en `smc_1.csv`? Los `dry_run` de esta sesión la sobrescribieron con un CSV vacío (test_num por defecto). | Trazabilidad (§2.4) |
+| **R9** | Confirmar D18: recta del corte en `x` = −0.1333 (q6 = π, la base quieta) en vez de `x` = 0. | Fija la referencia de B5 |
 | **R2** | Dimensiones de Ecoflex y zapallo. Necesarias: Ecoflex ≥ 180 × 130 mm de cara útil (11 carriles), zapallo ≥ 150 × 130 mm (9 carriles); espesor ≥ 40 mm o suplementos. | Solo fija N salvo que obligue a acortar el trazo (B0.1) |
 | **R6** | ¿El mounting base está centrado **lateralmente** en la abertura de la U (≈ 12.65 cm a cada lado)? La escena lo supone. | Holgura lateral de la escena; no afecta al corte |
 
@@ -967,7 +1019,7 @@ modificaciones, con el cambio de escena en un commit aparte · R2 aún sin medid
 
 | semana | fechas | bloques | hito |
 |---|---|---|---|
-| S1 | 27-oct → 1-nov | B0.0 (reubicación, escena, seguridad), B0.2–B0.6; arranca B4.2 | referencia única en la escena nueva |
+| S1 | 27-oct → 1-nov | ~~B0~~ (**cerrado el 27-oct**, §2.6); arranca B4.2 | referencia única en la escena nueva |
 | S2 | 2 → 8-nov | B1; B4.1–B4.3; **B0.1 (geometría congelada: R2, R4)**; B7.0 (retardo, `RobotReceiveTimeout`); B4.4; fabricación de la fijación | `ft_data` en el CSV; leyes reformuladas con tests; referencia definitiva |
 | S3 | 9 → 15-nov | B2 pilotos en posición (4 materiales); B3.2–B3.4; B7.1 SMC en aire | primeros perfiles de fuerza reales |
 | S4 | 16 → 22-nov | B3.1 plugin + validación; B4.5; arranque de B5 (noches) | gemelo con tejido validado |

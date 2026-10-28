@@ -255,6 +255,17 @@ sea hacia −Y de `base_link`: **el filo va por delante del movimiento y la hoja
 corta en su propio plano**, sin componente lateral. No es casualidad que salga
 bien, pero tampoco estaba comprobado hasta montar el acople.
 
+**La dirección del corte la fija el filo (D18 de `Journal_UR5eControl_plan.md`,
+2026-10-27).** Con `wrist_3` en π el filo mira hacia la base, así que el corte
+va de lejos a cerca de la base con el filo por delante. Desde B0 la recta del
+corte es `x = −0.1333 = −d4` (el desplazamiento lateral entre el eje de la base
+y el plano del brazo, donde ya está el TCP de `q_init`): sobre ella
+`shoulder_pan` se queda en π/2 y `wrist_3` en π durante **todo** el corte. Con
+`x = 0` la base giraba a 0.0037 rad/s y `wrist_3` lo compensaba (q6 = 2.92–2.95):
+el filo seguía alineado, pero la base reptaba contra su Coulomb. Lo comprueba
+`test_incision_common.py::test_el_filo_va_por_delante_y_wrist3_en_pi` sobre la
+tabla que exporta el nodo (filo y avance alineados a < 0.5°).
+
 **Por qué.** Es una incisión recta sobre una superficie horizontal: la
 orientación no aporta grados de libertad útiles y fijarla (i) simplifica la
 generación de referencias — el spline solo interpola posición y la IK resuelve

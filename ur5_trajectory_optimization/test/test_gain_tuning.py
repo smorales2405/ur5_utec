@@ -18,7 +18,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ur5_trajectory_optimization.gain_tuning.closed_loop import (  # noqa: E402
-    Q_INIT, TAU_MAX, CuttingForce, JointFriction, Plant, Reference, SmcLaw,
+    Q_INIT, Q_INIT_FASE5, TAU_MAX, TCP_OFFSET_FASE5, CuttingForce,
+    JointFriction, Plant, Reference, SmcLaw,
     load_reference, simulate)
 from ur5_trajectory_optimization.gain_tuning.optimize import (  # noqa: E402
     _cubic_features, _pool_recipe, alpha_sensitivity, seed_points)
@@ -115,9 +116,12 @@ def test_load_reference_salta_cabeceras_de_comentario(tmp_path):
 
 @pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
 def test_inercia_reproduce_el_eta_de_la_fase5():
-    """`eta` de smc_params.yaml es diag M(q_init)·1.0: si esto cambia, el YAML
-    y el optimizador dejarían de hablar de lo mismo."""
-    diag = Plant(URDF).inertia_diag(Q_INIT)
+    """`eta` de smc_params.yaml es diag M(q_init)·1.0 con la planta de la FASE 5
+    (sin acople, TCP de 0.141 m): si esto cambia, el YAML y el optimizador
+    dejarían de hablar de lo mismo. Desde B0.4 la planta por defecto lleva el
+    acople, así que la de la FASE 5 se pide explícitamente."""
+    diag = Plant(URDF, tcp_offset=TCP_OFFSET_FASE5, tool=None).inertia_diag(
+        Q_INIT_FASE5)
     np.testing.assert_allclose(diag, INERTIA, rtol=1e-4)
 
 
@@ -130,9 +134,9 @@ def test_smclaw_devuelve_chi_consistente_con_su_definicion():
     q = Q_INIT.copy()
     _, _, info = law(plant.model, plant.data, q, np.zeros(6), q,
                      np.zeros(6), np.zeros(6))
-    # Tolerancia relativa: INERTIA está redondeada a 6 cifras, así que el
-    # cociente contra la diagonal exacta de M difiere en ~1e-5.
-    assert np.all(info["chi"] >= 0.9999 * (eta / phi) / INERTIA)
+    # Contra la diagonal de M de la MISMA planta (con acople desde B0.4): la
+    # definicion no depende de que planta sea.
+    assert np.all(info["chi"] >= 0.9999 * (eta / phi) / plant.inertia_diag(q))
 
 
 @pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
@@ -151,8 +155,10 @@ def _ref_sintetica(plant, n=12, dt=0.002):
     """Referencia corta e inmóvil: basta para ejercitar la maquinaria."""
     q = np.tile(Q_INIT, (n, 1))
     z = np.zeros((n, 6))
+    # Toda la referencia cuenta como meseta: es lo que hacia el fallback
+    # cuando la ventana de tiempos cosida no cabia en una referencia corta.
     return Reference(dt=dt, q=q, dq=z.copy(), ddq=z.copy(),
-                     phase=np.array(["TRACK"] * n))
+                     phase=np.array(["TRACK"] * n), plateau=np.ones(n, bool))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -441,11 +447,14 @@ def test_smclaw_G_es_la_ganancia_derivativa_sobre_la_velocidad_medida():
         # multiplica a s/phi y se anula, asi que queda exactamente G.
         np.testing.assert_allclose(-(tau1[i] - tau0[i]) / h, info["G"][i],
                                    rtol=2e-3)
-    # Las ganancias de smc_v4_g5 en q_init, SIN herramienta (la planta del
-    # evaluador no la lleva): la tabla de docs/09_real_bringup.md §2.0. El
-    # banner del nodo imprimio [186.4 240.0 134.5] porque aquella corrida de
-    # Gazebo llevaba los 0.182 kg del bisturi en el modelo.
-    np.testing.assert_allclose(info["G"][:3], [178.8, 234.4, 127.9], rtol=0.01)
+    # Las ganancias de smc_v4_g5 en q_init. CON el acople (planta por defecto
+    # desde B0.4) dan lo que imprimio el banner del nodo C++ en Gazebo,
+    # [186.4 240.0 134.5]; antes el evaluador no lo llevaba y no coincidian.
+    np.testing.assert_allclose(info["G"][:3], [186.4, 240.0, 134.5], rtol=0.002)
+    # SIN el acople, la tabla de docs/09_real_bringup.md §2.0.
+    viejo = Plant(URDF, tcp_offset=TCP_OFFSET_FASE5, tool=None)
+    _, _, info0 = law(viejo.model, viejo.data, q, z, q, z, z)
+    np.testing.assert_allclose(info0["G"][:3], [178.8, 234.4, 127.9], rtol=0.01)
 
 
 @pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
@@ -529,16 +538,72 @@ def test_dq_eps_del_optimizador_coincide_con_el_de_la_incision():
     de TCP en Gazebo, y g5 —que dimensiona eta con este eps— sin verlo.
     """
     import yaml
+    # Desde B0.2 la friccion de la incision vive en el bloque comun de las tres
+    # leyes, no en smc_params.yaml.
     cfg = os.path.join(os.path.dirname(__file__), "..", "..", "ur5_dyn_control",
-                       "config", "smc_params.yaml")
+                       "config", "incision_common.yaml")
     if not os.path.exists(cfg):
         pytest.skip("ur5_dyn_control no esta junto a este paquete")
     with open(cfg) as fh:
-        p = yaml.safe_load(fh)["gz_smc_control_node"]["ros__parameters"]
+        p = yaml.safe_load(fh)["/**"]["ros__parameters"]
     assert float(p["friction"]["dq_eps"]) == FRICTION_DQ_EPS, (
-        f"smc_params.yaml usa dq_eps = {p['friction']['dq_eps']} y el optimizador "
-        f"{FRICTION_DQ_EPS}")
+        f"incision_common.yaml usa dq_eps = {p['friction']['dq_eps']} y el "
+        f"optimizador {FRICTION_DQ_EPS}")
     # Con eps pequeno, el limitador de tasa es lo que protege a las munecas.
     if FRICTION_DQ_EPS < 1e-3:
         assert float(p["friction"]["ff_dv_max"]) > 0.0, \
             "dq_eps pequeno sin limitador de tasa es la configuracion de smc_710"
+
+
+def test_constantes_del_evaluador_coinciden_con_el_bloque_comun():
+    """
+    B0.4: Q_INIT, el TCP y el acople del evaluador son los de la incision
+    (incision_common.yaml). Antes el evaluador tenia el q_init de la FASE 5, el
+    TCP de 0.141 m y ningun acople (V2 del plan): optimizaba una planta
+    distinta de la que corre en Gazebo y en el robot.
+    """
+    import yaml
+    from ur5_trajectory_optimization.gain_tuning.closed_loop import (
+        TCP_OFFSET, TOOL_SCALPEL)
+    cfg = os.path.join(os.path.dirname(__file__), "..", "..", "ur5_dyn_control",
+                       "config", "incision_common.yaml")
+    if not os.path.exists(cfg):
+        pytest.skip("ur5_dyn_control no esta junto a este paquete")
+    with open(cfg) as fh:
+        p = yaml.safe_load(fh)["/**"]["ros__parameters"]
+    np.testing.assert_array_equal(Q_INIT, p["q_init"])
+    assert TCP_OFFSET == p["tcp_offset_z"]
+    assert TOOL_SCALPEL.mass == p["tool_mass"]
+    assert list(TOOL_SCALPEL.com) == p["tool_com"]
+    assert list(TOOL_SCALPEL.inertia) == p["tool_inertia"]
+
+
+def test_ventanas_de_la_fuerza_salen_de_las_etiquetas(tmp_path):
+    """B0.3: la fuerza de corte actua en las fases `penetration` y `cut` de la
+    tabla, y la meseta es la columna `plateau`, sin tiempos escritos a mano."""
+    path = tmp_path / "ref.csv"
+    cols = (["q%d" % i for i in range(1, 7)] + ["dq%d" % i for i in range(1, 7)]
+            + ["ddq%d" % i for i in range(1, 7)])
+    fases = (["approach"] * 3 + ["penetration"] * 2 + ["cut"] * 4
+             + ["withdraw"] * 2)
+    meseta = [0] * 6 + [1, 1] + [0] * 3
+    with open(path, "w") as fh:
+        fh.write("# dt=0.5\n")
+        fh.write("k," + ",".join(cols) + ",phase,plateau\n")
+        for k, (f, m) in enumerate(zip(fases, meseta)):
+            fh.write(f"{k}," + ",".join("0.0" for _ in cols) + f",{f},{m}\n")
+    ref = load_reference(str(path))
+    assert ref.phase_window("penetration") == (1.5, 2.0)
+    assert ref.phase_window("cut") == (2.5, 4.0)
+    assert list(np.flatnonzero(ref.cut_plateau_mask())) == [6, 7]
+    force = CuttingForce.from_reference(ref, f_cut=5.0, noise_std=0.0)
+    rng = np.random.default_rng(0)
+    assert np.allclose(force.wrench(1.0, rng), 0.0)        # aproximacion
+    assert np.linalg.norm(force.wrench(3.0, rng)) == pytest.approx(5.0)
+    # Sin etiquetas: error, no ventana inventada.
+    viejo = Reference(dt=0.5, q=ref.q, dq=ref.dq, ddq=ref.ddq, phase=ref.phase)
+    with pytest.raises(ValueError):
+        viejo.cut_plateau_mask()
+    with pytest.raises(ValueError):
+        CuttingForce(f_cut=5.0).wrench(3.0, rng)
+

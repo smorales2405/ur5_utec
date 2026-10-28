@@ -1,0 +1,194 @@
+# ============================================================================
+#  Bloque COMUN de la incision — B0.1/B0.2 de docs/Journal_UR5eControl_plan.md
+#
+#  Lo cargan las TRES leyes (CT = gz_fl_control_node, LQR-SDRE y SMC), en sim
+#  y en el robot real, ANTES del YAML de la ley:
+#
+#      [incision_common.yaml, <ley>_params.yaml, gains_file?, overrides]
+#
+#  El YAML de cada ley solo lleva sus ganancias y `trajectory_type: incision`.
+#  Los launches cargan este fichero cuando el de la ley declara ese tipo
+#  (launch/param_layers.py), y el nodo se NIEGA a arrancar una incision sin el
+#  (`incision_common` vacio). Por que: las tres leyes tienen que ejecutar la
+#  MISMA tabla de referencia; antes cada YAML repetia este bloque y habian
+#  divergido en silencio (V4, V6 del plan: el FL partia 21.7 mm mas abajo y el
+#  SMC cortaba en 0.85 mientras los otros cortaban en 0.75). Un test compara la
+#  tabla de los tres nodos (test/test_incision_common.py).
+#
+#  `/**:` = cualquier nodo. Lo que el YAML de la ley repita, lo pisa.
+#
+#  Geometria (frame base_link; en Gazebo z_mundo = z + 0.816):
+#
+#      z
+#    0.35 ┤ ●  start_pose = FK(q_init)
+#         │  \
+#    0.026┤   ●───────────────●          z_above = surface_z + approach_height
+#         │   │               ↑
+#   -0.004┤   ●━━━━━━━━━━━━━━━┿━━━━━━━    superficie de la muestra (surface_z)
+#   -0.009┤   ●───────────────●           z_cut = surface_z - cut_depth
+#   -0.046┤ ══════ tablero de la mesa en U (u_table) ══════
+#         └───┴───────────────┴──────→ base_y
+#          0.70  0.69       0.61  0.60   (sentido -1: hacia el robot;
+#                                         recta x = -0.1333, filo delante)
+#          approach → contact → penetration → cut → withdraw
+#          trazo total 100 mm; los 80 mm centrales a feed constante (medidos)
+#
+#  Supuestos: A1 levantado (acople montado), A2 (punta de hoja = gripper_tcp),
+#  A3 (metricas en base_link), A4 (orientacion TCP constante).
+#  Ver docs/00_assumptions.md.
+# ============================================================================
+
+/**:
+  ros__parameters:
+    # Identifica la version de este bloque; va a la cabecera del CSV. Un nodo
+    # con trajectory_type = incision y este parametro vacio no arranca.
+    incision_common: "B0.1 2026-10-27: corte en x -0.1333, base_y 0.65, surface_z -0.004"
+
+    use_sim_time: true
+    control_rate: 500.0
+
+    urdf_path: ""
+    gravity: 9.8
+    q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
+
+    # G3 — true en Gazebo; false en el UR5e real (lo fuerza ur5e_real.launch.py).
+    gravity_in_command: true
+
+    # A2 / A1 (docs/00_assumptions.md)
+    tcp_offset_z: 0.162686               # punta de la hoja (malla del acople)
+    # A1 LEVANTADO: el acople porta-bisturi va montado en la planta
+    # (urdf/scalpel_tool.xacro) y estos valores lo meten en el modelo de
+    # Pinocchio del controlador. Los dos van juntos o el controlador compensa
+    # una gravedad que no es la de la planta. En el robot real sin acople,
+    # ur5e_real.launch.py los pone a cero (tool_mounted:=false).
+    # physical_properites_toolscalpel.png: 0.182 kg, CoG (-2.227, 2.134,
+    # 29.398) mm desde tool0; aqui en el frame TCP (= CoG - [0,0,tcp_offset_z]).
+    tool_mass: 0.182                     # [kg]
+    tool_com: [-0.002227, 0.002134, -0.133288]           # [m] en el frame TCP
+    tool_inertia: [2.39199e-4, 2.54858e-4, 1.19620e-4,   # [kg m^2] resp. al CoM
+                   -8.80e-7, -3.820e-6, -7.570e-6]       # [Ixx,Iyy,Izz,Ixy,Ixz,Iyz]
+
+    command_topic: "/forward_effort_controller/commands"
+    controller_manager: "/controller_manager"
+    activate_controllers: ["joint_state_broadcaster", "forward_effort_controller"]
+    perform_switch: true
+    perform_unpause: true
+    world_name: "default"
+
+    hold_start_duration: 1.0
+    transition_duration: 3.0
+    t_sim: 2.0
+    skip_trajectory: false
+
+    # Limite del actuador (nominal del UR5e). El robot real lo escala con
+    # tau_scale en ur5e_real.launch.py.
+    tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
+
+    # -- Compensacion de friccion (FASE 2 real) --------------------------------
+    # Solo actua pasando `friction_compensation`; aqui quedan los coeficientes y
+    # las dos decisiones de diseno, iguales para las tres leyes.
+    friction:
+      # MEDIDOS (docs/02_friction_real.md 8.4), robot rodado. Aviso termico
+      # (8.5): F_v cae un 9.3 % de robot frio a rodado.
+      f_v: [13.64, 11.55, 13.74, 1.28, 1.35, 2.12]
+      f_c: [6.85, 6.76, 7.46, 1.78, 1.96, 2.35]
+      # `desired`: feedforward con la velocidad de REFERENCIA. Con la medida,
+      # F_c*tanh(dq/eps) se anula justo cuando la junta esta clavada y no la
+      # desbloquea nunca (docs/05_smc.md 7.1).
+      dq_source: "desired"
+      # 1e-5 en la incision: con 1e-2 la base (0.0023 rad/s en el corte) queda
+      # con el 77 % del Coulomb sin compensar y se CLAVA (smc_602: 15.9 mm,
+      # frente a 0.375 de smc_603; docs/07_gain_tuning.md 5.8.4). El optimizador
+      # usa el mismo valor (FRICTION_DQ_EPS de problem.py; lo comprueba un test).
+      # Los barridos siguen en 1e-2 (sweep_*.yaml).
+      dq_eps: 1.0e-5
+      # Limite de tasa del feedforward [rad/s por ciclo]: acota el escalon en
+      # las juntas ligeras (ff_dv_max*M_ii/dt: 0.027 N.m por ciclo en wrist_2).
+      ff_dv_max: 0.01
+
+    # -- Trayectoria ---------------------------------------------------------
+    # A4 — orientacion del TCP constante, hoja hacia abajo.
+    tcp_orientation_rpy: [3.14159265, 0.0, 3.14159265]
+
+    incision:
+      # Pose de partida: FK(q_init) con el TCP en la punta de la hoja, para que
+      # la rampa inicial sea minima. (El FL partia de 0.3252, la del TCP viejo
+      # de 0.141 m: V6 del plan.)
+      start_pose: [-0.1333, 0.4919, 0.3469]
+
+      # Superficie de la muestra (B0.1, D16-D17 del plan): tablero a -0.046 en
+      # base_link + bandeja de 2 mm + muestra de 40 mm. Todas las muestras se
+      # llevan a esa altura comun (plan 3.5 c), asi que la referencia es la
+      # misma en los cuatro materiales. En Gazebo todavia NO hay muestra: el
+      # trazo va en aire, 37 mm por encima del tablero (el contacto es B3).
+      surface_z: -0.004           # [m]
+      # OJO con los nombres: NO siguen al eje. En incision_trajectory.cpp,
+      #   cut_axis "y" -> punto = (cut_x, cut_center_y + offset)   -> cut_x FIJO
+      #   cut_axis "x" -> punto = (cut_x + offset, cut_center_y)   -> cut_x CENTRO
+      # base_link va girada -90 deg en el mundo: world_x = base_y.
+      #
+      # La direccion del corte la fija el FILO (D18 del plan): mira a -Y de
+      # tool0 (scalpel_tool.xacro, trazado sobre la malla), y con wrist_3 en pi
+      # y la orientacion de abajo eso es -Y de base_link, HACIA la base. El corte
+      # va por tanto de lejos a cerca de la base con el filo por delante.
+      #
+      # cut_x = -0.1333 = -d4 del UR5e: el desplazamiento lateral entre el eje
+      # de la base y el plano del brazo (el TCP de q_init ya esta ahi). Sobre esa
+      # recta shoulder_pan se queda en pi/2 y wrist_3 en pi durante TODO el corte
+      # (medido: dq1 = dq6 = 0 en la meseta). Con cut_x = 0 la base giraba a
+      # 0.0037 rad/s y wrist_3 la compensaba (q6 = 2.92-2.95): la base reptaba
+      # contra su Coulomb, el caso que la clavo en smc_602. sigma_min 0.201 y
+      # G 83/107/81 con smc_v5_g6, frente a 0.206 y 80/104/81 en x = 0.
+      cut_x: -0.1333              # [m] coordenada FIJA en x (base_link)
+      # Centro del trazo (V12-V13 del plan): manipulabilidad maxima (w_min
+      # 0.082), sigma_min 0.201 y G de la base 83 con smc_v5_g6, frente a ~105
+      # en 0.75 y 136 en 0.85 (casi singular, smc_605: 132 mm). El borde de la mesa
+      # esta en 0.426: la muestra (hasta 250 mm a lo largo del trazo) cabe entera.
+      cut_center_y: 0.65          # [m]
+      # Trazo a lo largo de Y de base_link, en el plano del brazo: solo se
+      # mueven hombro, codo y wrist_1; el brazo ve casi la misma planta en todo
+      # el tramo medido.
+      cut_axis: "y"
+      # -1 -> base_y DECRECIENTE: el corte avanza hacia el robot.
+      cut_direction: -1
+      cut_length: 0.08            # [m] 80 mm MEDIDOS, integros a feed constante
+      cut_lead: 0.010             # [m] entrada/salida a cada lado (rampas)
+                                  #     -> trazo total de material: 100 mm
+      cut_depth: 0.005            # [m] 5 mm
+      approach_height: 0.03       # [m] cota de aproximacion sobre la superficie
+
+      # Velocidades por fase [m/s].
+      v_approach: 0.10
+      v_contact: 0.015            # descenso cuidadoso hasta el primer contacto
+      v_penetration: 0.005        # penetracion lenta: aqui crece la fuerza
+      v_cut: 0.010                # FEED del corte: 10 mm/s
+      v_withdraw: 0.05
+
+      # La rampa del CORTE se deriva de cut_lead: la meseta de feed constante
+      # coincide EXACTAMENTE con los cut_length medidos.
+      ramp_fraction_move: 0.5     # fases punto a punto sin meseta
+      dwell: 0.3                  # [s] reposo entre fases
+
+    # -- IK (QP de ur5_kinematics, target gripper_tcp) ------------------------
+    ik_seed: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
+    ik_max_iterations: 450
+    ik_alpha: 0.5
+    ik_weight_pos: 1.0
+    ik_weight_orient: 1.0
+    ik_fk_tol: 0.005
+    q_jump_tol: 0.15
+
+    # -- Validacion de la tabla de referencias (FASE 1) ----------------------
+    # dq_max: limite REAL del UR5e, 180 deg/s (ur_description joint_limits.yaml).
+    # ddq_max: el robot NO tiene limite de aceleracion articular; 5.0 rad/s^2 es
+    #   el valor conservador de ur_moveit_config, adoptado como cota DECLARADA.
+    # sigma_min_threshold: aborta la generacion cerca de una singularidad
+    #   (en la incision sigma_min = 0.206).
+    dq_max:  [3.14159, 3.14159, 3.14159, 3.14159, 3.14159, 3.14159]
+    ddq_max: [5.0, 5.0, 5.0, 5.0, 5.0, 5.0]
+    sigma_min_threshold: 0.05
+    manipulability_threshold: 0.0     # 0 = desactivado (se registra igualmente)
+
+    csv_output_dir: ""
+    test_num: 1
+    csv_hold_decimation: 10

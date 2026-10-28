@@ -49,6 +49,10 @@ operador, que es justo lo que se quiere.
 """
 
 import os
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from param_layers import (incision_layers, session_arguments,  # noqa: E402
+                          session_overrides)
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -94,7 +98,9 @@ def launch_setup(context, *args, **kwargs):
     if not os.path.exists(params_file):
         raise RuntimeError(f"params_file no existe: {params_file}")
 
-    params = [params_file]
+    # B0.2: incision_common.yaml delante si el params_file es de incision, igual
+    # que en simulacion (launch/param_layers.py): el robot ejecuta la misma tabla.
+    params = incision_layers(params_file)
     gains_file = LaunchConfiguration("gains_file").perform(context).strip()
     if gains_file:
         if not os.path.exists(gains_file):
@@ -197,7 +203,7 @@ def launch_setup(context, *args, **kwargs):
         executable=EXECUTABLES[controller],
         output="screen",
         emulate_tty=True,
-        parameters=params + [real, optional],
+        parameters=params + [real, optional, session_overrides(context)],
     )]
 
 
@@ -312,5 +318,6 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "gains_file", default_value="",
             description="YAML de ganancias de run_gain_tuning (FASE 7)"),
+        *session_arguments(),   # B0.5: material, carril, ... (iguales que en sim)
         OpaqueFunction(function=launch_setup),
     ])

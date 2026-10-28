@@ -445,7 +445,7 @@ def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
     """Atajo: construye parametrización + evaluador con los valores del plan."""
     inertia = plant.inertia_diag(Q_INIT if q_ref is None else q_ref)
     param = SmcParameterization(inertia=inertia, mode=mode)
-    force = CuttingForce(f_cut=f_cut) if f_cut > 0 else None
+    force = CuttingForce.from_reference(ref, f_cut=f_cut) if f_cut > 0 else None
     return GainEvaluator(param, ref, plant, force=force, alpha=alpha,
                          chi_safety=chi_safety, tcp_tol_mm=tcp_tol_mm,
                          friction=friction, d_bound=d_bound, g_max=g_max)

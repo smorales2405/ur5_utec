@@ -17,6 +17,8 @@ import os
 import sys as _sys
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from world_defaults import default_world  # noqa: E402
+from param_layers import (incision_layers, session_arguments,  # noqa: E402
+                          session_overrides)
 from launch import LaunchDescription
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
@@ -65,13 +67,17 @@ def launch_setup(context, *args, **kwargs):
         package="ur5_dyn_control",
         executable="gz_fl_control_node",
         output="screen",
-        parameters=[
-            LaunchConfiguration("params_file"),
+        # B0.2: incision_common.yaml delante si el params_file es de incision
+        # (incision_params.yaml); fl_control_params.yaml y sweep_params.yaml no
+        # lo son y pasan solos (launch/param_layers.py).
+        parameters=incision_layers(
+            LaunchConfiguration("params_file").perform(context)) + [
             {
                 "test_num": LaunchConfiguration("test_num"),
                 "t_sim": LaunchConfiguration("t_sim"),
             },
             overrides,
+            session_overrides(context),   # B0.5: material, carril, ...
         ],
     )
 
@@ -117,4 +123,5 @@ def generate_launch_description():
 
 
     return LaunchDescription(
-        declared_arguments + [OpaqueFunction(function=launch_setup)])
+        declared_arguments + session_arguments()
+        + [OpaqueFunction(function=launch_setup)])

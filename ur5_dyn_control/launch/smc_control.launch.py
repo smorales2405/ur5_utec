@@ -17,6 +17,8 @@ import os
 import sys as _sys
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from world_defaults import default_world  # noqa: E402
+from param_layers import (incision_layers, session_arguments,  # noqa: E402
+                          session_overrides)
 from launch import LaunchDescription
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
@@ -123,7 +125,10 @@ def launch_setup(context, *args, **kwargs):
     # DESPUES del params_file, asi que solo pisa lambda/eta/phi/alpha y deja
     # intacto el resto de la configuracion. Es el criterio de aceptacion del
     # plan: las ganancias seleccionadas se cargan sin edicion manual.
-    params = [LaunchConfiguration("params_file")]
+    # B0.2: si el params_file es de incision, incision_common.yaml va DELANTE
+    # (trayectoria, herramienta, friccion y limites comunes a las tres leyes;
+    # ver launch/param_layers.py). El params_file solo pisa sus ganancias.
+    params = incision_layers(LaunchConfiguration("params_file").perform(context))
     gains_file = LaunchConfiguration("gains_file").perform(context).strip()
     if gains_file:
         if not os.path.exists(gains_file):
@@ -140,6 +145,7 @@ def launch_setup(context, *args, **kwargs):
                 "t_sim": LaunchConfiguration("t_sim"),
             },
             overrides,
+            session_overrides(context),   # B0.5: material, carril, ...
         ],
     )
 
@@ -253,4 +259,5 @@ def generate_launch_description():
 
 
     return LaunchDescription(
-        declared_arguments + [OpaqueFunction(function=launch_setup)])
+        declared_arguments + session_arguments()
+        + [OpaqueFunction(function=launch_setup)])

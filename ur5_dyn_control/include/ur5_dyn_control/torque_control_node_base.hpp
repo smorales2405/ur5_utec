@@ -149,6 +149,10 @@ protected:
   const std::string & csvDir() const { return csv_dir_; }
   int testNum() const { return test_num_; }
 
+  /// B0.5: vuelca TODOS los parametros efectivos a <prefijo>_<n>.params.yaml,
+  /// junto al CSV y recargable con --params-file.
+  void writeParamsSidecar();
+
 private:
   // SAFE_HOLD (FASE 3): estado terminal de seguridad al que se entra si el
   // watchdog detecta que el lazo dejo de ser fiable. No se sale de el.
@@ -308,6 +312,7 @@ private:
   double q_init_check_tol_ = 0.15;
   std::string csv_dir_;
   int test_num_ = 1;
+  std::string incision_common_;       // B0.2: version del bloque comun cargado
   int csv_hold_decimation_ = 10;
   int hold_log_counter_ = 0;
 

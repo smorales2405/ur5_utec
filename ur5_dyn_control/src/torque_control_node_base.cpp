@@ -1,10 +1,12 @@
 #include "ur5_dyn_control/torque_control_node_base.hpp"
+#include "ur5_dyn_control/git_version.hpp"  // generado en cada build
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include <pinocchio/spatial/explog.hpp>
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <thread>
 #include <fstream>
@@ -12,6 +14,7 @@
 #include <limits>
 #include <cmath>
 #include <map>
+#include <sstream>
 
 namespace ur5_dyn_control
 {
@@ -464,6 +467,18 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
     std::string traj_desc;
 
     if (traj_type == "incision") {
+      // B0.2: la geometria de la incision vive en incision_common.yaml, comun a
+      // las tres leyes. Sin el, este nodo usaria los defaults del codigo y
+      // ejecutaria OTRA tabla que la de las otras leyes, sin ningun sintoma.
+      incision_common_ = declare_parameter<std::string>("incision_common", "");
+      if (incision_common_.empty()) {
+        throw std::runtime_error(
+                "trajectory_type = incision sin config/incision_common.yaml: "
+                "cargarlo ANTES del YAML de la ley (los launches lo hacen solos; "
+                "con ros2 run, dos --params-file, el comun primero)");
+      }
+      RCLCPP_INFO(get_logger(), "Bloque comun de la incision: %s",
+                  incision_common_.c_str());
       traj = buildIncisionTrajectory(rpy, traj_desc);
     } else {
       const auto wp_flat = declare_parameter<std::vector<double>>(
@@ -545,6 +560,20 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
   csv_dir_ = declare_parameter<std::string>("csv_output_dir", "");
   test_num_ = static_cast<int>(declare_parameter<int>("test_num", 1));
 
+  // B0.5: datos de la SESION que el CSV no puede deducir y que el analisis de
+  // la campana necesita (plan 3.5 y B7.4). Van a la cabecera del CSV y al
+  // fichero lateral de parametros. Vacio / -1 / NaN = no aplica (Gazebo,
+  // barridos). Se declaran aqui y no en un YAML porque cambian en cada corte.
+  declare_parameter<std::string>("session.material", "");
+  declare_parameter<int>("session.lane", -1);
+  declare_parameter<double>("session.surface_z_measured",
+                            std::numeric_limits<double>::quiet_NaN());
+  declare_parameter<double>("session.minutes_open",
+                            std::numeric_limits<double>::quiet_NaN());
+  declare_parameter<int>("session.blade_uses", -1);
+  declare_parameter<double>("session.table_clearance",
+                            std::numeric_limits<double>::quiet_NaN());
+
   // ── ROS I/O ────────────────────────────────────────────────────────────────
   tau_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>(command_topic_, 10);
   js_sub_ = create_subscription<sensor_msgs::msg::JointState>(
@@ -599,7 +628,10 @@ void TorqueControlNodeBase::start()
       for (const char * g : {"q", "dq", "ddq"}) {
         for (int i = 1; i <= 6; ++i) {fh << ',' << g << i;}
       }
-      fh << ",phase\n";
+      // B0.3: `phase` es la fase GEOMETRICA de la incision (approach ... withdraw)
+      // y `plateau` marca la meseta de feed constante del corte. Para otras
+      // trayectorias, la etiqueta de siempre (TRACK o la del barrido) y 0.
+      fh << ",phase,plateau\n";
       fh << std::fixed << std::setprecision(12);
       for (std::size_t k = 0; k < ref_gen_->size(); ++k) {
         const JointRef & r = ref_gen_->at(k);
@@ -607,8 +639,10 @@ void TorqueControlNodeBase::start()
         for (int i = 0; i < 6; ++i) {fh << ',' << r.q[i];}
         for (int i = 0; i < 6; ++i) {fh << ',' << r.dq[i];}
         for (int i = 0; i < 6; ++i) {fh << ',' << r.ddq[i];}
-        std::string ph = ref_gen_->phaseLabel(k);
-        fh << ',' << (ph.empty() ? "TRACK" : ph) << '\n';
+        std::string ph = ref_gen_->segmentLabel(k);
+        if (ph.empty()) {ph = ref_gen_->phaseLabel(k);}
+        fh << ',' << (ph.empty() ? "TRACK" : ph)
+           << ',' << (ref_gen_->inCutPlateau(k) ? 1 : 0) << '\n';
       }
       RCLCPP_INFO(get_logger(), "Tabla de referencias exportada: %s (%zu muestras)",
                   reference_table_out_.c_str(), ref_gen_->size());
@@ -622,6 +656,7 @@ void TorqueControlNodeBase::start()
     RCLCPP_WARN(get_logger(), "No se pudo abrir el CSV (se continua sin log)");
   } else {
     RCLCPP_INFO(get_logger(), "CSV: %s", csv_.path().c_str());
+    writeParamsSidecar();
   }
 
   // Timer de PARED: corre aunque la sim este pausada o con RTF < 1.
@@ -671,11 +706,130 @@ std::map<std::string, std::string> TorqueControlNodeBase::traceMetadata() const
   {
     params[name] = get_parameter(name).value_to_string();
   }
-  return {
+  std::map<std::string, std::string> meta = {
     {"git_sha", UR5_DYN_CONTROL_GIT_SHA},
+    // B0.5: true = el paquete tenia cambios sin commitear al compilar, asi que
+    // git_sha NO basta para reconstruir el codigo; los parametros si estan
+    // enteros en el fichero lateral <prefijo>_<n>.params.yaml.
+    {"git_dirty", UR5_DYN_CONTROL_GIT_DIRTY},
     {"params_hash", CsvLogger::hashParameters(params)},
     {"n_params", std::to_string(params.size())},
   };
+  // Legibles sin abrir el fichero lateral: version del bloque comun y sesion.
+  for (const auto & [name, value] : params) {
+    if (name == "incision_common" || name.rfind("session.", 0) == 0) {
+      meta[name] = value;
+    }
+  }
+  return meta;
+}
+
+namespace
+{
+
+/// Valor de un parametro en sintaxis YAML que rclcpp vuelve a cargar tal cual.
+/// value_to_string() no sirve: imprime los double con 6 cifras (3.14159265 ->
+/// 3.14159) y las cadenas sin comillas.
+std::string yamlValue(const rclcpp::Parameter & p)
+{
+  std::ostringstream os;
+  os << std::setprecision(17);
+  auto quote = [](const std::string & v) {
+      std::string out = "\"";
+      for (const char c : v) {
+        if (c == '"' || c == '\\') {out += '\\';}
+        out += c;
+      }
+      return out + "\"";
+    };
+  auto dbl = [](double v) {
+      if (std::isnan(v)) {return std::string(".nan");}
+      if (std::isinf(v)) {return std::string(v > 0 ? ".inf" : "-.inf");}
+      // to_chars: la representacion MAS CORTA que se relee exacta (0.3, no
+      // 0.29999999999999999 como da setprecision(17)).
+      char buf[64];
+      const auto res = std::to_chars(buf, buf + sizeof(buf), v);
+      std::string t(buf, res.ptr);
+      // Un double entero (1.0 -> "1") se releeria como int y rclcpp lo
+      // rechazaria por tipo: forzar el punto decimal.
+      if (t.find_first_of(".eEn") == std::string::npos) {t += ".0";}
+      return t;
+    };
+  switch (p.get_type()) {
+    case rclcpp::ParameterType::PARAMETER_BOOL:
+      os << (p.as_bool() ? "true" : "false"); break;
+    case rclcpp::ParameterType::PARAMETER_INTEGER:
+      os << p.as_int(); break;
+    case rclcpp::ParameterType::PARAMETER_DOUBLE:
+      os << dbl(p.as_double()); break;
+    case rclcpp::ParameterType::PARAMETER_STRING:
+      os << quote(p.as_string()); break;
+    case rclcpp::ParameterType::PARAMETER_BOOL_ARRAY: {
+        os << '[';
+        const auto v = p.as_bool_array();
+        for (std::size_t i = 0; i < v.size(); ++i) {
+          os << (i ? ", " : "") << (v[i] ? "true" : "false");
+        }
+        os << ']'; break;
+      }
+    case rclcpp::ParameterType::PARAMETER_INTEGER_ARRAY: {
+        os << '[';
+        const auto v = p.as_integer_array();
+        for (std::size_t i = 0; i < v.size(); ++i) {os << (i ? ", " : "") << v[i];}
+        os << ']'; break;
+      }
+    case rclcpp::ParameterType::PARAMETER_DOUBLE_ARRAY: {
+        os << '[';
+        const auto v = p.as_double_array();
+        for (std::size_t i = 0; i < v.size(); ++i) {os << (i ? ", " : "") << dbl(v[i]);}
+        os << ']'; break;
+      }
+    case rclcpp::ParameterType::PARAMETER_STRING_ARRAY: {
+        os << '[';
+        const auto v = p.as_string_array();
+        for (std::size_t i = 0; i < v.size(); ++i) {os << (i ? ", " : "") << quote(v[i]);}
+        os << ']'; break;
+      }
+    default:
+      os << "null";
+  }
+  return os.str();
+}
+
+}  // namespace
+
+void TorqueControlNodeBase::writeParamsSidecar()
+{
+  // B0.5: TODOS los parametros efectivos (YAML + gains_file + overrides de
+  // launch y de linea de comandos) junto al CSV, en un YAML que se puede volver
+  // a pasar con --params-file para repetir la corrida. El params_hash de la
+  // cabecera dice SI dos corridas difieren; este fichero dice EN QUE.
+  std::string path = csv_.path();
+  if (path.size() > 4 && path.compare(path.size() - 4, 4, ".csv") == 0) {
+    path.resize(path.size() - 4);
+  }
+  path += ".params.yaml";
+  std::ofstream fh(path);
+  if (!fh.is_open()) {
+    RCLCPP_WARN(get_logger(), "No se pudo escribir %s", path.c_str());
+    return;
+  }
+  const auto names = list_parameters({}, 0).names;
+  std::vector<std::string> sorted(names.begin(), names.end());
+  std::sort(sorted.begin(), sorted.end());
+  fh << "# Parametros EFECTIVOS de " << csv_.path() << "\n";
+  fh << "# git_sha=" << UR5_DYN_CONTROL_GIT_SHA
+     << " git_dirty=" << UR5_DYN_CONTROL_GIT_DIRTY << "\n";
+  fh << "# Repetir la corrida: --params-file <este fichero>\n";
+  fh << get_name() << ":\n  ros__parameters:\n";
+  for (const auto & name : sorted) {
+    if (name.rfind("qos_overrides.", 0) == 0) {continue;}  // solo lectura
+    const std::string v = yamlValue(get_parameter(name));
+    // rclcpp no acepta una lista vacia en un YAML de parametros ("No parameter
+    // value set"): se deja comentada, y al recargar rige el default del nodo.
+    fh << (v == "[]" ? "    # " : "    ") << name << ": " << v << "\n";
+  }
+  RCLCPP_INFO(get_logger(), "Parametros: %s", path.c_str());
 }
 
 void TorqueControlNodeBase::logRow(double t_sim, const Vector6d & q,

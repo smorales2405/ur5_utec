@@ -20,19 +20,18 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# SHA del commit con el que se compila, para la cabecera de trazabilidad de los
-# CSV (FASE 3). Se captura en tiempo de BUILD: en tiempo de ejecucion el nodo
-# corre desde el install space, donde no hay repositorio git que consultar.
-execute_process(
-  COMMAND git -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse --short HEAD
-  OUTPUT_VARIABLE UR5_DYN_CONTROL_GIT_SHA
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_QUIET)
-if(NOT UR5_DYN_CONTROL_GIT_SHA)
-  set(UR5_DYN_CONTROL_GIT_SHA "unknown")
-endif()
-add_compile_definitions(UR5_DYN_CONTROL_GIT_SHA="${UR5_DYN_CONTROL_GIT_SHA}")
-message(STATUS "ur5_dyn_control git SHA: ${UR5_DYN_CONTROL_GIT_SHA}")
+# SHA del commit con el que se compila y si el paquete tenia cambios sin
+# commitear, para la cabecera de trazabilidad de los CSV (FASE 3, B0.5). Se
+# capturan en tiempo de BUILD —en ejecucion el nodo corre desde el install
+# space, sin repositorio git— y en CADA build: el target `git_version`
+# regenera git_version.hpp (cmake/git_version.cmake). Antes se capturaba al
+# configurar, y colcon no reconfigura si este fichero no cambia.
+set(GIT_VERSION_HPP ${CMAKE_CURRENT_BINARY_DIR}/generated/ur5_dyn_control/git_version.hpp)
+add_custom_target(git_version ALL
+  COMMAND ${CMAKE_COMMAND} -DSRC_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+          -DOUT=${GIT_VERSION_HPP} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/git_version.cmake
+  BYPRODUCTS ${GIT_VERSION_HPP}
+  COMMENT "git_version.hpp (SHA y estado del arbol)")
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -66,6 +65,9 @@ target_include_directories(${PROJECT_NAME}_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
+target_include_directories(${PROJECT_NAME}_core PRIVATE
+  ${CMAKE_CURRENT_BINARY_DIR}/generated)
+add_dependencies(${PROJECT_NAME}_core git_version)
 target_link_libraries(${PROJECT_NAME}_core PUBLIC
   ur5_kinematics::ur5_kinematics
   Eigen3::Eigen
@@ -143,6 +145,15 @@ if(BUILD_TESTING)
   # cada vez la corrida de simulacion los ignoro en silencio.
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_launch_arg_symmetry test/test_launch_arg_symmetry.py)
+  # B0.2/B0.3/B0.5: arranca los tres nodos en dry_run (sin publicar par).
+  ament_add_pytest_test(test_incision_common test/test_incision_common.py
+    TIMEOUT 300)
+  # B0.4: dinamica del nodo (C++) frente a la del evaluador offline (Python).
+  add_executable(dump_dynamics test/dump_dynamics.cpp)
+  target_link_libraries(dump_dynamics ${PROJECT_NAME}_core)
+  ament_add_pytest_test(test_dynamics_cross test/test_dynamics_cross.py
+    ENV DUMP_DYNAMICS=$<TARGET_FILE:dump_dynamics>
+    TIMEOUT 120)
 endif()
 
 ament_package()
