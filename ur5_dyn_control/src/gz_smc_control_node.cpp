@@ -1,21 +1,28 @@
 // ============================================================================
 //  gz_smc_control_node — Sliding Mode Control clásico del UR5e (FASE 5)
 //
-//  Formulación (va tal cual al paper; estructura de Slotine-Li):
+//  Formulación (va tal cual al paper; Slotine-Li EXACTO, B4.3 del plan):
 //
 //    q_e   = q − q_d              dq_e  = q̇ − q̇_d
 //    s     = dq_e + Λ q_e                              (superficie deslizante)
 //    q̇_r   = q̇_d − Λ q_e          q̈_r   = q̈_d − Λ dq_e  (referencia deslizante)
 //                                  ⟹  s = q̇ − q̇_r
 //
-//    tau   = b̂(q,q̇) + M̂(q) q̈_r − K ⊙ ρ(s)
+//    tau   = M̂(q) q̈_r + Ĉ(q,q̇) q̇_r + ĝ(q) − K ⊙ ρ(s)              (R1)
+//    K_i   = η_i + α_M |(M̂ q̈_r)_i| + α_C |(Ĉ q̇_r)_i| + α_g |ĝ_i|   (R2)
 //
 //    ρ(s)  = sgn(s)          (switching_function: "sign")
 //          = sat(s/φ)        (switching_function: "sat")
 //
-//  Condición de alcance, con K calculada EN CADA CICLO a partir de la cota:
+//  La ley vive en smc_law.hpp (funcion pura): el test dorado la compara con la
+//  SmcLaw del evaluador offline.
 //
-//    K_i ≥ η_i + | α M̂ q̈_r + α b̂ + (1−α) Ṁ̂ q̇_r |_i
+//  Por qué desliza. Con Ṁ − 2C antisimétrica y V = ½ sᵀ M s:
+//      M ṡ = −C s − K ρ(s) − Δ      ⟹      V̇ = −sᵀ K ρ(s) − sᵀ Δ
+//  (Δ: error de modelo). Basta K_i ≥ |Δ_i| + η_i para que V̇ < 0 fuera de la capa,
+//  y la prueba es GLOBAL. Hasta B4.3 la ley usaba b̂ = Ĉ q̇ + ĝ en vez de
+//  Ĉ q̇_r + ĝ: quedaba un ½ sᵀ Ṁ s que solo se acotaba localmente, de ahí el
+//  término (1−α) Ṁ q̇_r de la cota vieja, y el contraejemplo de V11 del plan.
 //
 //  OJO: es "≥", no "≤" (la tesis de partida lo tenía invertido). Con "≤" la
 //  ganancia podría quedar POR DEBAJO de la incertidumbre y la condición de
@@ -23,13 +30,7 @@
 //
 //  Se calcula K en vez de dejarla como parámetro libre para que la FASE 7
 //  optimice sobre [Λ, η, φ] con la condición de alcance satisfecha POR
-//  CONSTRUCCIÓN (restricción g3 del plan), en vez de tener que comprobarla como
-//  una restricción más que el optimizador puede violar.
-//
-//  Por qué el lazo cerrado desliza (con modelo perfecto, M̂ = M y b̂ = b):
-//      M q̈ + b = b + M q̈_r − K ρ(s)
-//      M (q̈ − q̈_r) = −K ρ(s)      y      ṡ = q̈ − q̈_r
-//   ⟹ ṡ = −M⁻¹ K ρ(s),   con M ≻ 0  ⟹  sᵀ ṡ < 0 fuera de s = 0.
+//  CONSTRUCCIÓN, en vez de tener que comprobarla como una restricción más.
 // ============================================================================
 
 #include <algorithm>
@@ -38,6 +39,7 @@
 #include <cstdio>
 #include <string>
 
+#include "ur5_dyn_control/smc_law.hpp"
 #include "ur5_dyn_control/torque_control_node_base.hpp"
 
 namespace ur5_dyn_control
@@ -102,6 +104,20 @@ public:
     if (!(alpha_ > 0.0) || alpha_ > 1.0) {
       throw std::runtime_error("alpha debe estar en (0, 1]");
     }
+    // R2 (B4.3): un alpha por termino de la cota (inercia, Coriolis, gravedad).
+    // Negativo = el `alpha` de arriba, que es lo que llevan los ficheros de
+    // ganancias de la FASE 7. alpha_g se medira con el ensayo de sosten (B4.4).
+    auto alpha_term = [this](const char * name) {
+        double a = declare_parameter<double>(name, -1.0);
+        if (a < 0.0) {a = alpha_;}
+        if (a > 1.0) {
+          throw std::runtime_error(std::string(name) + " debe estar en [0, 1]");
+        }
+        return a;
+      };
+    gains_.alpha_M = alpha_term("alpha_M");
+    gains_.alpha_C = alpha_term("alpha_C");
+    gains_.alpha_g = alpha_term("alpha_g");
 
     const std::string sw = declare_parameter<std::string>("switching_function", "sat");
     if (sw == "sign") {
@@ -145,10 +161,15 @@ public:
         }
         return s;
       };
+    gains_.lambda = lambda_;
+    gains_.eta = eta_;
+    gains_.phi = phi_;
+    gains_.use_sat = use_sat_;
     RCLCPP_INFO(get_logger(),
-                "SMC rho=%s%s | lambda=[%s] eta=[%s] alpha=%.2f",
+                "SMC rho=%s%s | lambda=[%s] eta=[%s] alpha M/C/g=%.2f/%.2f/%.2f",
                 sw.c_str(), phi_txt.c_str(),
-                lista(lambda_).c_str(), lista(eta_).c_str(), alpha_);
+                lista(lambda_).c_str(), lista(eta_).c_str(),
+                gains_.alpha_M, gains_.alpha_C, gains_.alpha_g);
     // Ganancia derivativa que esto crea sobre la velocidad MEDIDA (docs/09
     // 2): dentro de la capa limite d(tau)/d(dq) = M*Lambda + diag(K/phi), con
     // la diagonal G_i = M_ii*lambda_i + K_i/phi_i. Es el numero que entro en
@@ -157,16 +178,11 @@ public:
     reportLoopGain(
       "M_ii*lambda_i + K_i/phi_i",
       [this](const Vector6d & q, const Vector6d & dq, const Vector6d & ddq) {
-        const Matrix6d M = dyn().M(q);
-        const Vector6d K = eta_ + (alpha_ * (M * ddq) + alpha_ * dyn().nle(q, dq) +
-          (1.0 - alpha_) * (dyn().dM(q, dq) * dq)).cwiseAbs();
-        Matrix6d D = M * lambda_.asDiagonal();
-        D.diagonal() += K.cwiseQuotient(phi_);
-        return D;
+        return smcDtauDdq(dyn(), q, dq, ddq, gains_);
       });
     RCLCPP_INFO(get_logger(),
-                "  K se calcula por ciclo: K_i = eta_i + |alpha*M*ddq_r + "
-                "alpha*b + (1-alpha)*dM*dq_r|_i  (condicion de alcance por "
+                "  K se calcula por ciclo: K_i = eta_i + alpha_M|M*ddq_r|_i + "
+                "alpha_C|C*dq_r|_i + alpha_g|g|_i  (R2; condicion de alcance por "
                 "construccion)");
     start();
   }
@@ -175,36 +191,10 @@ protected:
   Vector6d computeTau(const Vector6d & q, const Vector6d & dq,
                       const JointRef & ref, double /*dt*/) override
   {
-    // Errores con el convenio del plan: e = actual − deseado.
-    const Vector6d q_e = q - ref.q;
-    const Vector6d dq_e = dq - ref.dq;
-
-    s_ = dq_e + lambda_.asDiagonal() * q_e;
-
-    const Vector6d dq_r = ref.dq - lambda_.asDiagonal() * q_e;
-    const Vector6d ddq_r = ref.ddq - lambda_.asDiagonal() * dq_e;
-
-    const Matrix6d M = dyn().M(q);
-    const Vector6d b = dyn().nle(q, dq);
-    const Matrix6d dM = dyn().dM(q, dq);
-
-    // Cota de incertidumbre y ganancia de conmutacion (por junta).
-    const Vector6d bound =
-      (alpha_ * (M * ddq_r) + alpha_ * b + (1.0 - alpha_) * (dM * dq_r)).cwiseAbs();
-    k_ = eta_ + bound;
-
-    // ρ(s). sat(s/φ) es CONTINUA: dentro de |s| < φ se comporta como una
-    // ganancia proporcional alta (K/φ) en vez de conmutar, que es lo que
-    // elimina el chattering a costa de dejar |s| acotada por O(φ) en vez de
-    // llevarla a cero exactamente.
-    Vector6d rho;
-    for (int i = 0; i < 6; ++i) {
-      rho[i] = use_sat_
-        ? std::clamp(s_[i] / phi_[i], -1.0, 1.0)
-        : ((s_[i] > 0.0) ? 1.0 : ((s_[i] < 0.0) ? -1.0 : 0.0));
-    }
-
-    return b + M * ddq_r - k_.cwiseProduct(rho);
+    const SmcOutput o = smcLaw(dyn(), q, dq, ref, gains_);
+    s_ = o.s;
+    k_ = o.K;
+    return o.tau;
   }
 
   /// Va a la columna `s[6]` del CSV unificado (FASE 3).
@@ -217,6 +207,7 @@ private:
   Vector6d phi_ = Vector6d::Constant(0.05);
   double alpha_ = 0.3;
   bool use_sat_ = true;
+  SmcGains gains_;           // lo que usa la ley (smc_law.hpp)
   Vector6d s_ = Vector6d::Zero();
   Vector6d k_ = Vector6d::Zero();
 };

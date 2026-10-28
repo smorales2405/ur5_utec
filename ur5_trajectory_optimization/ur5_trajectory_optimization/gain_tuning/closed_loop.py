@@ -315,7 +315,15 @@ class JointFriction:
 
 class SmcLaw:
     """
-    Espejo de gz_smc_control_node.cpp. Ver docs/05_smc.md §1.
+    Espejo de `smcLaw` (ur5_dyn_control/include/ur5_dyn_control/smc_law.hpp),
+    con las correcciones R1 y R2 de B4.3; el test dorado
+    ur5_dyn_control/test/test_smc_law_cross.py exige el mismo par que el C++.
+
+        tau = M q̈_r + C q̇_r + g − K ⊙ ρ(s)                              (R1)
+        K   = η + α_M |M q̈_r| + α_C |C q̇_r| + α_g |g|                    (R2)
+
+    `alpha_M`, `alpha_C`, `alpha_g` en None valen `alpha` (lo que llevan los
+    ficheros de ganancias de la FASE 7). Ver docs/05_smc.md §1.
 
     Devuelve `(tau, s, info)`; `info["chi"]` es el número de estabilidad
     discreta por junta SIN el `dt` (lo aplica `simulate`, que es quien lo
@@ -337,13 +345,17 @@ class SmcLaw:
     magnitud: un phi comun razonable en el hombro deja chi ~ 515 en wrist_3.
     """
 
-    def __init__(self, lam, eta, phi, alpha=0.3, use_sat=True):
+    def __init__(self, lam, eta, phi, alpha=0.3, use_sat=True,
+                 alpha_M=None, alpha_C=None, alpha_g=None):
         self.lam = np.asarray(lam, float)
         self.eta = np.asarray(eta, float)
         self.phi = np.broadcast_to(np.asarray(phi, float), (6,)).copy()
         if not np.all(self.phi > 0.0):
             raise ValueError("phi debe ser > 0 en las seis juntas")
         self.alpha = float(alpha)
+        self.alpha_M = self.alpha if alpha_M is None else float(alpha_M)
+        self.alpha_C = self.alpha if alpha_C is None else float(alpha_C)
+        self.alpha_g = self.alpha if alpha_g is None else float(alpha_g)
         self.use_sat = bool(use_sat)
 
     def __call__(self, model, data, q, dq, ref_q, ref_dq, ref_ddq):
@@ -354,14 +366,16 @@ class SmcLaw:
 
         M = pin.crba(model, data, q)
         M = np.triu(M) + np.triu(M, 1).T
-        b = pin.nonLinearEffects(model, data, q, dq)
         C = pin.computeCoriolisMatrix(model, data, q, dq)
-        dM = C + C.T
+        g = pin.computeGeneralizedGravity(model, data, q)
+        M_ddq_r, C_dq_r = M @ ddq_r, C @ dq_r
 
-        K = self.eta + np.abs(self.alpha * (M @ ddq_r) + self.alpha * b +
-                              (1.0 - self.alpha) * (dM @ dq_r))
+        # R2: cota estructurada, un alpha por termino.
+        K = (self.eta + self.alpha_M * np.abs(M_ddq_r)
+             + self.alpha_C * np.abs(C_dq_r) + self.alpha_g * np.abs(g))
         rho = np.clip(s / self.phi, -1.0, 1.0) if self.use_sat else np.sign(s)
-        tau = b + M @ ddq_r - K * rho
+        # R1: Slotine-Li exacto, C q̇_r y no C q̇.
+        tau = M_ddq_r + C_dq_r + g - K * rho
         # `M_diag` lo consume `simulate` para el paso implicito de friccion.
         # Se devuelve aqui porque la ley YA calculo M: recalcularla en el
         # integrador duplicaria una crba por ciclo sin necesidad.

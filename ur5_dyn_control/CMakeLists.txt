@@ -157,6 +157,12 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_dynamics_cross test/test_dynamics_cross.py
     ENV DUMP_DYNAMICS=$<TARGET_FILE:dump_dynamics>
     TIMEOUT 120)
+  # B4.3: ley SMC del nodo (C++) frente a la SmcLaw del evaluador (Python).
+  add_executable(dump_smc_law test/dump_smc_law.cpp)
+  target_link_libraries(dump_smc_law ${PROJECT_NAME}_core)
+  ament_add_pytest_test(test_smc_law_cross test/test_smc_law_cross.py
+    ENV DUMP_SMC_LAW=$<TARGET_FILE:dump_smc_law>
+    TIMEOUT 120)
 endif()
 
 ament_package()

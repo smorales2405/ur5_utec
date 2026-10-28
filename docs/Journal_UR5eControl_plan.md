@@ -913,9 +913,9 @@ más seguro y desacopla la medida de fuerza de cualquier ley propia.
 
 | # | entregable |
 |---|---|
-| B4.1 | CT: ganancias por junta desde YAML (ya existe), `G` y chequeo discreto en el banner. |
+| B4.1 | ✅ (`9ccb9be`) CT: ganancias por junta desde YAML, `G` y chequeo discreto en el banner. `G` común a las tres leyes (`reportLoopGain`: diagonal y suma por fila) y `g_loop_max` en el bloque común. Referencia congelada: CT nominal G = 52/60/19, ρ = 0.983, margen ×25; SMC `smc_v5_g6` 83.1/106.7/81.4 en diagonal pero **101/168/98 con acoplos**. |
 | B4.2 | LQI-SDRE (§4.3): estado integral, pesos físicos, anti-windup, CARE 18×18. Tests: CARE vs `scipy.linalg.solve_continuous_are`; 18 polos en la raíz deseada con la síntesis polinómica; anti-windup congela `σ`; cómputo por ciclo. |
-| B4.3 | SMC R1–R3 (§4.4) en el nodo **y** en `SmcLaw` del evaluador; test dorado C++↔Python de la ley. |
+| B4.3 | ✅ R1 y R2 (§4.4) en `smc_law.hpp` (ley pura, la usa el nodo) **y** en `SmcLaw` del evaluador; `alpha_M`/`alpha_C`/`alpha_g` (= `alpha` hasta medir `α_g` en B4.4). Test dorado C++↔Python: mismo par en 200 casos (< 1e-9). Con `smc_v5_g6` sin re-sintonizar: G 83.1/106.7/81.6, corte 0.0025 mm (antes 0.0036) y TV(τ) 21 (antes 50) en Gazebo (`smc_98822`). **R3**: `g5` ya exige η ≥ d̄_f + d̄_cut (`run_gain_tuning`); falta sustituir la `d̄_cut` del corte sintético por la envolvente medida de los cuatro materiales (B2). |
 | B4.4 | Ensayo de sostén para `α_g`: varias posturas en el real con `gravity_comp`, `g_UR = k⊙i − τ_cmd` frente a `ĝ`. Sin seguimiento, riesgo mínimo. |
 | B4.5 | Las tres leyes en el gemelo (aire + fuerza sintética corregida). |
 
