@@ -26,7 +26,16 @@ se ven en ningun log y que ya han pasado desapercibidos:
 
 Uso:
     check_session_config.py ~/.ros/ur5_dyn_control/smc_<n>.csv
+    check_session_config.py --payload-kg 0.19 ~/.ros/ur5_dyn_control/fl_<n>.csv
 Sale con codigo 1 si algun ajuste no es el esperado.
+
+PAYLOAD CON EL ACOPLE MONTADO. En el real la gravedad la compensa el ROBOT
+(G3): el nodo manda la ley menos su g(q) y el robot suma la suya, con el
+payload del pendant. Con el acople montado y payload 0, su peso queda sin
+compensar (hasta 1.05 N.m en shoulder_lift). El pendant tiene que llevar el
+acople (masa PESADA, CoG del CAD desde tool0); `--payload-kg` declara lo que
+se configuro y la referencia pasa a ser la de sin carga MAS la firma de ese
+payload en q_init.
 """
 
 import argparse
@@ -43,8 +52,14 @@ JOINTS = ["shoulder_pan", "shoulder_lift", "elbow", "wrist_1", "wrist_2", "wrist
 
 #: g_robot sin carga en q_init, MEDIDO (2026-09-10, brida desnuda, payload 0).
 REF_SIN_CARGA = {1: -19.02, 3: -1.70}
-#: Aviso de payload: la mitad de la firma de 1.068 kg.
-UMBRAL_PAYLOAD = {1: 2.5, 3: 0.5}
+#: Aviso de payload [N.m]. En shoulder_lift la dispersion entre dias es 0.18
+#: (-19.02 el 09-10, -18.84 el 09-12) y la firma del acople en q_init -0.88,
+#: asi que 0.5 separa "acople configurado" de "payload 0" (la de 1.068 kg, el
+#: payload fantasma, es ~5-6). En wrist_1 la del acople es -0.18: ahi solo se
+#: ve un payload grande.
+UMBRAL_PAYLOAD = {1: 0.5, 3: 0.5}
+#: CoG del acople desde tool0 [mm] (CAD, docs/00_assumptions.md A1).
+COG_ACOPLE_MM = (-2.227, 2.134, 29.398)
 #: F_c fisica medida (02 8.4). El aviso de G4 salta con una parte impar mayor
 #: que el 15 % de ella: con G4 = 0 se mide <= 0.03 N.m en el codo, con las
 #: escalas por defecto 6.2 N.m ya a 0.05 rad/s.
@@ -84,11 +99,36 @@ def odd_part(q, v, y, level, tol=0.005, bin_rad=np.radians(1.0)):
     return 0.5 * (np.mean(a) - np.mean(b)) if len(a) > 10 else None
 
 
-def check_payload(d, i):
+def payload_signature(mass_kg, cog_mm, q=Q_INIT, gravity=9.8):
+    """Par de gravedad [N.m] que suma un payload puntual en `cog_mm` (tool0)."""
+    if mass_kg == 0.0:
+        return np.zeros(6)
+    import pinocchio as pin
+    from ur5_trajectory_optimization.gain_tuning.closed_loop import default_urdf
+    model = pin.buildModelFromUrdf(default_urdf())
+    data = model.createData()
+    fid = model.getFrameId("tool0")
+    pin.framesForwardKinematics(model, data, np.asarray(q, float))
+    pin.computeJointJacobians(model, data, np.asarray(q, float))
+    J = pin.getFrameJacobian(model, data, fid, pin.LOCAL_WORLD_ALIGNED)
+    r = data.oMf[fid].rotation @ (np.asarray(cog_mm, float) * 1e-3)
+    # velocidad del punto: v_tool0 + w x r  ->  J_p = J_v - [r]x J_w
+    rx = np.array([[0, -r[2], r[1]], [r[2], 0, -r[0]], [-r[1], r[0], 0]])
+    Jp = J[:3] - rx @ J[3:]
+    # g(q) del convenio M q'' + C q' + g = tau: el peso es -m g en z.
+    return Jp.T @ np.array([0.0, 0.0, mass_kg * gravity])
+
+
+def check_payload(d, i, payload_kg=0.0, cog_mm=COG_ACOPLE_MM):
     q = d[:, [i[f"q{j}"] for j in range(1, 7)]]
     dq = d[:, [i[f"dq{j}"] for j in range(1, 7)]]
     ok = True
-    print("  PAYLOAD  junta          g_robot   sin carga   diferencia")
+    sig = payload_signature(payload_kg, cog_mm)
+    ref = {j: REF_SIN_CARGA[j] + sig[j] for j in REF_SIN_CARGA}
+    if payload_kg:
+        print(f"  PAYLOAD  declarado {payload_kg:.3f} kg en {cog_mm} mm: "
+              f"referencia = sin carga + firma")
+    print("  PAYLOAD  junta          g_robot   esperado   diferencia")
     for j in (1, 3):
         quieta = (np.abs(q[:, j] - Q_INIT[j]) < 0.05) & (np.abs(dq[:, j]) < 1e-3)
         if quieta.sum() < 100:
@@ -96,10 +136,10 @@ def check_payload(d, i):
             continue
         g = float(np.nanmedian(d[quieta, i[f"cur{j + 1}"]] * K[j]
                                - d[quieta, i[f"tau{j + 1}"]]))
-        delta = g - REF_SIN_CARGA[j]
+        delta = g - ref[j]
         mal = abs(delta) > UMBRAL_PAYLOAD[j]
         ok &= not mal
-        print(f"           {JOINTS[j]:<14} {g:+8.2f}   {REF_SIN_CARGA[j]:+8.2f}   "
+        print(f"           {JOINTS[j]:<14} {g:+8.2f}   {ref[j]:+8.2f}   "
               f"{delta:+7.2f}{'  <-- CARGA FANTASMA?' if mal else ''}")
     if not ok:
         print("           -> pendant: Instalacion > Payload. Vuelve solo al "
@@ -138,6 +178,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("csv", nargs="+")
+    ap.add_argument("--payload-kg", type=float, default=0.0,
+                    help="payload configurado en el pendant (0 = brida desnuda)")
+    ap.add_argument("--payload-cog", type=float, nargs=3, default=COG_ACOPLE_MM,
+                    metavar=("X", "Y", "Z"), help="CoG desde tool0 [mm] "
+                    "(por defecto, el del acople)")
     a = ap.parse_args(argv)
     rc = 0
     for p in a.csv:
@@ -146,7 +191,7 @@ def main(argv=None):
         if "cur1" not in i:
             print("  sin columnas `cur`: CSV anterior a G5, no se puede comprobar")
             continue
-        ok = check_payload(d, i)
+        ok = check_payload(d, i, a.payload_kg, tuple(a.payload_cog))
         ok &= check_g4(d, i)
         rc |= 0 if ok else 1
     return rc

@@ -1,0 +1,82 @@
+# ============================================================================
+#  B4.4 — Barridos por par para medir α_g (error de gravedad del lazo real)
+#
+#  Controlador: gz_fl_control_node (CT) con la tabla `joint_sweep`: UNA junta
+#  barre ±amplitude alrededor de `sweep.q_fixed` a cada velocidad, en los dos
+#  sentidos, y las demas se sostienen. Lo lanza, postura por postura,
+#  ur5_identification/scripts/run_gravity_sweeps_real.py; lo analiza
+#  analyze_gravity_sweeps.py (protocolo en el plan, B4.4).
+#
+#  Que se mide. En el real el robot suma su propia gravedad g_UR(q) al par que
+#  mandamos (G3), y el nodo manda la ley MENOS su ĝ: la gravedad que el SMC
+#  tiene que dominar es g_real − g_UR, no ĝ − g_UR. Con la junta a velocidad
+#  constante y la misma q en los dos sentidos,
+#      (k⊙i(+v) + k⊙i(−v)) / 2 − C(q,q̇)q̇ = g_real(q)
+#  porque la friccion es impar en q̇ y se cancela; y k⊙i − τ_cmd = g_UR(q) en
+#  cualquier muestra (es lo que anade el propio robot). Quieto no sirve: la
+#  friccion estatica de hombro y codo (±7 N·m) tapa un error de ~1.5 N·m.
+#
+#  Por que estas ganancias. El lazo real tiene 5 ciclos (10 ms) de retardo de
+#  tuberia (B7.0, analyze_pipeline_delay.py); con 1, que es lo que se supuso
+#  hasta ahora, las de sweep_params.yaml para las munecas (wrist_2 7500/173)
+#  son estables, con 5 NO. Margen de ganancia discreto a D = 5:
+#      100 / 20  -> x6.95      900 / 60 -> x2.19      7500 / 173 -> inestable
+# ============================================================================
+
+/**:
+  ros__parameters:
+    use_sim_time: true
+    control_rate: 500.0
+    urdf_path: ""
+    gravity: 9.8
+    q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
+    gravity_in_command: true         # G3 — false en el UR5e real (lo fuerza el launch)
+    # Acople montado SIN la hoja (primer ensayo con par y acople, checklist §7).
+    # En el real el launch lo pone a cero si tool_mounted:=false.
+    tcp_offset_z: 0.162686
+    tool_mass: 0.182                     # [kg] CAD; el payload del pendant, el PESADO
+    tool_com: [-0.002227, 0.002134, -0.133288]           # [m] en el frame TCP
+    tool_inertia: [2.39199e-4, 2.54858e-4, 1.19620e-4,
+                   -8.80e-7, -3.820e-6, -7.570e-6]
+    command_topic: "/forward_effort_controller/commands"
+    controller_manager: "/controller_manager"
+    activate_controllers: ["joint_state_broadcaster", "forward_effort_controller"]
+    perform_switch: true
+    perform_unpause: true
+    world_name: "default"
+    hold_start_duration: 2.0
+    transition_duration: 3.0
+    t_sim: 2.0
+    skip_trajectory: false
+    kp: [100.0, 100.0, 100.0, 900.0, 900.0, 100.0]
+    kd: [ 20.0,  20.0,  20.0,  60.0,  60.0,  20.0]
+    tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
+    # Feedforward de friccion con la fisica medida (02_friction_real.md 8.4):
+    # sin el, el CT no mueve wrist_1 contra su friccion con ganancias que el
+    # retardo tolere. Impar en q̇: no entra en la parte par que se mide.
+    friction_compensation: "viscous_coulomb"
+    friction:
+      f_v: [13.64, 11.55, 13.74, 1.28, 1.35, 2.12]
+      f_c: [6.85, 6.76, 7.46, 1.78, 1.96, 2.35]
+      dq_source: "desired"
+      dq_eps: 1.0e-2
+      ff_dv_max: 0.01
+    trajectory_type: "joint_sweep"
+    sweep:
+      q_fixed: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
+      joint: 1
+      # ±0.05 rad: el hombro mueve la punta ±33 mm, el codo ±20, wrist_1 ±13.
+      # Local (la gravedad es la de ESA postura) y con ~1000 muestras de meseta
+      # por sentido a 0.05 rad/s.
+      amplitude: 0.05
+      # Dos velocidades: la parte par tiene que salir igual en las dos. Si no,
+      # queda friccion par (asimetrica) o un termino de velocidad sin modelar.
+      velocities: [0.05, 0.10]
+      ramp_fraction: 0.15
+      max_sweep_duration: 40.0
+      dwell: 1.0
+      approach_duration: 3.0
+      ddq_max: 5.0
+    csv_output_dir: ""
+    test_num: 1
+    csv_hold_decimation: 10

@@ -429,7 +429,7 @@ def run_one_position(joint: int, test_num: int, params_file: str, level: str,
 
 def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
             log_dir: str, tool_mounted: bool = False, settle_s: float = 8.0,
-            timeout_s: float = 900.0):
+            timeout_s: float = 900.0, extra_args=()):
     """
     Lanza UNA corrida y espera a que la trayectoria acabe.
 
@@ -437,6 +437,8 @@ def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
     esperar un tiempo fijo: la duración de la tabla depende de las velocidades
     del barrido, y un timeout a ojo o corta la corrida o alarga la sesión.
     Si aparece SAFE_HOLD se corta de inmediato y se aborta la campaña.
+    `extra_args` (`clave:=valor`) se añaden al launch: los barridos de gravedad
+    (B4.4, run_gravity_sweeps_real.py) pasan ahí su postura.
     """
     cmd = ["ros2", "launch", "ur5_dyn_control", "ur5e_real.launch.py",
            "controller:=fl", f"params_file:={params_file}",
@@ -444,7 +446,7 @@ def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
            # La campaña se corre con el efector DESCARGADO (§7). Declararlo
            # aquí evita la herramienta fantasma en el modelo del nodo.
            f"tool_mounted:={'true' if tool_mounted else 'false'}",
-           f"tau_scale:={tau_scale}", f"test_num:={test_num}"]
+           f"tau_scale:={tau_scale}", f"test_num:={test_num}", *extra_args]
     log_path = os.path.join(log_dir, f"run_{test_num}.log")
     print(f"    $ {' '.join(cmd)}")
 
