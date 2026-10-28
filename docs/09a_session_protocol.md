@@ -180,7 +180,9 @@ ros2 run ur5_identification run_gravity_sweeps_real.py --test-base 1100 \
   nodo entra en SAFE_HOLD o el brazo no se detiene. `--resume` continúa.
 - CT con 100/20 en las juntas grandes y 900/60 en las muñecas: margen ×2.2 con
   los 5 ciclos de retardo (las 7500/173 de `sweep_params.yaml` serían inestables
-  en `wrist_2`).
+  en `wrist_2`). El banner de cada corrida tiene que decir `lazo discreto (MIMO)
+  con 5 ciclo(s) de retardo ... margen de ganancia x2.19`; desde R10 el nodo no
+  arranca en el real si una ley sale inestable con ese retardo (plan §2.7).
 
 Análisis:
 

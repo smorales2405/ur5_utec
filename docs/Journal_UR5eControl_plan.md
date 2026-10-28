@@ -1,6 +1,9 @@
 # Plan actualizado — Incisión con UR5e por par: LQR-SDRE vs SMC optimizado
 
-- **Fecha:** 2026-10-28 · **Revisión 8** — retardo de tubería del real medido
+- **Fecha:** 2026-10-28 · **Revisión 9** — R10 aplicado (D23): retardo real de
+  5 ciclos en el evaluador, restricción discreta MIMO `g7` y chequeo en el
+  banner de las tres leyes, que en el real **no arranca** si la ley es inestable
+  con ese retardo (§2.7). Rev. 8: retardo de tubería del real medido
   (**5 ciclos**, §2.7, V15); B4.4 y B7.0 preparados (protocolo en
   `docs/09a_session_protocol.md`); B4.4 corregido (qué gravedad entra en el
   lazo); payload con acople; `RobotReceiveTimeout` aclarado. Rev. 7: B0 cerrado
@@ -56,6 +59,7 @@ con el **Computed Torque (CT)** como línea base natural.
 | D20 | Pinocchio 4.1 (actualizado desde 3.1 hace unos meses) se **retiene** | Hecho: `apt-mark hold` de `robotpkg-{,py310-}pinocchio` 4.1.0 y de lo que lleva compilado dentro, `robotpkg-{,py310-}coal` 3.0.4, `robotpkg-py310-eigenpy` 3.13.0, `robotpkg-{,py310-}casadi` 3.7.2. Para actualizar: `sudo apt-mark unhold <paquete>` y re-verificar (test cruzado de B0.4) |
 | D21 | Muestras aún sin comprar: el usuario las conseguirá según las **dimensiones recomendadas** | §3.5 (h) |
 | D22 | **Trabajo futuro**, tras el corte recto: corte **curvo** con la hoja tangente a la trayectoria | B10 |
+| D23 | **R10 (2026-10-28): el retardo real de 5 ciclos entra en el evaluador y en la estabilidad discreta de las tres leyes; el SMC se re-sintoniza antes de llevarlo al robot** | Hecho: `PIPELINE_DELAY_STEPS` = 5, `g7` (margen MIMO ≥ ×2, propuesto) en el optimizador, `pipeline_delay_steps` = 5 en `ur5e_real.launch.py` y rechazo en el arranque (§2.7). La re-sintonía del SMC, tras medir `α_g` (B4.4) |
 
 ### 0.2 Cambios respecto al plan original
 
@@ -475,17 +479,25 @@ respuesta alineada en 71 escalones y ajustando `k⊙i(k) = a·τ_cmd(k − D)`:
   constante de tiempo de ~0.5 ms. `a` = 0.98 confirma de paso la `k` de corriente
   a par (§8.4 de `02_friction_real.md`).
 - `D` es exactamente el `delay_steps` del evaluador (`closed_loop.simulate`,
-  hoy **1**, tomado de Gazebo) y del chequeo discreto del banner
+  hasta R10 **1**, tomado de Gazebo) y del chequeo discreto del banner
   (`pdDiscreteSpectralRadius`, también con 1).
-- **Consecuencia (análisis lineal por junta, dentro de la capa límite):** margen
-  de ganancia discreto con 1 → 5 ciclos:
+- **Consecuencia (lazo discreto MIMO completo, R10):** margen de ganancia —el
+  factor común de las K hasta inestabilizar—, el mínimo sobre la referencia,
+  con el ZOH exacto de la cadena de integradores y D ciclos de retardo
+  (`mimoDiscreteMode` en C++, `mimo_discrete_mode` en Python, mismos números):
 
   | ley | D = 1 | D = 5 |
   |---|---|---|
-  | CT nominal (100/20) | ×24.9 | ×7.0 |
-  | semilla LQI (ωn = 10) | ×16.5 | ×4.5 |
-  | `smc_v5_g6` (la vigente, nunca probada en el real) | todas > ×1.8 | **inestable en las tres muñecas** (hombro ×3.6, codo ×1.4) |
-  | `smc_v4_g5` (la de `smc_712`) | todas > ×1.6 | inestable en base, codo y muñecas |
+  | CT nominal (100/20) | ×24.9 | ×6.95 |
+  | semilla LQI (ωn = 10, `Q_mode: fixed`) | ×5–15 según el punto | **×1.32** (t = 26.5 s, al final del trazo) |
+  | `smc_v5_g6` (la vigente, nunca probada en el real) | **×1.5–1.7** | **inestable**: modo de 25 Hz dominado por `wrist_1` |
+
+  Una primera versión por junta (PID desacoplado) daba el LQI en ×4.5 o, según
+  el punto, inestable: con `Q_mode: fixed`, lejos de `q_init` `M⁻¹K` tiene
+  acoplos dominantes y diagonales negativas y el análisis por junta no vale. En
+  el CT (K = M·diag(k)) los dos coinciden. Tampoco vale tomar el punto de mayor
+  radio espectral: el del LQI está en t = 14.7 s con ×1.69, y el margen mínimo,
+  ×1.32, en t = 26.5 s.
 
   En el evaluador completo, D = 3 o 5 vuelve inestables los dos juegos del SMC
   (TV(τ) ×10⁴); con D = 1 los dos son estables. Coincide en lo cualitativo con
@@ -493,9 +505,19 @@ respuesta alineada en 71 escalones y ajustando `k⊙i(k) = a·τ_cmd(k − D)`:
   modelo rígido con D = 5 predice ~20 Hz y se midieron 37 Hz en las cinco juntas.
   El retardo no lo explica todo: el modo estructural (25–35 Hz) y la no
   linealidad de `sat` también intervienen.
-- **Qué cambia:** `smc_v5_g6` **no se lleva al robot** (B7.1) sin re-sintonizar
-  con D = 5; B5 debería usar `delay_steps` = 5 y la restricción discreta con 5
-  ciclos (§9.8, R10). Los barridos de B4.4 re-miden D con el acople.
+- **Qué cambia (R10 → D23, hecho):**
+  - Evaluador: `PIPELINE_DELAY_STEPS` = 5 (`…_GAZEBO` = 1); `run_gain_tuning
+    --delay-steps`.
+  - Optimizador: restricción **`g7`**, margen MIMO ≥ `--margin-min` (×2 =
+    6 dB, **propuesto**: R11) con ese retardo; viaja en la receta del pool.
+  - Nodos: `pipeline_delay_steps` (1 por defecto; **5 en `ur5e_real.launch.py`**).
+    El banner de CT, SMC (capa límite) y LQR/LQI da el margen MIMO; **en el real,
+    si es < ×1 el nodo no arranca** (salida limpia con código 1), salvo
+    `discrete_check.allow_unstable: true`. Hoy: CT ×6.95, barridos de B4.4 ×2.19,
+    LQI semilla ×1.32 (arranca, pero no cumpliría `g7`), `smc_v5_g6` rechazado.
+  - `smc_v5_g6` no va al robot. El SMC se re-sintoniza con D = 5 **después de
+    B4.4**, que da `α_g` (entra en K por R2). Los barridos de B4.4 re-miden D con
+    el acople.
 
 **`RobotReceiveTimeout` y el par latcheado.** En ur_robot_driver 2.14 el timeout
 es fijo (20 ms, `hardware_interface.hpp`), no un parámetro. El script del robot
@@ -543,7 +565,7 @@ Para que el paper compare **leyes** y no **sintonías**:
 | gravedad | modelo interno de UR | exacta (mismo modelo) | medir la discrepancia `α_g` (B4.4) y emularla en el desajuste |
 | sensado de velocidad | encoder de 5.72 µrad → `Δq̇` = 2.86e-3 rad/s | suelo ~5e-6 rad/s (570× menor) | **relé de sensor** que cuantiza y deriva en sim (B3.2) |
 | modo estructural 25–35 / 48 Hz | medido (`smc_712/718`) | brazo rígido | no modelable en Gazebo → restricción empírica `g6` **común a las tres leyes**; declararlo |
-| retardo de tubería | **5 ciclos = 10 ms** (V15) | 1 ciclo | llevarlo al evaluador y a la restricción discreta (B5, R10) |
+| retardo de tubería | **5 ciclos = 10 ms** (V15) | 1 ciclo | en el evaluador y en `g7` (hecho, D23); en el gemelo, emularlo (B3) |
 | temporización | ciclo del driver a 500 Hz | timer de pared contra reloj de sim (jitter) | timer en tiempo de simulación (B3.3) |
 | estado térmico | F_v −9.3 % frío→rodado | — | calentamiento obligatorio; ±10 % de F_v en el desajuste |
 | **tejido / corte** | real | **ausente** | plugin de corte por material (B3.1) |
@@ -704,9 +726,9 @@ q_e = q − q_d,   K_P = diag(kp_i),   K_D = diag(kd_i)
 - Ley **sin cambios** (`gz_fl_control_node`). Lo que cambia es que `kp_i, kd_i`
   se sintonizan por junta con el mismo optimizador (B5). Rigidez efectiva frente
   a perturbación: `M_ii·kp_i`; `G_i = M_ii·kd_i`.
-- Restricción discreta: radio espectral del lazo discretizado `< 1 − margen`
-  en toda la referencia (`g3_lin`, B5), con el retardo **real** de 5 ciclos
-  (V15; hasta la Rev. 7 se suponía 1).
+- Restricción discreta: margen de ganancia del lazo discreto MIMO ≥ ×2 en toda
+  la referencia (`g7`), con el retardo **real** de 5 ciclos (V15, D23; hasta la
+  Rev. 7 se suponía 1).
 
 ### 4.3 LQR-SDRE con acción integral (LQI-SDRE)
 
@@ -802,8 +824,8 @@ solo está probada hasta 30. Con el corte a 0.60–0.65 m la base pide menos `G`
 (V12), lo que reduce este riesgo.
 
 `G ≤ 120` es empírica. Con el retardo real medido (V15, 5 ciclos) la
-restricción discreta por junta con D = 5 es una cota **de modelo** que explica
-parte de lo mismo; se propone usar las dos en B5 (R10).
+restricción discreta MIMO con D = 5 (`g7`) es una cota **de modelo** que explica
+parte de lo mismo; B5 usa las dos (D23).
 
 ### 4.6 Protocolo de equidad (va a *Methods*)
 
@@ -998,9 +1020,10 @@ más seguro y desacopla la medida de fuerza de cualquier ley propia.
 - Parametrizaciones: CT `[kp_i, kd_i]` (12) · LQI-SDRE `[Q_σ,ii, Q_p,ii, Q_v,ii]`
   con `R` fija por Bryson (18, escala logarítmica) · SMC `full_phi` (18).
 - Objetivos `f1` IAE cartesiano, `f2` esfuerzo, `f3` TV(τ); restricciones
-  `g1` par, `g2` velocidad, `g4` TCP ≤ 2 mm, `g6` `G ≤ 120`, más la discreta de
-  cada ley (`χ` normalizado para el SMC; radio espectral con retardo para CT y
-  LQR) y `g5` (SMC).
+  `g1` par, `g2` velocidad, `g4` TCP ≤ 2 mm, `g6` `G ≤ 120`, **`g7` margen
+  discreto MIMO ≥ ×2 con 5 ciclos** (las tres leyes; D23), `χ` normalizado
+  (`g3`, SMC) y `g5` (SMC). Simulación con `delay_steps` = 5. Hoy `g7` existe
+  para el SMC (`SmcLaw`); CT y LQI entran con sus leyes en el evaluador.
 - **Un juego por ley para los 4 materiales (D3):** objetivos promediados sobre
   los 4 modelos de tejido y restricciones en el peor caso. Coste estimado ≈ 4×
   el de `smc_v5_g6` por ley (~132 min × 4 con `-j 8`): se corren de noche.
@@ -1031,7 +1054,7 @@ más seguro y desacopla la medida de fuerza de cualquier ley propia.
 | # | paso |
 |---|---|
 | B7.0 | 🔶 **Preparado (2026-10-28).** Sesión: **payload = la configuración montada** (brida desnuda → 0; acople → masa pesada y CoG del CAD (−2.2, 2.1, 29.4) mm; la gravedad la compensa el robot), G4 = 0.0, calentamiento, `check_session_config.py --payload-kg`, guardas activas, §7 firmado. **Retardo: medido con datos existentes, 5 ciclos** (§2.7, V15); B4.4 lo re-mide con el acople. **Seguridad** (`09a_session_protocol.md` §2): `kill -9` al nodo en sostén → el vigilante `command_deadman.py` (nuevo, 3 tests, probado en Gazebo: 100 ms) corta y devuelve el mando al JTC; Ctrl-C → par cero; desenchufar Ethernet → `RobotReceiveTimeout` (20 ms, fijo) para el robot. |
-| B7.1 | Bring-up en aire **por ley** en la escena nueva (sin hoja → hoja al aire con `ft_data ≈ 0`): barrido en `q_init`, barrido de la base en la pose de la incisión, incisión en aire. Empezar por el SMC (equivale a 740–742) en cuanto exista la escena: valida la `G` de la base que usan las tres sintonías. **No con `smc_v5_g6`:** con el retardo real (V15) sus muñecas son inestables en el análisis lineal; antes, re-sintonizar con D = 5 (R10). El CT nominal (×7.0) sí puede ir. |
+| B7.1 | Bring-up en aire **por ley** en la escena nueva (sin hoja → hoja al aire con `ft_data ≈ 0`): barrido en `q_init`, barrido de la base en la pose de la incisión, incisión en aire. Empezar por el SMC (equivale a 740–742) en cuanto exista la escena: valida la `G` de la base que usan las tres sintonías. **No con `smc_v5_g6`:** con el retardo real (V15) es inestable (modo de 25 Hz en `wrist_1`) y el nodo ya **se niega a arrancar** en el real (D23); antes, re-sintonizar con D = 5 tras B4.4. El CT nominal (×6.95) sí puede ir; el LQI semilla arranca (×1.32) pero sin el margen de `g7`. |
 | B7.2 | Corte piloto con par en un carril de EVA (la muestra con más área), una vez por ley. |
 | B7.3 | Campaña: por material, en **una sesión**, rondas aleatorizadas (§3.5 f) hasta N = 3 por ley; CSV + `.params.yaml` + `ft_data` + foto + metadatos. |
 | B7.4 | **Medida del corte (D6), protocolo escrito antes de cortar** (`docs/09b_cut_protocol.md`): cámara calibrada (intrínsecos con tablero; escala con una referencia en el plano de la superficie de cada muestra) en vista superior → longitud, rectitud (desviación máxima a la recta objetivo) y ancho, foto tras cada corte. **Profundidad**: una vista superior no la da; se propone una **sección transversal al final de cada material** (corte perpendicular a todos los carriles en 3 estaciones, fotografiado con la misma cámara), que mide la profundidad de todos los cortes a la vez. |
@@ -1175,12 +1198,16 @@ Push de los 6 commits de S2 · B1 se cierra con brida libre (800), Robotiq 2F-85
 barridos** · el retardo, con los datos que ya hay · preparar scripts y protocolo
 de lo que falte · corregir B4.4, el payload con acople y `RobotReceiveTimeout`.
 
-### 9.8 Pendiente
+### 9.8 Octava ronda (2026-10-28)
+
+Push de los 3 commits de B7.0/B4.4/docs · **R10: sí** → D23.
+
+### 9.9 Pendiente
 
 | # | pregunta | por qué importa |
 |---|---|---|
 | **R2** | Conseguir las muestras según §3.5 (h) y confirmar sus medidas reales al tenerlas. | Fija N por material; la referencia no cambia salvo que obligue a acortar el trazo |
-| **R10** | ¿Llevar D = 5 (V15) al evaluador (`PIPELINE_DELAY_STEPS`) y a la restricción discreta de las tres leyes en B5, y re-sintonizar el SMC antes de B7.1? | Con D = 1 el optimizador premia ganancias que el real no tolera; `smc_v5_g6` es inestable en las muñecas con D = 5 |
+| **R11** | ¿Margen mínimo de `g7` = ×2 (6 dB)? Es una elección de diseño, no una medida. | Fija cuánta ganancia puede usar cada ley con el retardo real; con ×2 la semilla del LQI (×1.32) no pasa y B5 tendrá que bajarla |
 
 ---
 

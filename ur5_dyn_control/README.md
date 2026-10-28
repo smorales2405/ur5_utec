@@ -210,8 +210,17 @@ La segunda vía, por corriente, es offline: `ur5_identification/force_estimator.
   mandado en una fila del CSV aparece en la corriente (y en la velocidad) cinco
   filas después. Medido con los escalones del feedforward de Coulomb de los
   barridos reales: `ur5_identification/scripts/analyze_pipeline_delay.py`
-  (plan, V15). El evaluador offline y el chequeo discreto del banner suponen
-  todavía 1.
+  (plan, V15). Desde R10 (plan D23) entra en todo: el evaluador simula con 5,
+  el optimizador exige un margen discreto (`g7`) y el banner lo comprueba (abajo).
+- **Chequeo discreto en el arranque** (`reportDiscreteMargin`, CT, SMC en la
+  capa límite y LQR/LQI): margen de ganancia del lazo discreto MIMO completo
+  (`mimoDiscreteMode`, ZOH de la cadena de integradores + `pipeline_delay_steps`
+  ciclos de retardo), el mínimo sobre la referencia. `pipeline_delay_steps` vale
+  1 por defecto (Gazebo) y 5 en `ur5e_real.launch.py`. **En el real, una ley con
+  margen < ×1 no arranca** (sale con código 1 diciendo junta y frecuencia del modo
+  inestable), salvo `discrete_check.allow_unstable: true`; en Gazebo solo avisa.
+  Hoy: CT nominal ×6.95, barridos de B4.4 ×2.19, LQI semilla ×1.32, `smc_v5_g6`
+  rechazado (modo de 25 Hz en `wrist_1`).
 - **`scripts/command_deadman.py`**, lanzado por `ur5e_real.launch.py` en su
   propio proceso (`deadman:=true`, `deadman_timeout:=0.10`). Si el nodo de
   control deja de publicar 100 ms —muere sin destructor o se queda en DONE—
@@ -368,10 +377,14 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   (B4.2) — polos y K del LQI, mismo par C++↔Python del SMC, CARE contra scipy.
 - `test_command_deadman.py` (B7.0) — el vigilante corta y devuelve el mando al
   JTC cuando el nodo calla; los ceros del arranque no lo arman; se rearma.
+- `test_discrete_check.py` (R10) — con la configuración del real y 5 ciclos,
+  `smc_v5_g6` no arranca (y el override lo fuerza), el CT nominal sí (×6.95), y
+  el retardo del launch real es el del evaluador. Los números del chequeo los
+  fijan también los gtest `PidDiscrete`/`MimoDiscrete` y su espejo en Python.
 
-Total en `colcon test-result` (2026-10-28): **135** en `ur5_dyn_control`, 37 en
-`ur5_identification` (con `test_pipeline_delay.py` y `test_gravity_sweeps.py`)
-y 32 en `ur5_trajectory_optimization`: **204**, todos en verde.
+Total en `colcon test-result` (2026-10-28, R10): **146** en `ur5_dyn_control`,
+37 en `ur5_identification` y 36 en `ur5_trajectory_optimization`: **219**, todos
+en verde.
 
 ## Seguridad del lazo (FASE 3)
 
