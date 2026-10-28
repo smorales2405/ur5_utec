@@ -35,8 +35,9 @@ import sys
 
 import numpy as np
 
-#: k medida por diferencia entre sentidos (docs/02_friction_real.md 8.4) [N.m/A]
-K = np.array([11.139, 11.124, 11.001, 8.666, 8.542, 8.644])
+#: k medida por diferencia entre sentidos (docs/02_friction_real.md 8.4) [N.m/A].
+#: Una sola fuente: la usa tambien el estimador de fuerza por corriente (B1).
+from ur5_identification.force_estimator import K_CURRENT as K  # noqa: E402
 Q_INIT = np.array([1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416])
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow", "wrist_1", "wrist_2", "wrist_3"]
 

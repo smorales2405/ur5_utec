@@ -37,6 +37,8 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(controller_manager_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(Eigen3 REQUIRED)
@@ -76,7 +78,8 @@ target_link_libraries(${PROJECT_NAME}_core PUBLIC
   pinocchio::pinocchio
 )
 ament_target_dependencies(${PROJECT_NAME}_core PUBLIC
-  rclcpp sensor_msgs std_msgs controller_manager_msgs ament_index_cpp)
+  rclcpp sensor_msgs std_msgs geometry_msgs std_srvs controller_manager_msgs
+  ament_index_cpp)
 
 # ── Nodos de control ──────────────────────────────────────────────────────────
 add_executable(gz_gravity_comp_node src/gz_gravity_comp_node.cpp)

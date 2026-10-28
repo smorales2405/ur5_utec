@@ -18,6 +18,8 @@
   <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>   <!-- B1: wrench del F/T integrado -->
+  <depend>std_srvs</depend>        <!-- B1: zero_ftsensor (Trigger) -->
   <depend>controller_manager_msgs</depend>
   <depend>ament_index_cpp</depend>
   <depend>ur5_kinematics</depend>

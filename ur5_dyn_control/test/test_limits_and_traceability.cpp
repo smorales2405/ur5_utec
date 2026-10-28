@@ -16,6 +16,7 @@
 
 #include "ur5_dyn_control/common.hpp"
 #include "ur5_dyn_control/csv_logger.hpp"
+#include "ur5_dyn_control/ft_wrench.hpp"
 #include "ur5_dyn_control/joint_sweep_generator.hpp"
 #include "ur5_dyn_control/torque_command.hpp"
 
@@ -179,14 +180,45 @@ TEST(CsvSchema, HeaderKeepsTheLegacyColumnNames)
     EXPECT_NE(padded.find(std::string(",") + needed + ","), std::string::npos)
       << "falta la columna heredada '" << needed << "'";
   }
-  // Y las nuevas de la FASE 3.
+  // Y las nuevas de la FASE 3 y de B1 (sello y ceros del F/T).
   for (const char * added : {"t_wall", "t_sim", "tau1_sat", "s1", "theta_err",
-                             "wrench1"})
+                             "wrench1", "ft_stamp", "ft_zero"})
   {
     EXPECT_NE(header.find(added), std::string::npos)
       << "falta la columna nueva '" << added << "'";
   }
   std::remove(path.c_str());
+}
+
+// ── B1: wrench del F/T integrado en la punta, en base_link ───────────────────
+using ur5_dyn_control::wrenchAtTipInBase;
+
+TEST(FtWrench, RotatesToBaseLinkWithTheIncisionOrientation)
+{
+  // tcp_orientation_rpy = [pi, 0, pi] -> R = diag(-1, +1, -1) (A4): el +z de
+  // la herramienta apunta hacia abajo en base_link.
+  const Eigen::Matrix3d R = Eigen::Vector3d(-1.0, 1.0, -1.0).asDiagonal();
+  Vector6d w;
+  w << 0.0, 0.0, 5.0, 0.0, 0.0, 0.0;   // 5 N a lo largo del eje de la hoja
+  const Vector6d out = wrenchAtTipInBase(R, w, 0.0);
+  EXPECT_NEAR(out[2], -5.0, 1e-12);
+  EXPECT_NEAR(out.tail<3>().norm(), 0.0, 1e-12);
+}
+
+TEST(FtWrench, ForceAppliedAtTheTipHasNoMomentAtTheTip)
+{
+  // El sensor mide en la brida (ref_offset_z = 0) una fuerza lateral aplicada
+  // en la punta, a 0.162686 m: ve un momento r x f. Llevado a la punta, cero.
+  const double tip = 0.162686;
+  const Eigen::Vector3d f(3.0, -2.0, 1.0);
+  const Eigen::Vector3d m_flange = Eigen::Vector3d(0.0, 0.0, tip).cross(f);
+  Vector6d w;
+  w << f, m_flange;
+  const Eigen::Matrix3d R =
+    Eigen::AngleAxisd(0.7, Eigen::Vector3d(1.0, 2.0, 3.0).normalized()).toRotationMatrix();
+  const Vector6d out = wrenchAtTipInBase(R, w, tip);
+  EXPECT_LT((out.head<3>() - R * f).norm(), 1e-12);
+  EXPECT_LT(out.tail<3>().norm(), 1e-12);
 }
 
 // ── Rango del barrido de excitación (FASE 2) ────────────────────────────────

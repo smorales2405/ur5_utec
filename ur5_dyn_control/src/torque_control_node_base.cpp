@@ -1,5 +1,6 @@
 #include "ur5_dyn_control/torque_control_node_base.hpp"
 #include "ur5_dyn_control/git_version.hpp"  // generado en cada build
+#include "ur5_dyn_control/ft_wrench.hpp"
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
@@ -582,6 +583,30 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
       last_js_ = std::move(msg);
       ++js_seq_;
     });
+
+  // ── B1: sensor F/T integrado ───────────────────────────────────────────────
+  // El broadcaster de ros2_controllers 2.53 publica en ~/wrench: el
+  // `topic_name: ft_data` del YAML de UR no aparece en su libreria (a confirmar
+  // en el robot con `ros2 topic list`). En Gazebo nadie publica: wrench = 0.
+  const auto ft_topic = declare_parameter<std::string>(
+    "ft.topic", "/force_torque_sensor_broadcaster/wrench");
+  ft_ref_offset_z_ = declare_parameter<double>("ft.ref_offset_z", 0.0);
+  ft_zero_at_contact_ = declare_parameter<bool>("ft.zero_at_contact", false);
+  const auto ft_zero_srv = declare_parameter<std::string>(
+    "ft.zero_service", "/io_and_status_controller/zero_ftsensor");
+  if (!ft_topic.empty()) {
+    ft_sub_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+      ft_topic, rclcpp::SensorDataQoS(),
+      [this](geometry_msgs::msg::WrenchStamped::SharedPtr msg) {
+        const auto & f = msg->wrench.force;
+        const auto & m = msg->wrench.torque;
+        last_wrench_ << f.x, f.y, f.z, m.x, m.y, m.z;
+        ft_stamp_ = rclcpp::Time(msg->header.stamp).seconds();
+      });
+  }
+  if (ft_zero_at_contact_) {
+    ft_zero_client_ = create_client<std_srvs::srv::Trigger>(ft_zero_srv);
+  }
   switcher_ = std::make_unique<ControllerSwitcher>(this, controller_manager_ns_);
 }
 
@@ -798,6 +823,29 @@ std::string yamlValue(const rclcpp::Parameter & p)
 
 }  // namespace
 
+void TorqueControlNodeBase::requestFtZero()
+{
+  if (!ft_zero_client_ || !ft_zero_client_->service_is_ready()) {
+    // No se aborta: la fuerza no entra en el lazo. Pero sin cero el wrench
+    // arrastra el sesgo del sensor; la columna ft_zero = 0 lo deja dicho.
+    RCLCPP_WARN(get_logger(), "zero_ftsensor no disponible: el corte se registra "
+                "SIN cero del F/T (ft_zero = %d)", ft_zero_count_);
+    return;
+  }
+  auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
+  ft_zero_client_->async_send_request(
+    req, [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture fut) {
+      const auto res = fut.get();
+      if (res->success) {
+        ++ft_zero_count_;
+        RCLCPP_INFO(get_logger(), "F/T a cero (%d)", ft_zero_count_);
+      } else {
+        RCLCPP_WARN(get_logger(), "zero_ftsensor fallo: %s", res->message.c_str());
+      }
+    });
+  RCLCPP_INFO(get_logger(), "Cero del F/T pedido (fin de la aproximacion)");
+}
+
 void TorqueControlNodeBase::writeParamsSidecar()
 {
   // B0.5: TODOS los parametros efectivos (YAML + gains_file + overrides de
@@ -871,7 +919,11 @@ void TorqueControlNodeBase::logRow(double t_sim, const Vector6d & q,
   d.theta_err = pinocchio::log3(
     Eigen::Matrix3d(T_des.rotation().transpose() * T.rotation())).norm();
 
-  d.wrench = last_wrench_;   // 0 en simulacion; ft_data en el robot real
+  // B1: en la punta de la hoja y en base_link, con la misma FK de arriba.
+  d.wrench = wrenchAtTipInBase(T.rotation(), last_wrench_,
+                               dyn_->tcpOffsetZ() - ft_ref_offset_z_);
+  d.ft_stamp = ft_stamp_;
+  d.ft_zero = ft_zero_count_;
   // Corriente de motor [A] en el real, esfuerzo [N·m] en Gazebo (G5).
   // Con `tau_phys` en la misma fila da k = tau_phys/cur por meseta.
   d.cur = cur_;
@@ -1299,6 +1351,13 @@ void TorqueControlNodeBase::tick()
         track_index_ = static_cast<std::size_t>(
           std::max(0.0, (t_sim - t_state_start_) / ref_gen_->dt()));
         const JointRef & ref = ref_gen_->at(track_index_);
+        // B1: cero del F/T al pasar de la aproximacion al contacto (la hoja
+        // lleva el dwell de 0.3 s quieta, en el aire, 30 mm sobre la muestra).
+        const std::string segment = ref_gen_->segmentLabel(track_index_);
+        if (ft_zero_at_contact_ && prev_segment_ == "approach" && segment == "contact") {
+          requestFtZero();
+        }
+        prev_segment_ = segment;
         const Vector6d tau_law = computeTau(q, dq, ref, dt);
         if (state_ == State::SAFE_HOLD) {break;}
         const Vector6d tau = publishTau(tau_law, q, dq, &ref.dq);

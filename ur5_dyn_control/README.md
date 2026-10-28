@@ -192,6 +192,18 @@ incisión (`approach` … `withdraw`) y `plateau` = 1 en la meseta de feed
 constante; el evaluador offline lee de ahí las ventanas de la fuerza de corte y
 de las métricas.
 
+### Fuerza: sensor F/T integrado (B1)
+
+El nodo se suscribe a `ft.topic` (por defecto
+`/force_torque_sensor_broadcaster/wrench`, el tópico que crea el broadcaster de
+ros2_controllers 2.53) y escribe en `wrench1..6` el wrench **en la punta de la
+hoja y en `base_link`** (`ft_wrench.hpp`), con el sello del mensaje en
+`ft_stamp`. Con `ft.zero_at_contact` (lo activa `ur5e_real.launch.py`) pide
+`zero_ftsensor` al pasar de la aproximación al contacto; `ft_zero` cuenta los
+ceros confirmados. `ft.ref_offset_z`: dónde está el TCP del pendant respecto a
+`tool0` (0 = brida). En Gazebo no hay sensor: `wrench` = 0 y `ft_stamp` = NaN.
+La segunda vía, por corriente, es offline: `ur5_identification/force_estimator.py`.
+
 ### Parámetros añadidos por las fases posteriores
 
 | Parámetro | Fase | Para qué |

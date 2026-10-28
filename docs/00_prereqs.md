@@ -472,7 +472,7 @@ Los tres puntos del plan quedan verificados en el código del driver:
 |---|---|---|
 | El campo `effort` de `/joint_states` son **corrientes de motor**, no torques físicos | ✅ Confirmado | `hardware_interface.cpp:800` lee el campo RTDE `actual_current` en `urcl_joint_efforts_`, que es lo que alimenta la state interface `effort` (`:235`). También lo dice la nota de `doc/usage/controllers.rst:53`. |
 | El torque de referencia es el **comando** | ✅ Adoptado | El CSV registra `tau1..tau6` = torque **comandado** (post-G3, post-saturación). Documentado en `csv_logger.hpp`. |
-| El wrench del TCP se publica en `ft_data` | ✅ Confirmado | `force_torque_sensor_broadcaster` con `topic_name: ft_data`, `frame_id: tool0_controller`; solo lectura, combinable con cualquier controlador |
+| El wrench del TCP se publica en `ft_data` | ⚠️ **Corregido en B1 (2026-10-27)** | `force_torque_sensor_broadcaster` con `frame_id: tool0_controller`; solo lectura, combinable con cualquier controlador. Pero la librería instalada (2.53.3) solo crea `~/wrench` = `/force_torque_sensor_broadcaster/wrench`: el `topic_name: ft_data` del YAML de UR no aparece en ella. Confirmar en el robot con `ros2 topic list` |
 | El sensor F/T es **relativo**: `zero_ftsensor` antes de cada corte y antes de tocar nada | ✅ Confirmado | Servicio `~/zero_ftsensor` de `io_and_status_controller`; la propia doc del driver lo recomienda antes del contacto |
 
 **Consecuencia para la FASE 9:** la validación cruzada del estimador de fuerza

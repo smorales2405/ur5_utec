@@ -506,10 +506,11 @@ no el contenido de alta frecuencia. Estrategia:
    aproximadamente blanco, la media se resuelve muy por debajo de la precisión
    por muestra. B1 lo cuantifica con pesos conocidos antes de cortar nada.
 3. **Estimador por corriente** `F̂ = J⁻ᵀ(k⊙i − τ̂ − τ̂_f)`, con `k` medida al
-   0.1–0.2 %: independiente del mando y del sensor. Es sensible sobre todo a
-   `F_z` (brazo de ~0.6 m sobre el hombro) y peor a `F_y` (el trazo es radial
-   respecto a la base, así que no carga a `shoulder_pan`). Validación cruzada
-   con `ft_data` = resultado propio (FASE 9 del plan original).
+   0.1–0.2 %: independiente del mando y del sensor. **Solo valen las juntas en
+   movimiento** (una parada tiene fricción indeterminada en ±F_c). En la recta
+   de D18 se mueven hombro, codo y `wrist_1`: **F_y (arrastre) y F_z (normal)
+   son observables, F_x (lateral) no** (B1, `force_estimator.py`). Validación
+   cruzada con el F/T = resultado propio (FASE 9 del plan original).
 4. El **zapallo** es mucho más duro que los otros tres; los cortes piloto en
    posición (B2) confirman que hoja y acople impreso aguantan 5 mm a 10 mm/s.
 
@@ -835,7 +836,38 @@ bloque (o sub-bloque si es grande).
 Gazebo = escena medida; `smc_v5_g6` re-evaluado sobre la referencia nueva
 (cifras de partida, no ganancias finales).
 
-### B1 — Medida de fuerza (resto de la FASE 3)
+### B1 — Medida de fuerza (resto de la FASE 3) — código hecho (2026-10-27); falta el cierre en el robot
+
+**Hecho:** el nodo (las tres leyes) se suscribe al wrench del driver, lo lleva a
+la punta y a `base_link` (`ft_wrench.hpp`, con tests) y lo escribe en
+`wrench1..6` con su sello (`ft_stamp`); en el real (`ur5e_real.launch.py`) pide
+`zero_ftsensor` al pasar de la aproximación al contacto y cuenta los ceros
+confirmados (`ft_zero`). Estimador por corriente offline
+(`ur5_identification/force_estimator.py`, con tests) y `mean_resolution` (error
+típico de la media con la autocorrelación corregida). Runner de la incisión por
+**posición** (`scripts/run_position_incision.py`) para el cierre y para B2.
+Verificado en Gazebo con un F/T falso (`smc_98821`): wrench rotado y trasladado
+exacto, cero en `z` = 0.026 (fin de la aproximación); estimador sin fuerza
+externa: F_y −0.0002 N, F_z 0.0006 N.
+
+**Corrección a G5:** el `force_torque_sensor_broadcaster` 2.53.3 instalado solo
+crea `~/wrench`, es decir `/force_torque_sensor_broadcaster/wrench`; el
+`topic_name: ft_data` del YAML de UR no aparece en su librería. Es el default de
+`ft.topic`; **confirmar en el robot** con `ros2 topic list | grep -i wrench`.
+
+**Cierre en el robot (pendiente; necesita el robot y un peso conocido):**
+
+1. Driver arriba, escalas G4 a 0.0, robot en `q_ref[0]` (lo imprime
+   `run_position_incision.py --solo-tabla`). Confirmar el tópico del F/T.
+2. `run_position_incision.py --test-num 800` (en aire, sin peso) y
+   `--test-num 801 --peso-kg 0.5` (peso colgado del cuerpo del acople, cerca de
+   la punta). La corrida pide el cero sola.
+3. `force_estimator.estimate_from_csv` sobre las dos: `ΔF_z` = `m·g` por las dos
+   vías, y el SIGNO del wrench del driver queda fijado; `mean_resolution` sobre
+   la meseta da la resolución efectiva de la media del F/T (decide qué materiales
+   se pueden caracterizar con él, D4).
+
+Lo que pedía el plan:
 
 - Suscriptor `ft_data` con sello de tiempo, transformación `tool0_controller` →
   `base_link` (A3) y traslado del momento a la punta.

@@ -8,9 +8,11 @@
 #include <string>
 #include <vector>
 
+#include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_srvs/srv/trigger.hpp>
 
 #include "ur5_dyn_control/cartesian_spline_trajectory.hpp"
 #include "ur5_dyn_control/cartesian_trajectory.hpp"
@@ -152,6 +154,11 @@ protected:
   /// B0.5: vuelca TODOS los parametros efectivos a <prefijo>_<n>.params.yaml,
   /// junto al CSV y recargable con --params-file.
   void writeParamsSidecar();
+
+  /// B1: pide el cero del sensor F/T (servicio zero_ftsensor del driver). Lo
+  /// llama TRACK en la transicion aproximacion -> contacto: hoja quieta en el
+  /// aire, 30 mm por encima de la superficie.
+  void requestFtZero();
 
 private:
   // SAFE_HOLD (FASE 3): estado terminal de seguridad al que se entra si el
@@ -324,6 +331,15 @@ private:
 
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr tau_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr js_sub_;
+  // B1: sensor F/T integrado (solo en el robot real; en Gazebo no hay quien
+  // publique y el wrench del CSV queda en 0 con ft_stamp = NaN).
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr ft_sub_;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr ft_zero_client_;
+  bool ft_zero_at_contact_ = false;
+  double ft_ref_offset_z_ = 0.0;   // punto del pendant respecto a tool0 [m]
+  double ft_stamp_ = std::numeric_limits<double>::quiet_NaN();
+  int ft_zero_count_ = 0;          // ceros CONFIRMADOS por el driver
+  std::string prev_segment_;       // fase de la referencia en el tick anterior
   rclcpp::TimerBase::SharedPtr timer_;
   sensor_msgs::msg::JointState::SharedPtr last_js_;
 
@@ -349,7 +365,7 @@ private:
   std::size_t js_seq_prev_ = 0;
   Vector6d q_last_ = Vector6d::Zero();       // ultima pose medida valida
   Vector6d q_safe_ = Vector6d::Zero();       // pose de sosten al entrar en SAFE_HOLD
-  Vector6d last_wrench_ = Vector6d::Zero();  // ft_data del robot real; 0 en sim
+  Vector6d last_wrench_ = Vector6d::Zero();  // B1: wrench del driver (tool0_controller)
 };
 
 }  // namespace ur5_dyn_control

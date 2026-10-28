@@ -133,6 +133,9 @@ def launch_setup(context, *args, **kwargs):
         "activate_controllers": ["forward_effort_controller"],
         "deactivate_controllers": ["scaled_joint_trajectory_controller"],
         "tau_max": tau_max,
+        # B1: cero del F/T integrado al acabar la aproximacion de cada incision
+        # (hoja quieta en el aire). En Gazebo no hay servicio y queda en false.
+        "ft.zero_at_contact": True,
     }
     if not tool_mounted:
         real["tool_mass"] = 0.0

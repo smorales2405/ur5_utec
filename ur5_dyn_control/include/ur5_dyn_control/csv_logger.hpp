@@ -69,8 +69,15 @@ struct LogSample
   /// Euler: evitan el wrap y son la metrica que usa la FASE 10.
   double theta_err = 0.0;
 
-  /// Wrench del TCP medido (ft_data del robot real); 0 en simulacion.
+  /// B1: wrench del F/T integrado en la PUNTA de la hoja, en base_link
+  /// (ft_wrench.hpp); 0 en simulacion.
   Vector6d wrench = Vector6d::Zero();
+  /// B1: sello de tiempo del ultimo mensaje del F/T [s] (NaN = ninguno), para
+  /// alinearlo offline con /joint_states.
+  double ft_stamp = std::numeric_limits<double>::quiet_NaN();
+  /// B1: ceros del F/T confirmados hasta esta fila (0 = sin cero: el wrench
+  /// arrastra el sesgo del sensor y no sirve como fuerza absoluta).
+  int ft_zero = 0;
 
   /**
    * Campo `effort` de /joint_states, TAL CUAL. NaN si el driver no lo publica.
