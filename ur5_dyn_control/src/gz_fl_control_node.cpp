@@ -13,6 +13,9 @@
 //  HOLD_START -> RAMP (quintica) -> TRACK -> HOLD_END.  CSV para MATLAB.
 // ============================================================================
 
+#include <cstdio>
+#include <string>
+
 #include "ur5_dyn_control/torque_control_node_base.hpp"
 
 namespace ur5_dyn_control
@@ -37,6 +40,26 @@ public:
                 "FL kp=[%.0f %.0f %.0f %.0f %.0f %.0f] kd=[%.0f %.0f %.0f %.0f %.0f %.0f]",
                 kp_[0], kp_[1], kp_[2], kp_[3], kp_[4], kp_[5],
                 kd_[0], kd_[1], kd_[2], kd_[3], kd_[4], kd_[5]);
+    // B4.1 / plan 4.5: G = d(tau)/d(dq) = M*Kd sobre toda la referencia, la
+    // misma magnitud y la misma cota que en el SMC y el LQR-SDRE.
+    reportLoopGain("M_ii*kd_i", [this](const Vector6d & q, const Vector6d &,
+      const Vector6d &) {return Matrix6d(dyn().M(q) * kd_.asDiagonal());});
+    // B4.1: estabilidad del lazo DISCRETO ideal (500 Hz, un paso de retardo):
+    // radio espectral por junta y cuanto se pueden escalar kp y kd juntos antes
+    // de inestabilizarlo. El limite real del UR5e es la G de arriba, mas bajo.
+    {
+      const double dt = 1.0 / controlRate();
+      std::string txt;
+      char b[64];
+      for (int i = 0; i < 6; ++i) {
+        std::snprintf(b, sizeof(b), "%s%.4f/x%.0f", i ? "  " : "",
+                      pdDiscreteSpectralRadius(kp_[i], kd_[i], dt, 1),
+                      pdDiscreteGainMargin(kp_[i], kd_[i], dt, 1));
+        txt += b;
+      }
+      RCLCPP_INFO(get_logger(), "  lazo discreto (rho / margen de ganancia) por junta: %s",
+                  txt.c_str());
+    }
     start();
   }
 

@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <map>
@@ -219,6 +220,41 @@ TEST(FtWrench, ForceAppliedAtTheTipHasNoMomentAtTheTip)
   const Vector6d out = wrenchAtTipInBase(R, w, tip);
   EXPECT_LT((out.head<3>() - R * f).norm(), 1e-12);
   EXPECT_LT(out.tail<3>().norm(), 1e-12);
+}
+
+// ── B4.1: estabilidad del lazo PD discreto del CT ───────────────────────────
+using ur5_dyn_control::pdDiscreteGainMargin;
+using ur5_dyn_control::pdDiscreteSpectralRadius;
+
+TEST(PdDiscrete, WithoutDelayMatchesTheSampledDataLoop)
+{
+  // Sin retardo: x+ = (Phi - Gamma K) x, con Phi = [1 dt; 0 1], Gamma = [dt^2/2;
+  // dt]. Raices de z^2 - tr z + det. (No es exp(-wn dt): con retencion de orden
+  // cero el lazo muestreado difiere en O(dt): 0.9821 frente a 0.9802.)
+  const double kp = 100.0, kd = 20.0, dt = 0.002;
+  const double a11 = 1.0 - kp * dt * dt / 2, a12 = dt - kd * dt * dt / 2;
+  const double a21 = -kp * dt, a22 = 1.0 - kd * dt;
+  const double tr = a11 + a22, det = a11 * a22 - a12 * a21;
+  const double disc = tr * tr - 4.0 * det;
+  const double rho = disc >= 0.0 ? (std::abs(tr) + std::sqrt(disc)) / 2.0 : std::sqrt(det);
+  EXPECT_NEAR(pdDiscreteSpectralRadius(kp, kd, dt, 0), rho, 1e-12);
+  EXPECT_NEAR(rho, std::exp(-10.0 * dt), 3e-3);   // y cerca del continuo
+}
+
+TEST(PdDiscrete, HighGainsWithOneStepDelayAreUnstable)
+{
+  EXPECT_LT(pdDiscreteSpectralRadius(100.0, 20.0, 0.002, 1), 1.0);
+  EXPECT_GT(pdDiscreteSpectralRadius(1e6, 2e3, 0.002, 1), 1.0);
+}
+
+TEST(PdDiscrete, GainMarginIsTheStabilityBoundary)
+{
+  const double dt = 0.002;
+  const double s = pdDiscreteGainMargin(100.0, 20.0, dt, 1);
+  ASSERT_GT(s, 1.0);
+  ASSERT_TRUE(std::isfinite(s));
+  EXPECT_LT(pdDiscreteSpectralRadius(0.99 * s * 100.0, 0.99 * s * 20.0, dt, 1), 1.0);
+  EXPECT_GT(pdDiscreteSpectralRadius(1.01 * s * 100.0, 1.01 * s * 20.0, dt, 1), 1.0);
 }
 
 // ── Rango del barrido de excitación (FASE 2) ────────────────────────────────

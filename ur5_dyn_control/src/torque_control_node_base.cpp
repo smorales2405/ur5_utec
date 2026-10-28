@@ -7,6 +7,8 @@
 #include <pinocchio/spatial/explog.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstdio>
 #include <charconv>
 #include <chrono>
 #include <thread>
@@ -561,6 +563,10 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
   csv_dir_ = declare_parameter<std::string>("csv_output_dir", "");
   test_num_ = static_cast<int>(declare_parameter<int>("test_num", 1));
 
+  // B4.1: region de G PROBADA en el UR5e real (docs/09_real_bringup.md 6.8),
+  // comun a las tres leyes (plan 4.5). Solo hace que el nodo AVISE al arrancar.
+  g_loop_max_ = declare_parameter<double>("g_loop_max", 120.0);
+
   // B0.5: datos de la SESION que el CSV no puede deducir y que el analisis de
   // la campana necesita (plan 3.5 y B7.4). Van a la cabecera del CSV y al
   // fichero lateral de parametros. Vacio / -1 / NaN = no aplica (Gazebo,
@@ -822,6 +828,56 @@ std::string yamlValue(const rclcpp::Parameter & p)
 }
 
 }  // namespace
+
+void TorqueControlNodeBase::reportLoopGain(
+  const std::string & formula,
+  const std::function<Matrix6d(const Vector6d &, const Vector6d &, const Vector6d &)> &
+  dtau_ddq)
+{
+  // Se evalua sobre TODA la referencia: con el brazo extendido M_11 pasa de 1.06
+  // a 3.2 kg m^2, y evaluarla solo en q_init engano una vez (smc_v4_g5: el
+  // banner decia 186 en la base y en la incision eran 528).
+  const JointReferenceTable * tab = ref_gen_.get();
+  const std::size_t n = tab ? tab->size() : 0;
+  const std::size_t paso = std::max<std::size_t>(1, n / 2000);
+  Vector6d g_diag = Vector6d::Zero(), g_row = Vector6d::Zero();
+  std::array<std::size_t, 6> kmax{};
+  for (std::size_t k = 0; k < std::max<std::size_t>(n, 1); k += paso) {
+    const Vector6d q = tab ? tab->at(k).q : q_init_;
+    const Vector6d dq = tab ? tab->at(k).dq : Vector6d::Zero();
+    const Vector6d ddq = tab ? tab->at(k).ddq : Vector6d::Zero();
+    const Matrix6d D = dtau_ddq(q, dq, ddq);
+    for (int i = 0; i < 6; ++i) {
+      const double gd = std::abs(D(i, i));
+      if (gd > g_diag[i]) {g_diag[i] = gd; kmax[i] = k;}
+      g_row[i] = std::max(g_row[i], D.row(i).cwiseAbs().sum());
+    }
+  }
+  auto lista = [](const Vector6d & v) {
+      std::string s;
+      char b[32];
+      for (int i = 0; i < 6; ++i) {
+        std::snprintf(b, sizeof(b), "%s%.4g", i ? " " : "", v[i]);
+        s += b;
+      }
+      return s;
+    };
+  RCLCPP_INFO(get_logger(),
+              "  G = %s, MAXIMO sobre la referencia (%zu muestras) = [%s] N.m por "
+              "rad/s; con acoplos (suma por fila) [%s]",
+              formula.c_str(), n, lista(g_diag).c_str(), lista(g_row).c_str());
+  for (int i = 0; i < 6; ++i) {
+    if (g_diag[i] > g_loop_max_) {
+      RCLCPP_WARN(get_logger(),
+                  "  G de %s = %.1f en t = %.2f s: por encima de g_loop_max = %.0f, la "
+                  "cota de DISENO comun a las tres leyes. Lo probado limpio y el "
+                  "fallo, junta a junta, en docs/09_real_bringup.md 6.9 (smc_712 "
+                  "entro en ciclo limite con [179 301 128]).",
+                  kJointNames[static_cast<std::size_t>(i)].c_str(), g_diag[i],
+                  tab ? kmax[i] * tab->dt() : 0.0, g_loop_max_);
+    }
+  }
+}
 
 void TorqueControlNodeBase::requestFtZero()
 {

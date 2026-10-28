@@ -99,10 +99,6 @@ public:
     // α ∈ (0,1]: fracción de los términos nominales que se asume incierta.
     // El plan barre 0.1 / 0.3 / 0.5 / 1.0 como estudio de sensibilidad.
     alpha_ = declare_parameter<double>("alpha", 0.3);
-    // Region de G probada en el UR5e real. Solo AVISA; no cambia la ley. Es la
-    // misma cifra que G_LOOP_MAX del optimizador (problem.py): un test del
-    // optimizador comprueba que coinciden con el YAML.
-    g_loop_max_ = declare_parameter<double>("g_loop_max", 120.0);
     if (!(alpha_ > 0.0) || alpha_ > 1.0) {
       throw std::runtime_error("alpha debe estar en (0, 1]");
     }
@@ -153,50 +149,21 @@ public:
                 "SMC rho=%s%s | lambda=[%s] eta=[%s] alpha=%.2f",
                 sw.c_str(), phi_txt.c_str(),
                 lista(lambda_).c_str(), lista(eta_).c_str(), alpha_);
-    // Ganancia derivativa que esto crea sobre la velocidad MEDIDA,
-    // G_i = M_ii*lambda_i + K_i/phi_i (docs/09_real_bringup.md §2). Es el
-    // numero que entro en ciclo limite en smc_712.
-    //
-    // Se evalua a lo largo de TODA la referencia que se va a ejecutar, con la
-    // ley en seguimiento perfecto (e = 0), y se informa del maximo. Antes se
-    // evaluaba solo en q_init, y para la incision eso ENGANA: con el brazo
-    // extendido M_11 pasa de 1.06 a 3.2 kg m^2, y las ganancias de smc_v4_g5
-    // habrian dado G = 528 en la base mientras el banner decia 186.
-    {
-      const JointReferenceTable * tab = referenceTable();
-      const std::size_t n = tab ? tab->size() : 0;
-      const std::size_t paso = std::max<std::size_t>(1, n / 2000);
-      Vector6d Gmax = Vector6d::Zero();
-      std::array<std::size_t, 6> kmax{};
-      for (std::size_t k = 0; k < std::max<std::size_t>(n, 1); k += paso) {
-        const Vector6d q = tab ? tab->at(k).q : qInit();
-        const Vector6d dq = tab ? tab->at(k).dq : Vector6d::Zero();
-        const Vector6d ddq = tab ? tab->at(k).ddq : Vector6d::Zero();
+    // Ganancia derivativa que esto crea sobre la velocidad MEDIDA (docs/09
+    // 2): dentro de la capa limite d(tau)/d(dq) = M*Lambda + diag(K/phi), con
+    // la diagonal G_i = M_ii*lambda_i + K_i/phi_i. Es el numero que entro en
+    // ciclo limite en smc_712. La evalua la base sobre toda la referencia
+    // (reportLoopGain, comun a las tres leyes; g_loop_max vive en el YAML comun).
+    reportLoopGain(
+      "M_ii*lambda_i + K_i/phi_i",
+      [this](const Vector6d & q, const Vector6d & dq, const Vector6d & ddq) {
         const Matrix6d M = dyn().M(q);
         const Vector6d K = eta_ + (alpha_ * (M * ddq) + alpha_ * dyn().nle(q, dq) +
           (1.0 - alpha_) * (dyn().dM(q, dq) * dq)).cwiseAbs();
-        for (int i = 0; i < 6; ++i) {
-          const double g = M(i, i) * lambda_[i] + K[i] / phi_[i];
-          if (g > Gmax[i]) {Gmax[i] = g; kmax[i] = k;}
-        }
-      }
-      RCLCPP_INFO(get_logger(),
-                  "  G = M_ii*lambda_i + K_i/phi_i, MAXIMO sobre la referencia "
-                  "(%zu muestras) = [%s] N.m por rad/s",
-                  n, lista(Gmax).c_str());
-      for (int i = 0; i < 6; ++i) {
-        if (Gmax[i] > g_loop_max_) {
-          RCLCPP_WARN(get_logger(),
-                      "  G de %s = %.1f en t = %.2f s: por encima de g_loop_max = "
-                      "%.0f, la cota de DISENO del optimizador. Lo probado limpio y "
-                      "el fallo, junta a junta, en docs/09_real_bringup.md §6.9 "
-                      "(smc_712 entro en ciclo limite con [179 301 128]). Con el "
-                      "bisturi montado G sube un 3-5 %%.",
-                      kJointNames[static_cast<std::size_t>(i)].c_str(), Gmax[i],
-                      tab ? kmax[i] * tab->dt() : 0.0, g_loop_max_);
-        }
-      }
-    }
+        Matrix6d D = M * lambda_.asDiagonal();
+        D.diagonal() += K.cwiseQuotient(phi_);
+        return D;
+      });
     RCLCPP_INFO(get_logger(),
                 "  K se calcula por ciclo: K_i = eta_i + |alpha*M*ddq_r + "
                 "alpha*b + (1-alpha)*dM*dq_r|_i  (condicion de alcance por "
@@ -249,7 +216,6 @@ private:
   Vector6d lambda_, eta_;
   Vector6d phi_ = Vector6d::Constant(0.05);
   double alpha_ = 0.3;
-  double g_loop_max_ = 120.0;
   bool use_sat_ = true;
   Vector6d s_ = Vector6d::Zero();
   Vector6d k_ = Vector6d::Zero();

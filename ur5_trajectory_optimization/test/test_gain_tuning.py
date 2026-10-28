@@ -498,9 +498,12 @@ def test_g_loop_max_del_nodo_coincide_con_el_optimizador():
                        "config")
     if not os.path.isdir(cfg):
         pytest.skip("ur5_dyn_control no esta junto a este paquete")
-    for nombre in ("smc_params.yaml", "sweep_smc_params.yaml"):
+    # Desde B4.1 la cota es comun a las tres leyes: vive en el bloque comun de la
+    # incision; los barridos (sin bloque comun) la llevan en su propio YAML.
+    for nombre, seccion in (("incision_common.yaml", "/**"),
+                            ("sweep_smc_params.yaml", "gz_smc_control_node")):
         with open(os.path.join(cfg, nombre)) as fh:
-            p = yaml.safe_load(fh)["gz_smc_control_node"]["ros__parameters"]
+            p = yaml.safe_load(fh)[seccion]["ros__parameters"]
         assert p["g_loop_max"] == G_LOOP_MAX, \
             f"{nombre}: g_loop_max = {p['g_loop_max']} y G_LOOP_MAX = {G_LOOP_MAX}"
 

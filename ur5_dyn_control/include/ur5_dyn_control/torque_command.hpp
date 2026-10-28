@@ -1,8 +1,12 @@
 #ifndef UR5_DYN_CONTROL_TORQUE_COMMAND_HPP
 #define UR5_DYN_CONTROL_TORQUE_COMMAND_HPP
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
+
+#include <Eigen/Eigenvalues>
 
 #include "ur5_dyn_control/common.hpp"
 
@@ -187,6 +191,68 @@ inline Vector6d torqueCommand(const Vector6d & tau_law,
                               const Vector6d & tau_max)
 {
   return saturate(applyGravityPolicy(tau_law, g_q, gravity_in_command), tau_max);
+}
+
+/**
+ * B4.1: radio espectral del lazo PD de UNA junta del CT, discretizado.
+ *
+ * Con el modelo exacto el CT desacopla el brazo en seis dobles integradores,
+ * e'' = u, u = -kp e - kd e'. El lazo real es discreto: retencion de orden cero
+ * a dt = 1/control_rate y `delay_steps` pasos de retardo entre medir y aplicar
+ * (1 en Gazebo y en el robot: el par sale en el ciclo siguiente). Estado
+ * [e_k, e'_k, u_{k-1}, ..., u_{k-d}]. rho < 1 <=> estable.
+ *
+ * Esto es el limite IDEAL. El que manda en el UR5e real es otro, mas bajo: la
+ * G <= 120 que fijaron la cuantizacion del encoder y el modo estructural de
+ * 25-35 Hz (docs/09_real_bringup.md). Por eso el banner da los dos.
+ */
+inline double pdDiscreteSpectralRadius(double kp, double kd, double dt,
+                                       int delay_steps = 1)
+{
+  const int d = std::max(0, delay_steps);
+  const int n = 2 + d;
+  Eigen::MatrixXd A = Eigen::MatrixXd::Zero(n, n);
+  // e, e' integran el mando que se aplica AHORA, que es el de hace d pasos.
+  const int u_col = (d == 0) ? -1 : 2 + d - 1;
+  auto add_u = [&](int row, double gain) {
+      if (u_col >= 0) {
+        A(row, u_col) += gain;
+      } else {          // sin retardo: u_k = -kp e_k - kd e'_k
+        A(row, 0) += -gain * kp;
+        A(row, 1) += -gain * kd;
+      }
+    };
+  A(0, 0) = 1.0;
+  A(0, 1) = dt;
+  add_u(0, 0.5 * dt * dt);
+  A(1, 1) = 1.0;
+  add_u(1, dt);
+  if (d > 0) {
+    A(2, 0) = -kp;      // u_k, calculado con la medida de ahora
+    A(2, 1) = -kd;
+    for (int j = 3; j < n; ++j) {A(j, j - 1) = 1.0;}   // la cola del retardo
+  }
+  return Eigen::EigenSolver<Eigen::MatrixXd>(A, false).eigenvalues().cwiseAbs().maxCoeff();
+}
+
+/**
+ * B4.1: margen de ganancia discreto del PD: el factor s por el que se pueden
+ * multiplicar kp y kd a la vez antes de que el lazo discreto se haga inestable
+ * (rho = 1). Biseccion sobre [1, s_max]; infinito si sigue estable en s_max.
+ */
+inline double pdDiscreteGainMargin(double kp, double kd, double dt,
+                                   int delay_steps = 1, double s_max = 1e4)
+{
+  if (pdDiscreteSpectralRadius(kp, kd, dt, delay_steps) >= 1.0) {return 0.0;}
+  if (pdDiscreteSpectralRadius(s_max * kp, s_max * kd, dt, delay_steps) < 1.0) {
+    return std::numeric_limits<double>::infinity();
+  }
+  double lo = 1.0, hi = s_max;
+  for (int it = 0; it < 60; ++it) {
+    const double mid = std::sqrt(lo * hi);
+    (pdDiscreteSpectralRadius(mid * kp, mid * kd, dt, delay_steps) < 1.0 ? lo : hi) = mid;
+  }
+  return lo;
 }
 
 }  // namespace ur5_dyn_control

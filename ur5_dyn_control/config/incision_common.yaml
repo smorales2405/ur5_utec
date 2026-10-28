@@ -84,6 +84,13 @@
     # tau_scale en ur5e_real.launch.py.
     tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
 
+    # Region de G = d(tau)/d(dq) PROBADA en el UR5e real (docs/09_real_bringup.md
+    # 6.8): la cuantizacion del encoder y el modo estructural de 25-35 Hz la
+    # limitan. COMUN a las tres leyes (plan 4.5); el nodo solo AVISA al arrancar
+    # (reportLoopGain). Tiene que valer lo mismo que G_LOOP_MAX del optimizador:
+    # lo comprueba test_gain_tuning.py.
+    g_loop_max: 120.0
+
     # -- Compensacion de friccion (FASE 2 real) --------------------------------
     # Solo actua pasando `friction_compensation`; aqui quedan los coeficientes y
     # las dos decisiones de diseno, iguales para las tres leyes.

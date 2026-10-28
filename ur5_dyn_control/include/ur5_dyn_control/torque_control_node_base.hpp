@@ -2,6 +2,7 @@
 #define UR5_DYN_CONTROL_TORQUE_CONTROL_NODE_BASE_HPP
 
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <map>
 #include <memory>
@@ -154,6 +155,20 @@ protected:
   /// B0.5: vuelca TODOS los parametros efectivos a <prefijo>_<n>.params.yaml,
   /// junto al CSV y recargable con --params-file.
   void writeParamsSidecar();
+
+  /// B4.1 / plan 4.5: ganancia derivativa EFECTIVA de la ley sobre la velocidad
+  /// medida, G = dtau/d(dq) (sin el termino de Coriolis, despreciable a las
+  /// velocidades de la incision), evaluada a lo largo de TODA la referencia con
+  /// error nulo. Informa del maximo de la diagonal —la forma en que se midio el
+  /// limite de 120 en el robot (smc_712, docs/09_real_bringup.md 6.9)— y de la
+  /// suma por fila (con los acoplos), y AVISA de la diagonal > g_loop_max.
+  /// `dtau_ddq(q, dq, ddq)` devuelve la matriz 6x6 de la ley en ese punto.
+  void reportLoopGain(
+    const std::string & formula,
+    const std::function<Matrix6d(const Vector6d &, const Vector6d &, const Vector6d &)> &
+    dtau_ddq);
+  double gLoopMax() const { return g_loop_max_; }
+  double controlRate() const { return control_rate_; }
 
   /// B1: pide el cero del sensor F/T (servicio zero_ftsensor del driver). Lo
   /// llama TRACK en la transicion aproximacion -> contacto: hoja quieta en el
@@ -320,6 +335,7 @@ private:
   std::string csv_dir_;
   int test_num_ = 1;
   std::string incision_common_;       // B0.2: version del bloque comun cargado
+  double g_loop_max_ = 120.0;         // B4.1: cota de G comun a las tres leyes
   int csv_hold_decimation_ = 10;
   int hold_log_counter_ = 0;
 
