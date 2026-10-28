@@ -13,6 +13,8 @@
 
 #include "ur5_dyn_control/torque_control_node_base.hpp"
 
+#include <cstdio>
+
 namespace ur5_dyn_control
 {
 
@@ -52,7 +54,15 @@ private:
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<ur5_dyn_control::GravityCompNode>());
+  int rc = 0;
+  try {
+    rclcpp::spin(std::make_shared<ur5_dyn_control::GravityCompNode>());
+  } catch (const std::exception & e) {
+    // El nodo se nego a arrancar (sin bloque comun, inestable con el retardo
+    // real, ...): ya lo dijo en el log. Salir con error, no con abort().
+    std::fprintf(stderr, "%s: no arranca: %s\n", argv[0], e.what());
+    rc = 1;
+  }
   rclcpp::shutdown();
-  return 0;
+  return rc;
 }

@@ -18,6 +18,7 @@
 #include <cmath>
 #include <map>
 #include <sstream>
+#include <stdexcept>
 
 namespace ur5_dyn_control
 {
@@ -566,6 +567,13 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
   // B4.1: region de G PROBADA en el UR5e real (docs/09_real_bringup.md 6.8),
   // comun a las tres leyes (plan 4.5). Solo hace que el nodo AVISE al arrancar.
   g_loop_max_ = declare_parameter<double>("g_loop_max", 120.0);
+  // R10: retardo de tuberia [ciclos] con el que se evalua la estabilidad
+  // discreta del banner. 1 en Gazebo; 5 en el UR5e real, medido con los
+  // escalones del feedforward de Coulomb (plan V15): lo fija ur5e_real.launch.py.
+  pipeline_delay_steps_ =
+    static_cast<int>(declare_parameter<int>("pipeline_delay_steps", 1));
+  allow_unstable_discrete_ =
+    declare_parameter<bool>("discrete_check.allow_unstable", false);
 
   // B0.5: datos de la SESION que el CSV no puede deducir y que el analisis de
   // la campana necesita (plan 3.5 y B7.4). Van a la cabecera del CSV y al
@@ -878,6 +886,70 @@ void TorqueControlNodeBase::reportLoopGain(
                   tab ? kmax[i] * tab->dt() : 0.0, g_loop_max_);
     }
   }
+}
+
+void TorqueControlNodeBase::reportDiscreteMargin(
+  const std::string & formula,
+  const std::function<LoopGains(const Vector6d &, const Vector6d &, const Vector6d &)> &
+  gains)
+{
+  const JointReferenceTable * tab = ref_gen_.get();
+  const std::size_t n = tab ? tab->size() : 0;
+  const std::size_t paso = std::max<std::size_t>(1, n / 400);
+  const double dt = 1.0 / control_rate_;
+  const int d = pipeline_delay_steps_;
+  // Margen en TODOS los puntos muestreados: el de mayor radio espectral no es
+  // el de menor margen (LQI de la semilla con 5 ciclos: rho maximo en t = 14.7
+  // s con x1.69; el margen minimo, x1.32, en t = 27 s). Un punto solo se biseca
+  // si es inestable con el margen minimo hallado hasta ahi: si no, el suyo es
+  // mayor y no cambia nada.
+  double rho_max = -1.0;
+  double margin = std::numeric_limits<double>::infinity();
+  std::size_t k_max = 0, k_rho = 0;
+  LoopGains at_rho_max;
+  for (std::size_t k = 0; k < std::max<std::size_t>(n, 1); k += paso) {
+    const Vector6d q = tab ? tab->at(k).q : q_init_;
+    const Vector6d dq = tab ? tab->at(k).dq : Vector6d::Zero();
+    const Vector6d ddq = tab ? tab->at(k).ddq : Vector6d::Zero();
+    const LoopGains g = gains(q, dq, ddq);
+    const double r = mimoDiscreteMode(g, dt, d).rho;
+    if (r > rho_max) {
+      rho_max = r;
+      k_rho = k;
+      at_rho_max = g;
+    }
+    // Ya inestable en algun punto (margen 0): solo falta el modo peor.
+    if (margin == 0.0) {continue;}
+    if (std::isfinite(margin) && mimoDiscreteMode(g, dt, d, margin).rho < 1.0) {
+      continue;
+    }
+    const double m = mimoDiscreteGainMargin(g, dt, d);
+    if (m < margin || !std::isfinite(margin)) {
+      margin = m;
+      k_max = k;
+    }
+  }
+  const double t_max = tab ? k_max * tab->dt() : 0.0;
+  RCLCPP_INFO(get_logger(),
+              "  lazo discreto (MIMO) con %d ciclo(s) de retardo, %s: rho max %.4f; "
+              "margen de ganancia x%.2f (peor punto: t = %.2f s)",
+              d, formula.c_str(), rho_max, margin, t_max);
+  if (margin >= 1.0) {return;}
+  // Inestable: se informa el modo del punto MAS inestable.
+  const DiscreteMode mode = mimoDiscreteMode(at_rho_max, dt, d);
+  const double t_rho = tab ? k_rho * tab->dt() : 0.0;
+  char b[256];
+  std::snprintf(b, sizeof(b),
+                "INESTABLE con %d ciclos de retardo (t = %.2f s): modo de %.0f Hz "
+                "dominado por %s (analisis lineal; plan V15 y R10). Re-sintonizar con "
+                "ese retardo.", d, t_rho, mode.freq_hz,
+                kJointNames[static_cast<std::size_t>(std::max(mode.joint, 0))].c_str());
+  if (!gravity_in_command_ && !allow_unstable_discrete_ && !dry_run_) {
+    RCLCPP_FATAL(get_logger(), "%s El nodo NO arranca en el robot real "
+                 "(discrete_check.allow_unstable: true para forzarlo).", b);
+    throw std::runtime_error(b);
+  }
+  RCLCPP_WARN(get_logger(), "%s", b);
 }
 
 void TorqueControlNodeBase::requestFtZero()

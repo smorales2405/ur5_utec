@@ -257,6 +257,104 @@ TEST(PdDiscrete, GainMarginIsTheStabilityBoundary)
   EXPECT_GT(pdDiscreteSpectralRadius(1.01 * s * 100.0, 1.01 * s * 20.0, dt, 1), 1.0);
 }
 
+// ── R10: retardo real de 5 ciclos y la accion integral del LQI ───────────────
+// Los mismos numeros fija test_gain_tuning.py para el espejo en Python
+// (closed_loop.pid_gain_margin): si uno cambia, el otro tiene que cambiar.
+using ur5_dyn_control::pidDiscreteGainMargin;
+using ur5_dyn_control::pidDiscreteSpectralRadius;
+
+TEST(PidDiscrete, WithoutIntegralIsThePd)
+{
+  for (int d = 0; d <= 6; ++d) {
+    EXPECT_DOUBLE_EQ(pidDiscreteSpectralRadius(0.0, 900.0, 60.0, 0.002, d),
+                     pdDiscreteSpectralRadius(900.0, 60.0, 0.002, d));
+  }
+}
+
+TEST(PidDiscrete, MarginsWithTheMeasuredDelay)
+{
+  const double dt = 0.002;
+  // CT nominal (kp 100, kd 20): x24.9 con 1 ciclo, x6.95 con los 5 del real.
+  EXPECT_NEAR(pdDiscreteGainMargin(100.0, 20.0, dt, 1), 24.87, 0.01);
+  EXPECT_NEAR(pdDiscreteGainMargin(100.0, 20.0, dt, 5), 6.95, 0.01);
+  // Muñecas de gravity_sweep_params.yaml (900/60): x2.19 con 5.
+  EXPECT_NEAR(pdDiscreteGainMargin(900.0, 60.0, dt, 5), 2.19, 0.01);
+  // Las de sweep_params.yaml para wrist_2 (7500/173.21): inestables con 5.
+  EXPECT_EQ(pdDiscreteGainMargin(7500.0, 173.21, dt, 5), 0.0);
+  // Semilla del LQI, wn = 10, zeta = 1: (a0, a1, a2) = (1000, 300, 30).
+  EXPECT_NEAR(pidDiscreteGainMargin(1000.0, 300.0, 30.0, dt, 1), 16.5, 0.05);
+  EXPECT_NEAR(pidDiscreteGainMargin(1000.0, 300.0, 30.0, dt, 5), 4.5, 0.05);
+}
+
+namespace
+{
+ur5_dyn_control::Matrix6d randomSpd(unsigned seed)
+{
+  std::srand(seed);
+  ur5_dyn_control::Matrix6d A = ur5_dyn_control::Matrix6d::Random();
+  return A * A.transpose() + 0.05 * ur5_dyn_control::Matrix6d::Identity();
+}
+}  // namespace
+
+TEST(MimoDiscrete, ComputedTorqueDecouplesIntoTheScalarLoop)
+{
+  // K = M diag(k): M^-1 K es diagonal y el MIMO es el escalar, con cualquier M.
+  using ur5_dyn_control::LoopGains;
+  const double dt = 0.002;
+  for (int d : {0, 1, 5}) {
+    LoopGains g;
+    g.M = randomSpd(7);
+    g.KP = 100.0 * g.M;
+    g.KD = 20.0 * g.M;
+    EXPECT_NEAR(ur5_dyn_control::mimoDiscreteMode(g, dt, d).rho,
+                pdDiscreteSpectralRadius(100.0, 20.0, dt, d), 1e-9);
+  }
+  LoopGains g;
+  g.M = randomSpd(3);
+  g.KP = 100.0 * g.M;
+  g.KD = 20.0 * g.M;
+  EXPECT_NEAR(ur5_dyn_control::mimoDiscreteGainMargin(g, dt, 5), 6.95, 0.01);
+}
+
+TEST(MimoDiscrete, LqiSeedIsThePidWithTheSameMargins)
+{
+  using ur5_dyn_control::LoopGains;
+  LoopGains g;
+  g.M = randomSpd(11);
+  g.integral = true;
+  g.KI = 1000.0 * g.M;
+  g.KP = 300.0 * g.M;
+  g.KD = 30.0 * g.M;
+  EXPECT_NEAR(ur5_dyn_control::mimoDiscreteGainMargin(g, 0.002, 1), 16.5, 0.05);
+  EXPECT_NEAR(ur5_dyn_control::mimoDiscreteGainMargin(g, 0.002, 5), 4.5, 0.05);
+}
+
+TEST(MimoDiscrete, NamesTheJointOfTheUnstableMode)
+{
+  // M diagonal, todas estables salvo wrist_2 (7500/173 con 5 ciclos).
+  using ur5_dyn_control::LoopGains;
+  LoopGains g;
+  g.M = ur5_dyn_control::Vector6d(2.6, 2.9, 0.9, 0.03, 0.009, 0.0004).asDiagonal();
+  ur5_dyn_control::Vector6d kp = ur5_dyn_control::Vector6d::Constant(100.0);
+  ur5_dyn_control::Vector6d kd = ur5_dyn_control::Vector6d::Constant(20.0);
+  kp[4] = 7500.0;
+  kd[4] = 173.21;
+  g.KP = g.M * kp.asDiagonal();
+  g.KD = g.M * kd.asDiagonal();
+  const auto mode = ur5_dyn_control::mimoDiscreteMode(g, 0.002, 5);
+  EXPECT_GT(mode.rho, 1.0);
+  EXPECT_EQ(mode.joint, 4);
+  EXPECT_EQ(ur5_dyn_control::mimoDiscreteGainMargin(g, 0.002, 5), 0.0);
+}
+
+TEST(PidDiscrete, IntegralWithoutDelayMatchesTheContinuousPoles)
+{
+  // a(s) = (s + wn)^3 con wn = 10: los tres polos discretos cerca de exp(-wn dt).
+  const double dt = 0.002;
+  EXPECT_NEAR(pidDiscreteSpectralRadius(1000.0, 300.0, 30.0, dt, 0),
+              std::exp(-10.0 * dt), 3e-3);
+}
+
 // ── Rango del barrido de excitación (FASE 2) ────────────────────────────────
 //
 // REGRESIÓN de un fallo que llegó al hardware: `max_sweep_duration` recorta la

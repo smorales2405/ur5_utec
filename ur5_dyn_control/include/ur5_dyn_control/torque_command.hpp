@@ -205,55 +205,188 @@ inline Vector6d torqueCommand(const Vector6d & tau_law,
  *
  * Esto es el limite IDEAL. El que manda en el UR5e real es otro, mas bajo: la
  * G <= 120 que fijaron la cuantizacion del encoder y el modo estructural de
- * 25-35 Hz (docs/09_real_bringup.md). Por eso el banner da los dos. El banner
- * lo evalua con delay_steps = 1; con los 5 del real el margen del CT nominal
- * baja de x25 a x7 (plan, B7.0).
+ * 25-35 Hz (docs/09_real_bringup.md). Por eso el banner da los dos, con el
+ * retardo del parametro `pipeline_delay_steps` (1 en Gazebo, 5 en el real: el
+ * margen del CT nominal baja de x25 a x7; plan V15 y R10).
  */
 inline double pdDiscreteSpectralRadius(double kp, double kd, double dt,
-                                       int delay_steps = 1)
+                                       int delay_steps = 1);
+
+/**
+ * R10: lo mismo con accion integral, e'' = u, u = -ki*sigma - kp e - kd e',
+ * sigma' = e (el LQI). Estado [sigma, e, e', u_{k-1}, ..., u_{k-d}]. Con
+ * ki = 0 se quita sigma (seria un modo desacoplado en 1) y coincide con
+ * pdDiscreteSpectralRadius. El evaluador de Python (closed_loop.py) tiene el
+ * mismo calculo, y los dos tests fijan los mismos numeros.
+ */
+inline double pidDiscreteSpectralRadius(double ki, double kp, double kd, double dt,
+                                        int delay_steps = 1)
 {
   const int d = std::max(0, delay_steps);
-  const int n = 2 + d;
+  const int o = (ki != 0.0) ? 1 : 0;     // desplazamiento por sigma
+  const int n = o + 2 + d;
   Eigen::MatrixXd A = Eigen::MatrixXd::Zero(n, n);
+  const int e = o, de = o + 1;
   // e, e' integran el mando que se aplica AHORA, que es el de hace d pasos.
-  const int u_col = (d == 0) ? -1 : 2 + d - 1;
+  const int u_col = (d == 0) ? -1 : o + 2 + d - 1;
   auto add_u = [&](int row, double gain) {
       if (u_col >= 0) {
         A(row, u_col) += gain;
-      } else {          // sin retardo: u_k = -kp e_k - kd e'_k
-        A(row, 0) += -gain * kp;
-        A(row, 1) += -gain * kd;
+      } else {          // sin retardo: u_k = -ki sigma_k - kp e_k - kd e'_k
+        if (o) {A(row, 0) += -gain * ki;}
+        A(row, e) += -gain * kp;
+        A(row, de) += -gain * kd;
       }
     };
-  A(0, 0) = 1.0;
-  A(0, 1) = dt;
-  add_u(0, 0.5 * dt * dt);
-  A(1, 1) = 1.0;
-  add_u(1, dt);
+  if (o) {
+    A(0, 0) = 1.0;
+    A(0, e) = dt;       // sigma += e dt
+  }
+  A(e, e) = 1.0;
+  A(e, de) = dt;
+  add_u(e, 0.5 * dt * dt);
+  A(de, de) = 1.0;
+  add_u(de, dt);
   if (d > 0) {
-    A(2, 0) = -kp;      // u_k, calculado con la medida de ahora
-    A(2, 1) = -kd;
-    for (int j = 3; j < n; ++j) {A(j, j - 1) = 1.0;}   // la cola del retardo
+    const int u0 = o + 2;
+    if (o) {A(u0, 0) = -ki;}  // u_k, calculado con la medida de ahora
+    A(u0, e) = -kp;
+    A(u0, de) = -kd;
+    for (int j = u0 + 1; j < n; ++j) {A(j, j - 1) = 1.0;}   // la cola del retardo
   }
   return Eigen::EigenSolver<Eigen::MatrixXd>(A, false).eigenvalues().cwiseAbs().maxCoeff();
 }
 
-/**
- * B4.1: margen de ganancia discreto del PD: el factor s por el que se pueden
- * multiplicar kp y kd a la vez antes de que el lazo discreto se haga inestable
- * (rho = 1). Biseccion sobre [1, s_max]; infinito si sigue estable en s_max.
- */
-inline double pdDiscreteGainMargin(double kp, double kd, double dt,
-                                   int delay_steps = 1, double s_max = 1e4)
+inline double pdDiscreteSpectralRadius(double kp, double kd, double dt, int delay_steps)
 {
-  if (pdDiscreteSpectralRadius(kp, kd, dt, delay_steps) >= 1.0) {return 0.0;}
-  if (pdDiscreteSpectralRadius(s_max * kp, s_max * kd, dt, delay_steps) < 1.0) {
-    return std::numeric_limits<double>::infinity();
-  }
+  return pidDiscreteSpectralRadius(0.0, kp, kd, dt, delay_steps);
+}
+
+/**
+ * B4.1 / R10: margen de ganancia discreto: el factor s por el que se pueden
+ * multiplicar (ki, kp, kd) a la vez antes de que el lazo discreto se haga
+ * inestable (rho = 1). Biseccion sobre [1, s_max]; 0 si ya es inestable,
+ * infinito si sigue estable en s_max.
+ */
+inline double pidDiscreteGainMargin(double ki, double kp, double kd, double dt,
+                                    int delay_steps = 1, double s_max = 1e4)
+{
+  auto rho = [&](double sc) {
+      return pidDiscreteSpectralRadius(sc * ki, sc * kp, sc * kd, dt, delay_steps);
+    };
+  if (rho(1.0) >= 1.0) {return 0.0;}
+  if (rho(s_max) < 1.0) {return std::numeric_limits<double>::infinity();}
   double lo = 1.0, hi = s_max;
   for (int it = 0; it < 60; ++it) {
     const double mid = std::sqrt(lo * hi);
-    (pdDiscreteSpectralRadius(mid * kp, mid * kd, dt, delay_steps) < 1.0 ? lo : hi) = mid;
+    (rho(mid) < 1.0 ? lo : hi) = mid;
+  }
+  return lo;
+}
+
+inline double pdDiscreteGainMargin(double kp, double kd, double dt,
+                                   int delay_steps = 1, double s_max = 1e4)
+{
+  return pidDiscreteGainMargin(0.0, kp, kd, dt, delay_steps, s_max);
+}
+
+/**
+ * R10: el lazo COMPLETO de una ley lineal en el error, para el chequeo MIMO.
+ *
+ *   tau = -(K_I sigma + K_P e + K_D e'),   e'' = M^-1 tau,   sigma' = e
+ *
+ * con las K en par (N.m por rad, por rad/s, por rad.s) en un punto de la
+ * referencia. Por junta (pid*) solo vale si M^-1 K es diagonal: es exacto en
+ * el CT (K = M diag(k)) y en la semilla del LQI, pero no en el LQI con
+ * `Q_mode: fixed` lejos de q_init (M^-1 K con acoplos dominantes y diagonales
+ * negativas) ni del todo en el SMC (diag(K/phi) frente a M llena).
+ */
+struct LoopGains
+{
+  Matrix6d M = Matrix6d::Identity();
+  Matrix6d KI = Matrix6d::Zero();
+  Matrix6d KP = Matrix6d::Zero();
+  Matrix6d KD = Matrix6d::Zero();
+  bool integral = false;
+};
+
+/// Modo dominante del lazo discreto: modulo, frecuencia [Hz] y la junta con
+/// mas peso en el error de posicion del autovector.
+struct DiscreteMode
+{
+  double rho = 0.0;
+  double freq_hz = 0.0;
+  int joint = -1;
+};
+
+/**
+ * R10: ZOH exacto de la cadena de integradores (sin el termino de Coriolis,
+ * despreciable a las velocidades de la incision) a dt, y `delay_steps` pasos
+ * entre medir y aplicar. Estado [sigma?, e, e', u_{k-1}, ..., u_{k-d}].
+ * `scale` multiplica las tres K a la vez (para el margen de ganancia).
+ */
+inline DiscreteMode mimoDiscreteMode(const LoopGains & g, double dt, int delay_steps,
+                                     double scale = 1.0)
+{
+  const int d = std::max(0, delay_steps);
+  const int nb = g.integral ? 3 : 2;
+  const int nx = 6 * nb;
+  const int n = nx + 6 * d;
+  const Matrix6d I = Matrix6d::Identity();
+  const Matrix6d Minv = g.M.llt().solve(I);
+  Eigen::MatrixXd Phi = Eigen::MatrixXd::Zero(nx, nx);
+  Eigen::MatrixXd Gam = Eigen::MatrixXd::Zero(nx, 6);
+  Eigen::MatrixXd K(6, nx);
+  const int e = g.integral ? 6 : 0;          // bloque del error de posicion
+  if (g.integral) {
+    Phi.block(0, 0, 6, 6) = I;
+    Phi.block(0, 6, 6, 6) = dt * I;
+    Phi.block(0, 12, 6, 6) = 0.5 * dt * dt * I;
+    Gam.block(0, 0, 6, 6) = dt * dt * dt / 6.0 * Minv;
+    K << scale * g.KI, scale * g.KP, scale * g.KD;
+  } else {
+    K << scale * g.KP, scale * g.KD;
+  }
+  Phi.block(e, e, 6, 6) = I;
+  Phi.block(e, e + 6, 6, 6) = dt * I;
+  Phi.block(e + 6, e + 6, 6, 6) = I;
+  Gam.block(e, 0, 6, 6) = 0.5 * dt * dt * Minv;
+  Gam.block(e + 6, 0, 6, 6) = dt * Minv;
+
+  Eigen::MatrixXd A = Eigen::MatrixXd::Zero(n, n);
+  if (d == 0) {
+    A = Phi - Gam * K;
+  } else {
+    A.topLeftCorner(nx, nx) = Phi;
+    A.block(0, n - 6, nx, 6) = Gam;          // se aplica u_{k-d}
+    A.block(nx, 0, 6, nx) = -K;              // u_k, con la medida de ahora
+    for (int j = 1; j < d; ++j) {A.block(nx + 6 * j, nx + 6 * (j - 1), 6, 6) = I;}
+  }
+  Eigen::EigenSolver<Eigen::MatrixXd> es(A, true);
+  const Eigen::VectorXcd lam = es.eigenvalues();
+  int k = 0;
+  for (int i = 1; i < lam.size(); ++i) {
+    if (std::abs(lam[i]) > std::abs(lam[k])) {k = i;}
+  }
+  DiscreteMode out;
+  out.rho = std::abs(lam[k]);
+  out.freq_hz = std::abs(std::arg(lam[k])) / (2.0 * M_PI * dt);
+  const Eigen::VectorXcd v = es.eigenvectors().col(k).segment(e, 6);
+  v.cwiseAbs().maxCoeff(&out.joint);
+  return out;
+}
+
+/// R10: margen de ganancia MIMO: factor comun de (K_I, K_P, K_D) hasta rho = 1.
+inline double mimoDiscreteGainMargin(const LoopGains & g, double dt, int delay_steps,
+                                     double s_max = 1e4)
+{
+  auto rho = [&](double sc) {return mimoDiscreteMode(g, dt, delay_steps, sc).rho;};
+  if (rho(1.0) >= 1.0) {return 0.0;}
+  if (rho(s_max) < 1.0) {return std::numeric_limits<double>::infinity();}
+  double lo = 1.0, hi = s_max;
+  for (int it = 0; it < 50; ++it) {
+    const double mid = std::sqrt(lo * hi);
+    (rho(mid) < 1.0 ? lo : hi) = mid;
   }
   return lo;
 }

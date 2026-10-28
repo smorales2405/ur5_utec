@@ -44,22 +44,17 @@ public:
     // misma magnitud y la misma cota que en el SMC y el LQR-SDRE.
     reportLoopGain("M_ii*kd_i", [this](const Vector6d & q, const Vector6d &,
       const Vector6d &) {return Matrix6d(dyn().M(q) * kd_.asDiagonal());});
-    // B4.1: estabilidad del lazo DISCRETO ideal (500 Hz, un paso de retardo):
-    // radio espectral por junta y cuanto se pueden escalar kp y kd juntos antes
-    // de inestabilizarlo. El limite real del UR5e es la G de arriba, mas bajo.
-    {
-      const double dt = 1.0 / controlRate();
-      std::string txt;
-      char b[64];
-      for (int i = 0; i < 6; ++i) {
-        std::snprintf(b, sizeof(b), "%s%.4f/x%.0f", i ? "  " : "",
-                      pdDiscreteSpectralRadius(kp_[i], kd_[i], dt, 1),
-                      pdDiscreteGainMargin(kp_[i], kd_[i], dt, 1));
-        txt += b;
-      }
-      RCLCPP_INFO(get_logger(), "  lazo discreto (rho / margen de ganancia) por junta: %s",
-                  txt.c_str());
-    }
+    // B4.1 / R10: estabilidad del lazo DISCRETO con el retardo real
+    // (`pipeline_delay_steps`). Con el modelo exacto el CT desacopla el brazo:
+    // K_P = M diag(kp), K_D = M diag(kd).
+    reportDiscreteMargin("CT (K_P = M kp, K_D = M kd)", [this](const Vector6d & q,
+      const Vector6d &, const Vector6d &) {
+        LoopGains g;
+        g.M = dyn().M(q);
+        g.KP = g.M * kp_.asDiagonal();
+        g.KD = g.M * kd_.asDiagonal();
+        return g;
+      });
     start();
   }
 
@@ -84,7 +79,15 @@ private:
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<ur5_dyn_control::FlControlNode>());
+  int rc = 0;
+  try {
+    rclcpp::spin(std::make_shared<ur5_dyn_control::FlControlNode>());
+  } catch (const std::exception & e) {
+    // El nodo se nego a arrancar (sin bloque comun, inestable con el retardo
+    // real, ...): ya lo dijo en el log. Salir con error, no con abort().
+    std::fprintf(stderr, "%s: no arranca: %s\n", argv[0], e.what());
+    rc = 1;
+  }
   rclcpp::shutdown();
-  return 0;
+  return rc;
 }

@@ -184,6 +184,31 @@ public:
                 "  K se calcula por ciclo: K_i = eta_i + alpha_M|M*ddq_r|_i + "
                 "alpha_C|C*dq_r|_i + alpha_g|g|_i  (R2; condicion de alcance por "
                 "construccion)");
+    // R10: dentro de la capa limite sat(s/phi) es lineal:
+    //   tau = -M Lambda e' - diag(K/phi)(e' + Lambda e)
+    // => K_P = diag(K/phi) Lambda,  K_D = M Lambda + diag(K/phi).
+    // Con `sign` no hay capa limite y el analisis lineal no aplica.
+    if (use_sat_) {
+      reportDiscreteMargin(
+        "SMC en la capa limite (K_P = diag(K/phi) Lambda, K_D = M Lambda + diag(K/phi))",
+        [this](const Vector6d & q, const Vector6d & dq, const Vector6d & ddq) {
+          JointRef ref;
+          ref.q = q;
+          ref.dq = dq;
+          ref.ddq = ddq;
+          const Vector6d K = smcLaw(dyn(), q, dq, ref, gains_).K;   // error nulo
+          const Vector6d k_phi = K.cwiseQuotient(gains_.phi);
+          LoopGains g;
+          g.M = dyn().M(q);
+          g.KP = Matrix6d(k_phi.cwiseProduct(gains_.lambda).asDiagonal());
+          g.KD = g.M * gains_.lambda.asDiagonal();
+          g.KD.diagonal() += k_phi;
+          return g;
+        });
+    } else {
+      RCLCPP_INFO(get_logger(), "  lazo discreto: con `sign` no hay capa limite; el "
+                  "chequeo lineal no aplica");
+    }
     start();
   }
 
@@ -217,7 +242,15 @@ private:
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<ur5_dyn_control::SmcControlNode>());
+  int rc = 0;
+  try {
+    rclcpp::spin(std::make_shared<ur5_dyn_control::SmcControlNode>());
+  } catch (const std::exception & e) {
+    // El nodo se nego a arrancar (sin bloque comun, inestable con el retardo
+    // real, ...): ya lo dijo en el log. Salir con error, no con abort().
+    std::fprintf(stderr, "%s: no arranca: %s\n", argv[0], e.what());
+    rc = 1;
+  }
   rclcpp::shutdown();
-  return 0;
+  return rc;
 }

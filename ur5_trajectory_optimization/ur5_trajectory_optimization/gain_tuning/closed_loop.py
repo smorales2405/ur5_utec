@@ -390,7 +390,7 @@ class SmcLaw:
         # `K/phi` del termino conmutado, porque s contiene dq_e con peso 1. Es
         # el numero que entro en ciclo limite en el robot real (smc_712).
         G = np.diag(M) * self.lam + K / self.phi
-        return tau, s, {"chi": (K / self.phi) / np.diag(M), "M": M, "G": G}
+        return tau, s, {"chi": (K / self.phi) / np.diag(M), "M": M, "G": G, "K": K}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -466,6 +466,10 @@ class EvalResult:
     #: que este evaluador —con el suelo de ruido de Gazebo, 570x menor— no ve.
     g_joint: np.ndarray = field(
         default_factory=lambda: np.zeros(6))
+    #: R10: margen de ganancia del lazo discreto MIMO con el retardo del
+    #: evaluador, el mínimo sobre la referencia (`smc_discrete_margin`). Lo
+    #: rellena `GainEvaluator`; `simulate` no lo calcula.
+    margin_discrete: float = float("inf")
 
 
 #: Desviación típica del ruido de velocidad articular [rad/s], MEDIDA sobre las
@@ -481,16 +485,111 @@ class EvalResult:
 DQ_NOISE_STD_GAZEBO = 5.0e-6
 
 
-#: Retardo de tubería, en pasos de control. El lazo real no es instantáneo: el
-#: nodo lee `/joint_states` publicado en el ciclo anterior, calcula el par y lo
-#: publica, y el simulador lo aplica en el siguiente paso. La FASE 2 lo midió
-#: como ~1 ms de desfase (docs/02_friction.md), del orden de medio ciclo a 500
-#: Hz; se modela **un** paso completo, que es la hipótesis conservadora.
+#: Retardo de tubería, en pasos de control: el par que la ley calcula con el
+#: estado de la fila `k` actúa `D` filas después.
 #:
-#: NO es un detalle: sin él el evaluador premia `λ` arbitrariamente grande. Con
-#: las ganancias que salieron de la FASE 7 sin modelarlo (λ·dt hasta 0.60), la
-#: predicción offline daba 0.02 mm de error de TCP y Gazebo midió 29.7 mm.
-PIPELINE_DELAY_STEPS = 1
+#: **5 en el UR5e real** (R10, plan V15): medido con los escalones del
+#: feedforward de Coulomb de los barridos reales (`fl_500`–`507`, 71 escalones,
+#: 5.02 ciclos; `ur5_identification/scripts/analyze_pipeline_delay.py`), y la
+#: velocidad responde a la vez, así que es actuación y no medida. En Gazebo es
+#: 1 (lo que se supuso hasta la Rev. 7 del plan para todo).
+#:
+#: NO es un detalle: sin retardo el evaluador premia `λ` arbitrariamente
+#: grande (FASE 7: 0.02 mm predichos, 29.7 mm en Gazebo), y con 1 en vez de 5
+#: deja pasar `smc_v5_g6`, que con 5 es inestable en las tres muñecas.
+PIPELINE_DELAY_STEPS = 5
+PIPELINE_DELAY_STEPS_GAZEBO = 1
+
+
+def mimo_discrete_mode(M, KP, KD, dt, delay_steps, KI=None, scale=1.0):
+    """Modo dominante del lazo discreto completo de una ley lineal en el error.
+
+    Espejo de `mimoDiscreteMode` (ur5_dyn_control/torque_command.hpp; los dos
+    tests fijan los mismos números):
+
+        tau = -(K_I σ + K_P e + K_D e'),   e'' = M⁻¹ tau,   σ' = e
+
+    ZOH exacto de la cadena de integradores a `dt` y `delay_steps` pasos entre
+    medir y aplicar. Devuelve `(rho, freq_hz, junta)`: módulo, frecuencia y la
+    junta con más peso en el error de posición del autovector.
+    """
+    M = np.asarray(M, float)
+    Mi = np.linalg.inv(M)
+    I, Z = np.eye(6), np.zeros((6, 6))
+    integ = KI is not None
+    if integ:
+        Phi = np.block([[I, dt * I, dt * dt / 2 * I], [Z, I, dt * I], [Z, Z, I]])
+        Gam = np.vstack([dt ** 3 / 6 * Mi, dt * dt / 2 * Mi, dt * Mi])
+        K = scale * np.hstack([KI, KP, KD])
+    else:
+        Phi = np.block([[I, dt * I], [Z, I]])
+        Gam = np.vstack([dt * dt / 2 * Mi, dt * Mi])
+        K = scale * np.hstack([KP, KD])
+    nx, d = Phi.shape[0], max(0, int(delay_steps))
+    if d == 0:
+        A = Phi - Gam @ K
+    else:
+        n = nx + 6 * d
+        A = np.zeros((n, n))
+        A[:nx, :nx] = Phi
+        A[:nx, n - 6:] = Gam                       # se aplica u_{k-d}
+        A[nx:nx + 6, :nx] = -K                     # u_k, con la medida de ahora
+        for j in range(1, d):
+            A[nx + 6 * j:nx + 6 * j + 6, nx + 6 * (j - 1):nx + 6 * j] = I
+    lam, vec = np.linalg.eig(A)
+    k = int(np.argmax(np.abs(lam)))
+    e = 6 if integ else 0
+    return (float(np.abs(lam[k])), float(abs(np.angle(lam[k])) / (2 * np.pi * dt)),
+            int(np.argmax(np.abs(vec[e:e + 6, k]))))
+
+
+def mimo_gain_margin(M, KP, KD, dt, delay_steps, KI=None, s_max=1e4):
+    """Factor común de las K hasta rho = 1 (0 si ya es inestable)."""
+    def rho(sc):
+        return mimo_discrete_mode(M, KP, KD, dt, delay_steps, KI, sc)[0]
+    if rho(1.0) >= 1.0:
+        return 0.0
+    if rho(s_max) < 1.0:
+        return float("inf")
+    lo, hi = 1.0, s_max
+    for _ in range(50):
+        mid = np.sqrt(lo * hi)
+        lo, hi = (mid, hi) if rho(mid) < 1.0 else (lo, mid)
+    return lo
+
+
+def smc_loop_gains(law, model, data, q, dq, ddq):
+    """K de par del SMC dentro de la capa límite, con error nulo:
+    K_P = diag(K/φ) Λ,  K_D = M Λ + diag(K/φ). Devuelve (M, K_P, K_D)."""
+    _, _, info = law(model, data, q, dq, q, dq, ddq)
+    M, k_phi = info["M"], info["K"] / law.phi
+    return M, np.diag(k_phi * law.lam), M @ np.diag(law.lam) + np.diag(k_phi)
+
+
+def smc_discrete_margin(law, plant, ref, delay_steps=PIPELINE_DELAY_STEPS,
+                        n_points=400):
+    """Margen de ganancia discreto MIMO del SMC, el mínimo sobre la referencia.
+
+    El mismo algoritmo que `reportDiscreteMargin` del nodo: todos los puntos
+    muestreados, y solo se biseca un punto si es inestable con el mínimo
+    hallado hasta ahí. Devuelve `(margen, t_del_peor_punto)`.
+    """
+    if not law.use_sat:
+        return float("inf"), 0.0
+    paso = max(1, ref.n // n_points)
+    margin, t_worst = float("inf"), 0.0
+    for k in range(0, ref.n, paso):
+        M, KP, KD = smc_loop_gains(law, plant.model, plant.data,
+                                   ref.q[k], ref.dq[k], ref.ddq[k])
+        if margin == 0.0:
+            break
+        if np.isfinite(margin) and \
+                mimo_discrete_mode(M, KP, KD, ref.dt, delay_steps, scale=margin)[0] < 1.0:
+            continue
+        m = mimo_gain_margin(M, KP, KD, ref.dt, delay_steps)
+        if m < margin:
+            margin, t_worst = m, k * ref.dt
+    return margin, t_worst
 
 
 def simulate(law, ref: Reference, plant: Plant,

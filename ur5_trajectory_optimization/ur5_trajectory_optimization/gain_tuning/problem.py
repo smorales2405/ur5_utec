@@ -98,8 +98,9 @@ from dataclasses import dataclass
 import numpy as np
 from pymoo.core.problem import ElementwiseProblem
 
-from .closed_loop import (TAU_MAX, CuttingForce, EvalResult, JointFriction,
-                          Plant, Q_INIT, Reference, SmcLaw, simulate)
+from .closed_loop import (PIPELINE_DELAY_STEPS, TAU_MAX, CuttingForce, EvalResult,
+                          JointFriction, Plant, Q_INIT, Reference, SmcLaw, simulate,
+                          smc_discrete_margin)
 
 #: Umbral de χ POR JUNTA, MEDIDO en Gazebo con la fricción real inyectada
 #: (docs/05_smc.md §7.6). Es el borde inferior de la banda de transición: el
@@ -162,6 +163,14 @@ G_LOOP_MAX = 120.0
 #: medido. Decidido el 2026-09-24. El coste en precision de la cota de seguridad
 #: es un resultado a reportar, no algo que esconder bajo una tolerancia.
 TCP_TOL_MM_DEFAULT = 2.0
+
+#: g7 (R10): margen de ganancia mínimo del lazo DISCRETO MIMO con el retardo
+#: real (5 ciclos). ELECCIÓN DE DISEÑO, no medida: ×2 (6 dB) es el mínimo
+#: clásico, y aquí cubre lo que el análisis lineal no ve —la flexibilidad de
+#: 25–35 Hz desestabiliza, la fricción estabiliza—. El nodo, por su parte, solo
+#: se NIEGA a arrancar por debajo de ×1. Referencias con 5 ciclos: CT nominal
+#: ×6.95, semilla del LQI ×1.32 (peor punto del trazo), `smc_v5_g6` 0.
+MARGIN_MIN_DEFAULT = 2.0
 
 #: Penalización devuelta cuando la simulación diverge.
 PENALTY = 1e9
@@ -291,7 +300,9 @@ class GainEvaluator:
                  tcp_tol_mm: float = TCP_TOL_MM_DEFAULT, cache_size: int = 4096,
                  friction: JointFriction | None = None,
                  d_bound: np.ndarray | None = None,
-                 g_max: float = G_LOOP_MAX):
+                 g_max: float = G_LOOP_MAX,
+                 delay_steps: int = PIPELINE_DELAY_STEPS,
+                 margin_min: float = MARGIN_MIN_DEFAULT):
         self.param = param
         self.ref = ref
         self.plant = plant
@@ -313,6 +324,10 @@ class GainEvaluator:
         #: reconstruirian con el default y un `--g-max` distinto se ignoraria
         #: en silencio en toda la parte NSGA-II.
         self.g_max = float(g_max)
+        #: R10: retardo de tuberia [ciclos] de la simulacion y de g7, y el
+        #: margen minimo de g7. Viajan en `_pool_recipe`, como g_max.
+        self.delay_steps = int(delay_steps)
+        self.margin_min = float(margin_min)
         self._cache: OrderedDict = OrderedDict()
         self._cache_size = cache_size
         self.n_eval = 0
@@ -335,7 +350,10 @@ class GainEvaluator:
         law = SmcLaw(lam=lam, eta=eta, phi=phi, alpha=self.alpha, use_sat=True)
         try:
             res = simulate(law, self.ref, self.plant, force=self.force,
-                           friction=self.friction)
+                           friction=self.friction, delay_steps=self.delay_steps)
+            if not res.diverged:
+                res.margin_discrete = smc_discrete_margin(
+                    law, self.plant, self.ref, self.delay_steps)[0]
         except Exception:
             # Una ley absurda puede reventar la dinámica; para el optimizador
             # eso es simplemente un punto infactible, no un fallo de la corrida.
@@ -356,10 +374,10 @@ class GainEvaluator:
             return np.full(3, PENALTY)
         return np.array([r.f1_iae, r.f2_effort, r.f3_chatter])
 
-    N_CON = 6
+    N_CON = 7
 
     def constraints(self, x: np.ndarray) -> np.ndarray:
-        """[g1, g2, g3, g4, g5, g6] ≤ 0 factible."""
+        """[g1, g2, g3, g4, g5, g6, g7] ≤ 0 factible."""
         r = self.result(x)
         if r.diverged:
             return np.full(self.N_CON, PENALTY)
@@ -375,8 +393,12 @@ class GainEvaluator:
         # g6 — GANANCIA DERIVATIVA. Normalizada: 0.5 significa un 50 % por
         # encima de la region probada en el robot, en la junta que peor esta.
         g6 = float(np.max(np.asarray(r.g_joint))) / self.g_max - 1.0
+        # g7 (R10) — ESTABILIDAD DISCRETA con el retardo real: margen de
+        # ganancia MIMO >= margin_min. 0.5 = el margen se queda en 2/3 del pedido.
+        g7 = (min(PENALTY, self.margin_min / r.margin_discrete - 1.0)
+              if r.margin_discrete > 0.0 else PENALTY)
         return np.array([r.g1_tau, r.g2_dq, chi_rel - self.chi_safety,
-                         r.rmse_tcp_mm - self.tcp_tol_mm, g5, g6])
+                         r.rmse_tcp_mm - self.tcp_tol_mm, g5, g6, g7])
 
     def evaluate(self, x: np.ndarray) -> tuple:
         return self.objectives(x), self.constraints(x)
@@ -441,14 +463,17 @@ def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
                    q_ref: np.ndarray | None = None,
                    friction: JointFriction | None = None,
                    d_bound: np.ndarray | None = None,
-                   g_max: float = G_LOOP_MAX) -> GainEvaluator:
+                   g_max: float = G_LOOP_MAX,
+                   delay_steps: int = PIPELINE_DELAY_STEPS,
+                   margin_min: float = MARGIN_MIN_DEFAULT) -> GainEvaluator:
     """Atajo: construye parametrización + evaluador con los valores del plan."""
     inertia = plant.inertia_diag(Q_INIT if q_ref is None else q_ref)
     param = SmcParameterization(inertia=inertia, mode=mode)
     force = CuttingForce.from_reference(ref, f_cut=f_cut) if f_cut > 0 else None
     return GainEvaluator(param, ref, plant, force=force, alpha=alpha,
                          chi_safety=chi_safety, tcp_tol_mm=tcp_tol_mm,
-                         friction=friction, d_bound=d_bound, g_max=g_max)
+                         friction=friction, d_bound=d_bound, g_max=g_max,
+                         delay_steps=delay_steps, margin_min=margin_min)
 
 
 #: Dispersión relativa de la identificación entre las TRES campañas reales

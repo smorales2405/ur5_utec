@@ -39,7 +39,7 @@ _WORKER: dict = {}
 
 
 def _worker_init(urdf, ref_path, mode, alpha, f_cut, chi_safety, tcp_tol_mm,
-                 d_bound, g_max, friction):
+                 d_bound, g_max, friction, delay_steps, margin_min):
     """
     Reconstruye el evaluador en cada proceso hijo.
 
@@ -49,12 +49,15 @@ def _worker_init(urdf, ref_path, mode, alpha, f_cut, chi_safety, tcp_tol_mm,
     la condicion de alcance solo se impondria en las evaluaciones en serie.
     `g_max` (g6) y `friction` tienen el mismo riesgo: `friction` faltaba desde
     que existe, y con `--friction -j N` los hijos habrian simulado planta ideal.
+    `delay_steps` y `margin_min` (R10, g7) igual: sin ellos los hijos
+    simularian con el retardo por defecto.
     """
     _WORKER["ev"] = make_evaluator(
         load_reference(ref_path), Plant(urdf), mode=mode, alpha=alpha,
         f_cut=f_cut, chi_safety=chi_safety, tcp_tol_mm=tcp_tol_mm,
         d_bound=np.asarray(d_bound, dtype=float), g_max=float(g_max),
-        friction=friction)
+        friction=friction, delay_steps=int(delay_steps),
+        margin_min=float(margin_min))
 
 
 def _worker_eval(x):
@@ -72,7 +75,8 @@ def _pool_recipe(evaluator: GainEvaluator, urdf: str, ref_path: str) -> tuple:
             evaluator.force.f_cut if evaluator.force else 0.0,
             evaluator.chi_safety, evaluator.tcp_tol_mm,
             tuple(np.asarray(evaluator.d_bound, dtype=float)),
-            evaluator.g_max, evaluator.friction)
+            evaluator.g_max, evaluator.friction,
+            evaluator.delay_steps, evaluator.margin_min)
 
 
 class _PooledProblem(Problem):
@@ -397,8 +401,8 @@ def run_epsilon_constraint(evaluator: GainEvaluator, pareto_F: np.ndarray,
 #: están ACTIVAS. Sin esto habría que comparar N·m con rad/s y con un número
 #: adimensional usando la misma tolerancia, que no significa nada.
 #:
-#: g1 N·m · g2 rad/s · g3 adimensional · g4 mm · g5 N·m · g6 adimensional
-_CON_SCALE = np.array([150.0, np.pi, 1.0, 1.0, 10.0, 1.0])
+#: g1 N·m · g2 rad/s · g3 adimensional · g4 mm · g5 N·m · g6 y g7 adimensionales
+_CON_SCALE = np.array([150.0, np.pi, 1.0, 1.0, 10.0, 1.0, 1.0])
 
 # La longitud tiene que seguir a N_CON. Estaba escrita a mano y al anadir g5 el
 # concatenate reventaba con "shapes (5,) (4,)" — a los 8 minutos de corrida, en

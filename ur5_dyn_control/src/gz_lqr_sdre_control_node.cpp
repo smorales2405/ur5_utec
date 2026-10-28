@@ -284,6 +284,25 @@ public:
         const CareResult r = solveCare(A, B, Q, R_, opt_);
         return r.ok ? Matrix6d(gainBlock(r.K, integral_, 2)) : Matrix6d(gainBlock(K_, integral_, 2));
       });
+    // R10: el lazo completo con la K de la CARE en cada punto. Por junta no
+    // vale: con `Q_mode: fixed`, lejos de q_init M^-1 K tiene acoplos dominantes.
+    reportDiscreteMargin(
+      integral_ ? "LQI (K de la CARE)" : "LQR (K de la CARE)",
+      [this](const Vector6d & q, const Vector6d & dq, const Vector6d &) {
+        Eigen::MatrixXd A, B;
+        const Matrix6d M = dyn().M(q);
+        buildSdc(M, dyn().coriolis(q, dq), integral_, A, B);
+        const Eigen::MatrixXd Q = (q_mode_ == "scheduled") ? buildQ(M) : Q_;
+        const CareResult r = solveCare(A, B, Q, R_, opt_);
+        const Eigen::MatrixXd & K = r.ok ? r.K : K_;
+        LoopGains g;
+        g.M = M;
+        g.integral = integral_;
+        if (integral_) {g.KI = gainBlock(K, integral_, 0);}
+        g.KP = gainBlock(K, integral_, 1);
+        g.KD = gainBlock(K, integral_, 2);
+        return g;
+      });
 
     start();
 
@@ -490,7 +509,15 @@ private:
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<ur5_dyn_control::LqrSdreControlNode>());
+  int rc = 0;
+  try {
+    rclcpp::spin(std::make_shared<ur5_dyn_control::LqrSdreControlNode>());
+  } catch (const std::exception & e) {
+    // El nodo se nego a arrancar (sin bloque comun, inestable con el retardo
+    // real, ...): ya lo dijo en el log. Salir con error, no con abort().
+    std::fprintf(stderr, "%s: no arranca: %s\n", argv[0], e.what());
+    rc = 1;
+  }
   rclcpp::shutdown();
-  return 0;
+  return rc;
 }

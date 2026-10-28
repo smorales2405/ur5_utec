@@ -420,6 +420,12 @@ def test_la_receta_del_pool_lleva_todo_lo_que_usan_las_restricciones():
     assert 97.0 in receta2, "g_max no viaja en la receta: g6 valdria el default en los hijos"
     assert any(c is fr for c in receta2), \
         "friction no viaja en la receta: con -j N los hijos simularian planta ideal"
+    # R10: el retardo y el margen de g7, tambien con valores no por defecto.
+    ev3 = GainEvaluator(param, ref, plant, force=None, alpha=0.3, d_bound=d,
+                        delay_steps=3, margin_min=1.7)
+    receta3 = _pool_recipe(ev3, URDF, "/no/existe.csv")
+    assert 3 in receta3 and 1.7 in receta3, \
+        "delay_steps / margin_min no viajan: los hijos simularian con el default"
 
 
 @pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
@@ -610,3 +616,76 @@ def test_ventanas_de_la_fuerza_salen_de_las_etiquetas(tmp_path):
     with pytest.raises(ValueError):
         CuttingForce(f_cut=5.0).wrench(3.0, rng)
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# R10: retardo real (5 ciclos) y estabilidad discreta MIMO (g7)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _spd(seed):
+    rng = np.random.default_rng(seed)
+    A = rng.standard_normal((6, 6))
+    return A @ A.T + 0.05 * np.eye(6)
+
+
+def test_el_retardo_por_defecto_es_el_del_real():
+    from ur5_trajectory_optimization.gain_tuning.closed_loop import (
+        PIPELINE_DELAY_STEPS, PIPELINE_DELAY_STEPS_GAZEBO)
+    assert PIPELINE_DELAY_STEPS == 5 and PIPELINE_DELAY_STEPS_GAZEBO == 1
+
+
+def test_mimo_mismos_numeros_que_el_cpp():
+    """Los mismos que fija test_limits_and_traceability.cpp (MimoDiscrete,
+    PidDiscrete): si uno cambia, el otro tiene que cambiar."""
+    from ur5_trajectory_optimization.gain_tuning.closed_loop import (
+        mimo_discrete_mode, mimo_gain_margin)
+    dt, M = 0.002, _spd(3)
+    # CT: K = M diag(k) desacopla; x24.87 con 1 ciclo, x6.95 con 5.
+    assert mimo_gain_margin(M, 100 * M, 20 * M, dt, 1) == pytest.approx(24.87, abs=0.01)
+    assert mimo_gain_margin(M, 100 * M, 20 * M, dt, 5) == pytest.approx(6.95, abs=0.01)
+    # Semilla del LQI (a0, a1, a2) = (1000, 300, 30).
+    assert mimo_gain_margin(M, 300 * M, 30 * M, dt, 1, KI=1000 * M) == \
+        pytest.approx(16.5, abs=0.05)
+    assert mimo_gain_margin(M, 300 * M, 30 * M, dt, 5, KI=1000 * M) == \
+        pytest.approx(4.5, abs=0.05)
+    # wrist_2 con 7500/173: inestable con 5 ciclos y el modo es suyo.
+    Md = np.diag([2.6, 2.9, 0.9, 0.03, 0.009, 0.0004])
+    kp = np.full(6, 100.0)
+    kd = np.full(6, 20.0)
+    kp[4], kd[4] = 7500.0, 173.21
+    rho, _, j = mimo_discrete_mode(Md, Md @ np.diag(kp), Md @ np.diag(kd), dt, 5)
+    assert rho > 1.0 and j == 4
+
+
+_V5_G6 = os.path.join(os.path.dirname(__file__), "..", "results", "gain_tuning",
+                      "smc_v5_g6", "selected_gains.yaml")
+
+
+@pytest.mark.skipif(not (os.path.exists(URDF) and os.path.exists(_V5_G6)),
+                    reason="URDF o smc_v5_g6 no disponibles")
+def test_smc_v5_g6_inestable_con_el_retardo_real():
+    import yaml
+    from ur5_trajectory_optimization.gain_tuning.closed_loop import smc_discrete_margin
+    g = yaml.safe_load(open(_V5_G6))["gz_smc_control_node"]["ros__parameters"]
+    law = SmcLaw(lam=g["lambda"], eta=g["eta"], phi=g["phi_joint"], alpha=g["alpha"])
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant)
+    m1, _ = smc_discrete_margin(law, plant, ref, delay_steps=1)
+    m5, _ = smc_discrete_margin(law, plant, ref, delay_steps=5)
+    assert 1.0 < m1 < 2.0          # con 1 ciclo pasaba, y justo
+    assert m5 == 0.0               # con los 5 del real, no
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_g7_separa_ganancias_estables_de_inestables():
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant)
+    param = SmcParameterization(inertia=INERTIA, mode="full")
+    ev = GainEvaluator(param, ref, plant, force=None, alpha=0.3)
+    assert ev.delay_steps == 5 and GainEvaluator.N_CON == 7
+    suave = param.encode(np.full(6, 5.0), INERTIA * 0.5, 2.0)
+    assert ev.constraints(suave)[6] <= 0.0
+    lam = np.array([161.2, 78.0, 130.7, 139.7, 167.8, 37.3])
+    eta = np.array([1.531, 3.930, 2.194, 0.820, 0.237, 0.042])
+    agresiva = param.encode(lam, eta, 0.187)
+    assert ev.constraints(agresiva)[6] > 0.0

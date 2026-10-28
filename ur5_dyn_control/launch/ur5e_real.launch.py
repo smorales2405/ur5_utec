@@ -136,6 +136,11 @@ def launch_setup(context, *args, **kwargs):
         # B1: cero del F/T integrado al acabar la aproximacion de cada incision
         # (hoja quieta en el aire). En Gazebo no hay servicio y queda en false.
         "ft.zero_at_contact": True,
+        # R10: retardo de tuberia del UR5e MEDIDO (plan V15: el par mandado
+        # aparece en la corriente 5 ciclos despues). Con el, el banner evalua la
+        # estabilidad discreta de cada junta y el nodo NO arranca si alguna sale
+        # inestable (smc_v5_g6 en las munecas, por ejemplo).
+        "pipeline_delay_steps": 5,
     }
     if not tool_mounted:
         real["tool_mass"] = 0.0

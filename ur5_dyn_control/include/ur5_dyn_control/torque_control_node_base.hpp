@@ -167,6 +167,17 @@ protected:
     const std::string & formula,
     const std::function<Matrix6d(const Vector6d &, const Vector6d &, const Vector6d &)> &
     dtau_ddq);
+  /// R10: margen de ganancia del lazo DISCRETO completo (MIMO,
+  /// mimoDiscreteMode) con el retardo de `pipeline_delay_steps` (1 en Gazebo, 5
+  /// en el real: plan V15), en el peor punto de la referencia. `gains(q, dq,
+  /// ddq)` devuelve las K de par de la ley en ese punto, con error nulo. Si sale
+  /// INESTABLE, en el robot real (gravity_in_command = false) el nodo NO
+  /// arranca salvo `discrete_check.allow_unstable: true`; en Gazebo avisa.
+  void reportDiscreteMargin(
+    const std::string & formula,
+    const std::function<LoopGains(const Vector6d &, const Vector6d &, const Vector6d &)> &
+    gains);
+  int pipelineDelaySteps() const { return pipeline_delay_steps_; }
   double gLoopMax() const { return g_loop_max_; }
   double controlRate() const { return control_rate_; }
   /// B4.2: true en TRACK y HOLD_END, donde corre una accion integral (no en la
@@ -342,6 +353,8 @@ private:
   int test_num_ = 1;
   std::string incision_common_;       // B0.2: version del bloque comun cargado
   double g_loop_max_ = 120.0;         // B4.1: cota de G comun a las tres leyes
+  int pipeline_delay_steps_ = 1;      // R10: 1 en Gazebo, 5 en el real (V15)
+  bool allow_unstable_discrete_ = false;
   int csv_hold_decimation_ = 10;
   int hold_log_counter_ = 0;
 

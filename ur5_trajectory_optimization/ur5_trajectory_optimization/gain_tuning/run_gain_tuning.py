@@ -30,19 +30,20 @@ import yaml
 
 from ..metrics import compute_coverage, compute_hv, compute_igd, filter_nondominated
 from ..multiobjective_optimizer import select_solution
-from .closed_loop import CuttingForce, Plant, load_reference
+from .closed_loop import PIPELINE_DELAY_STEPS, CuttingForce, Plant, load_reference
 from .optimize import (alpha_sensitivity, certify_kkt, hv_reference_point,
                        run_epsilon_constraint, run_nsga2,
                        run_weighted_sum_baseline, seed_points)
 from .problem import (CHI_SAFETY_DEFAULT, CHI_THRESHOLD,
-                      FRICTION_REAL_G4_0, G_LOOP_MAX, PENALTY,
+                      FRICTION_REAL_G4_0, G_LOOP_MAX, MARGIN_MIN_DEFAULT, PENALTY,
                       TCP_TOL_MM_DEFAULT, GainEvaluator, disturbance_bound,
                       friction_residual_bound, make_evaluator)
 from .problem import SmcParameterization  # noqa: E402
 
 DEFAULT_REF = os.path.expanduser("~/.ros/ur5_dyn_control/incision_ref.csv")
 OBJ_NAMES = ["f1_iae_m_s", "f2_effort_N2m2s", "f3_tv_Nm"]
-CON_NAMES = ["g1_tau", "g2_dq", "g3_chi", "g4_tcp", "g5_alcance", "g6_G"]
+CON_NAMES = ["g1_tau", "g2_dq", "g3_chi", "g4_tcp", "g5_alcance", "g6_G",
+             "g7_margen_discreto"]
 # Los nombres van a la cabecera del CSV del frente y se ZIPean con las
 # restricciones: con uno de menos, la ultima columna se perderia sin error.
 assert len(CON_NAMES) == GainEvaluator.N_CON, (
@@ -198,6 +199,12 @@ def main(argv=None):
                     help="g6: cota de G_i = M_ii*lambda_i + K_i/phi_i en las "
                          "seis juntas [N.m por rad/s]. Region PROBADA en el "
                          "UR5e real (docs/09_real_bringup.md §6.8)")
+    ap.add_argument("--delay-steps", type=int, default=PIPELINE_DELAY_STEPS,
+                    help="retardo de tuberia [ciclos] de la simulacion y de g7: "
+                         "5 en el UR5e real (plan V15), 1 en Gazebo")
+    ap.add_argument("--margin-min", type=float, default=MARGIN_MIN_DEFAULT,
+                    help="g7: margen de ganancia minimo del lazo discreto MIMO "
+                         "con ese retardo (eleccion de diseno: x2 = 6 dB)")
     ap.add_argument("-j", "--jobs", type=int, default=1)
     ap.add_argument("--test", type=int, default=None)
     ap.add_argument("--no-baseline", action="store_true")
@@ -254,7 +261,8 @@ def main(argv=None):
     ev = make_evaluator(ref, plant, mode=args.mode, alpha=args.alpha,
                         f_cut=args.f_cut, chi_safety=args.chi_safety,
                         tcp_tol_mm=args.tcp_tol_mm, friction=friction,
-                        d_bound=d_bound, g_max=args.g_max)
+                        d_bound=d_bound, g_max=args.g_max,
+                        delay_steps=args.delay_steps, margin_min=args.margin_min)
     param = ev.param
 
     print(f"referencia : {ref.n} muestras · dt={ref.dt:.4f} s · {ref.n * ref.dt:.1f} s")
@@ -266,6 +274,8 @@ def main(argv=None):
           f"  ->  limite = {np.array2string(args.chi_safety * CHI_THRESHOLD, precision=3)}")
     print(f"             G_i = M_ii·λ_i + K_i/φ_i ≤ {args.g_max:g} N·m/(rad/s) "
           f"en las seis juntas (probado en el robot real)")
+    print(f"             lazo discreto MIMO con {args.delay_steps} ciclo(s) de retardo: "
+          f"margen de ganancia ≥ x{args.margin_min:g} (g7)")
     if friction is None:
         print("fricción   : NINGUNA — planta ideal, NO predice el robot real")
     elif True:
@@ -557,14 +567,18 @@ def main(argv=None):
               f" N.m/(rad/s), limite {args.g_max:g} (g6)",
          "semilla": args.seed, "parametrizacion": args.mode,
          "fuerza_corte_N": args.f_cut,
-         "AVISO": "evaluador offline sin retardo de tuberia ni ruido de q̇: "
-                  "re-verificar en Gazebo antes de la campana de la FASE 8"})
+         "retardo_ciclos": args.delay_steps,
+         "margen_discreto": f"x{r_knee.margin_discrete:.2f} (minimo x{args.margin_min:g}, g7)",
+         "AVISO": f"evaluador con {args.delay_steps} ciclo(s) de retardo (el real tiene "
+                  f"5, Gazebo 1) y sin el modo estructural de 25-35 Hz: re-verificar "
+                  f"en Gazebo y en aire antes de la campana"})
 
     report = {
         "run": {"controller": args.controller, "mode": args.mode, "seed": args.seed,
                 "pop_size": args.pop, "n_gen": args.gen, "alpha": args.alpha,
                 "f_cut_N": args.f_cut, "chi_safety": args.chi_safety,
                 "chi_threshold": CHI_THRESHOLD.tolist(), "g_max": args.g_max,
+                "delay_steps": args.delay_steps, "margin_min": args.margin_min,
                 "reference": args.ref, "urdf": urdf, "jobs": args.jobs,
                 "weights": list(w)},
         "cost": {"sec_per_eval": nsga["sec_per_eval"], "n_eval_nsga2": nsga["n_eval"],
