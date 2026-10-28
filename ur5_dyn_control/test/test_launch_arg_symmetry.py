@@ -33,6 +33,8 @@ SOLO_SIM = {
 SOLO_REAL = {
     "controller", "tool_mounted",   # no existen en simulacion
     "trajectory_type", "skip_trajectory", "q_init", "params_file", "t_sim",
+    # B7.0: el vigilante devuelve el mando al JTC, que solo existe en el real.
+    "deadman", "deadman_timeout",
 }
 
 

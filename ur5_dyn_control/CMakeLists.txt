@@ -109,6 +109,7 @@ install(DIRECTORY urdf config launch worlds meshes DESTINATION share/${PROJECT_N
 
 install(PROGRAMS
   scripts/activate_and_unpause.py
+  scripts/command_deadman.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -154,6 +155,8 @@ if(BUILD_TESTING)
   # B0.2/B0.3/B0.5: arranca los tres nodos en dry_run (sin publicar par).
   ament_add_pytest_test(test_incision_common test/test_incision_common.py
     TIMEOUT 300)
+  ament_add_pytest_test(test_command_deadman test/test_command_deadman.py
+    TIMEOUT 120)
   # B0.4: dinamica del nodo (C++) frente a la del evaluador offline (Python).
   add_executable(dump_dynamics test/dump_dynamics.cpp)
   target_link_libraries(dump_dynamics ${PROJECT_NAME}_core)

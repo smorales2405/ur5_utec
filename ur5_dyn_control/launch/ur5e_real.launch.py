@@ -198,10 +198,22 @@ def launch_setup(context, *args, **kwargs):
               f"{optional.get('friction.dq_source', 'MEDIDA (default)')}")
         print("  OJO: sin poner las escalas G4 a 0.0 por servicio, el robot")
         print("       compensa TAMBIEN por dentro y se compensa dos veces.")
+    # B7.0: vigilante de comandos en su PROPIO proceso (scripts/command_deadman.py).
+    # forward_effort_controller retiene el ultimo par y el driver lo reenvia en
+    # cada ciclo: si el nodo muere sin pasar por su destructor, o se queda en
+    # DONE, ese par sigue aplicandose y RobotReceiveTimeout no vence nunca.
+    deadman = LaunchConfiguration("deadman").perform(context).strip().lower() in (
+        "1", "true", "yes")
+    deadman_timeout = float(LaunchConfiguration("deadman_timeout").perform(context))
+    if deadman:
+        print(f"  deadman: si el nodo calla {1e3 * deadman_timeout:.0f} ms, par cero y "
+              "vuelta al JTC")
+    else:
+        print("  deadman: DESACTIVADO (un nodo muerto deja su ultimo par aplicado)")
     print("  Paro de emergencia a mano. Nadie dentro del espacio de trabajo.")
     print("=" * 72 + "\n")
 
-    return [Node(
+    actions = [Node(
         package="ur5_dyn_control",
         executable=EXECUTABLES[controller],
         # Con nombre: los overrides de abajo se escriben como `/<nodo>:` y no como
@@ -212,6 +224,20 @@ def launch_setup(context, *args, **kwargs):
         emulate_tty=True,
         parameters=params + [real, optional, session_overrides(context)],
     )]
+    if deadman:
+        actions.append(Node(
+            package="ur5_dyn_control",
+            executable="command_deadman.py",
+            name="command_deadman",
+            output="screen",
+            emulate_tty=True,
+            parameters=[{"command_topic": "/forward_effort_controller/commands",
+                         "timeout": deadman_timeout,
+                         "controller_manager": real["controller_manager"],
+                         "activate_controllers": real["deactivate_controllers"],
+                         "deactivate_controllers": ["forward_effort_controller"]}],
+        ))
+    return actions
 
 
 def generate_launch_description():
@@ -219,6 +245,13 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "controller", default_value="smc",
             description="gravity_comp | fl | smc"),
+        DeclareLaunchArgument(
+            "deadman", default_value="true",
+            description="B7.0: vigilante de comandos (par cero y vuelta al JTC "
+                        "si el nodo deja de publicar)"),
+        DeclareLaunchArgument(
+            "deadman_timeout", default_value="0.10",
+            description="[s] silencio que dispara el vigilante (50 ciclos a 500 Hz)"),
         DeclareLaunchArgument(
             "params_file", default_value="",
             description="'' = el YAML por defecto del controlador elegido"),

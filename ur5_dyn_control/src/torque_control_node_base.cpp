@@ -622,10 +622,11 @@ TorqueControlNodeBase::~TorqueControlNodeBase()
   // latcheado.
   //
   // Al terminar el nodo, `forward_effort_controller` sigue ACTIVO y conserva el
-  // ultimo Float64MultiArray recibido; el driver lo sigue aplicando por
-  // direct_torque hasta que expira RobotReceiveTimeout. En una junta sin carga
-  // de gravedad —shoulder_pan— un par residual de 1-2 N·m la acelera sin nada
-  // que la frene.
+  // ultimo Float64MultiArray recibido; el driver lo reenvia por direct_torque en
+  // CADA ciclo, asi que el RobotReceiveTimeout del robot (20 ms) no vence nunca
+  // mientras el driver viva. En una junta sin carga de gravedad —shoulder_pan—
+  // un par residual de 1-2 N·m la acelera sin nada que la frene. Si el nodo
+  // muere sin pasar por aqui, lo corta scripts/command_deadman.py (B7.0).
   //
   // Medido en el UR5e real: entre el fin de una corrida de la campana de
   // friccion y el arranque de la siguiente, shoulder_pan giro 4.7 rad (~2.6

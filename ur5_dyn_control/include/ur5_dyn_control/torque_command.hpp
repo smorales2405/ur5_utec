@@ -199,12 +199,15 @@ inline Vector6d torqueCommand(const Vector6d & tau_law,
  * Con el modelo exacto el CT desacopla el brazo en seis dobles integradores,
  * e'' = u, u = -kp e - kd e'. El lazo real es discreto: retencion de orden cero
  * a dt = 1/control_rate y `delay_steps` pasos de retardo entre medir y aplicar
- * (1 en Gazebo y en el robot: el par sale en el ciclo siguiente). Estado
+ * (1 en Gazebo; 5 en el UR5e real, medido en B7.0 con los escalones del
+ * feedforward de Coulomb: analyze_pipeline_delay.py). Estado
  * [e_k, e'_k, u_{k-1}, ..., u_{k-d}]. rho < 1 <=> estable.
  *
  * Esto es el limite IDEAL. El que manda en el UR5e real es otro, mas bajo: la
  * G <= 120 que fijaron la cuantizacion del encoder y el modo estructural de
- * 25-35 Hz (docs/09_real_bringup.md). Por eso el banner da los dos.
+ * 25-35 Hz (docs/09_real_bringup.md). Por eso el banner da los dos. El banner
+ * lo evalua con delay_steps = 1; con los 5 del real el margen del CT nominal
+ * baja de x25 a x7 (plan, B7.0).
  */
 inline double pdDiscreteSpectralRadius(double kp, double kd, double dt,
                                        int delay_steps = 1)
