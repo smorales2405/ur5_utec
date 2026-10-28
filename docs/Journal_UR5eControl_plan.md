@@ -103,7 +103,7 @@ cambiando solo parámetros.
    el robot; la incisión del SMC en el robot tampoco (V10).
 5. **Una sola muestra por material** fija el número de cortes posibles. La
    panceta irá en bloque (D14); falta la capacidad de Ecoflex y zapallo antes de
-   sintonizar (§9.6 R2).
+   sintonizar (§9.7 R2).
 
 **Ruta crítica** (calendario en §10)
 
@@ -333,7 +333,7 @@ la junta). Lo que dicen sus CSV y el commit compilado:
 
 | corrida | fecha | commit | qué es |
 |---|---|---|---|
-| `smc_605` | 2026-10-27 12:01 | (`7e4526c`; cabecera rancia `a6381f2`) | incisión con `cut_center_y` 0.85 sin commitear: TCP 132.3 mm, casi singular (V4). Quedó 100 min en HOLD_END. **Descartada** |
+| `smc_605` | 2026-10-27 12:01 | (`7e4526c`; cabecera rancia `a6381f2`) | la lanzó el usuario **solo para ver el robot en la escena de Gazebo** (no es un experimento). Corrió con el `cut_center_y` 0.85 sin commitear: TCP 132.3 mm, casi singular (V4), y quedó 100 min en HOLD_END. **Descartada** |
 | `smc_732` | 2026-09-10 14:43 | `7b12351` | barrido a 0.05 rad/s (`SWEEP_0.050_POS`), tras el arreglo de Pinocchio 4.1 |
 | `smc_733`, `734` | 2026-09-10 14:46 | `9bc216a` | el mismo barrido con la guarda de vibración |
 | `smc_735` | 2026-09-10 14:50 | `8f17876` | el mismo barrido con el banner de `λ` y `G` corregido |
@@ -445,7 +445,7 @@ lo hará la fuerza de corte (B2–B3), como ya decía V3.
 - `ur5e_real.launch.py` **no tiene `lqr_sdre`** (solo `gravity_comp`, `fl`,
   `smc`): el LQR-SDRE no se puede correr hoy en el robot. Entra en B4/B7.1.
 - Pinocchio no estaba retenido: ya lo está, con sus dependencias (D20).
-- `smc_1.csv` quedó sobrescrito por los `dry_run` de esta sesión (§9.6 R8). Los
+- `smc_1.csv` quedó sobrescrito por los `dry_run` de esta sesión (era un artefacto, §9.6). Los
   tests y `dry_run` escriben ahora en directorios temporales con `test_num`
   propios.
 - `closed_loop.py` conserva en su docstring "sin retardo de tubería / estado
@@ -555,7 +555,7 @@ mm` en la del corte**:
 
 **Panceta resuelta con un bloque (D14).** Las alternativas (tiras de 200 × 50
 lado a lado, o acortar el trazo para todos los materiales a 30–40 mm medidos)
-quedan descartadas. Falta la capacidad de Ecoflex y zapallo (§9.6 R2), que hay
+quedan descartadas. Falta la capacidad de Ecoflex y zapallo (§9.7 R2), que hay
 que tener **antes de B5**, porque la sintonía depende de la referencia.
 
 **(b) La misma referencia para todos los cortes.** **Fijación indexada** (D13)
@@ -824,7 +824,7 @@ bloque (o sub-bloque si es grande).
 | # | entregable |
 |---|---|
 | B0.0 | *(Previo, hecho el 2026-10-27: escena con los modelos reales y la holgura medida, §2.5, D16.)* **No hay reubicación**: el borde de la mesa está a 0.426 m. `cut_center_y` = 0.65 en el YAML común (sustituye al 0.85). En el laboratorio: comprobar que los planos de seguridad del pendant admiten el corte en 0.65 y la superficie en −0.004. La muestra y la fijación **no** se añaden a Gazebo como bloques rígidos (la hoja penetra 5 mm y chocaría): van con el modelo de contacto de B3. Documentar `smc_605`, `smc_732–737`; corregir `100_ur5e_real_commands.txt`. |
-| B0.1 | **Geometría del corte congelada:** `cut_center_y` 0.65, `surface_z` −0.004 (D17), trazo de 100 mm, paso `p` y margen `m` de 15 mm. Con la fijación indexada la referencia no depende del material: las medidas de Ecoflex y zapallo (§9.6 R2) solo fijan cuántos carriles caben, salvo que obliguen a acortar el trazo para todos. Esto fija la referencia de B5. |
+| B0.1 | **Geometría del corte congelada:** `cut_center_y` 0.65, `surface_z` −0.004 (D17), trazo de 100 mm, paso `p` y margen `m` de 15 mm. Con la fijación indexada la referencia no depende del material: las medidas de Ecoflex y zapallo (§9.7 R2) solo fijan cuántos carriles caben, salvo que obliguen a acortar el trazo para todos. Esto fija la referencia de B5. |
 | B0.2 | **YAML común** `config/incision_common.yaml` (`/**:`: trayectoria, herramienta, fricción, límites, IK) cargado por las tres leyes; los YAML por ley quedan solo con ganancias. Test: los tres nodos producen la **misma** tabla (hash). |
 | B0.3 | La tabla de referencia lleva la **etiqueta de fase** por muestra (`approach/contact/penetration/cut/withdraw` + `plateau`). Evaluador y análisis leen ventanas de ahí; fuera los tiempos cosidos de `closed_loop.py`. *(Toca `IncisionTrajectory`/`JointReferenceTable`: cambio de interfaz que se avisa.)* |
 | B0.4 | Evaluador: `Plant` con `tcp_offset_z = 0.162686` y la inercia del acople (igual que `Ur5Dynamics::appendBodyToJoint`), `Q_INIT` actual. Test cruzado C++↔Python de `M`, `g`, `C` en configuraciones aleatorias (< 1e-9). |
@@ -988,7 +988,7 @@ Lo que cambia respecto a lo que hay:
 | dato | para qué | cómo |
 |---|---|---|
 | ~~distancia del eje del robot a la mesa~~ | — | **medida: 5 cm de holgura, borde a 0.426 (D16)** |
-| dimensiones de Ecoflex y zapallo | capacidad de carriles (§3.5 a) | regla/calibrador (§9.6 R2) |
+| dimensiones de Ecoflex y zapallo | capacidad de carriles (§3.5 a) | regla/calibrador (§9.7 R2) |
 | ~~espesor de la bandeja~~ | — | **2 mm (D17)** |
 | `surface_z` de cada carril | profundidad real del corte | toque con la punta en 3 puntos antes de cortar |
 | masa del acople | A1, gravedad en muñeca | báscula |
@@ -1056,12 +1056,17 @@ centrado lateralmente: sí (D19) · R2 sin materiales aún: se piden dimensiones
 recomendadas para los cuatro (D21, §3.5 h) · R9 trazo confirmado; el corte curvo
 con la hoja tangente queda como trabajo futuro (D22, B10).
 
-### 9.6 Pendiente
+### 9.6 Sexta ronda (2026-10-27)
+
+R8 `smc_605` la lanzó el usuario para visualizar el robot en Gazebo (§2.4); no
+hay corrida suya en `smc_1.csv`, así que lo que sobrescribieron los `dry_run`
+era un artefacto de desarrollo · commit y push del txt corregido · arrancar S2.
+
+### 9.7 Pendiente
 
 | # | pregunta | por qué importa |
 |---|---|---|
 | **R2** | Conseguir las muestras según §3.5 (h) y confirmar sus medidas reales al tenerlas. | Fija N por material; la referencia no cambia salvo que obligue a acortar el trazo |
-| **R8** | ¿Lanzaste tú `smc_605` hoy a las 12:01? ¿Y había una corrida tuya en `smc_1.csv`? Los `dry_run` de esta sesión la sobrescribieron con un CSV vacío (test_num por defecto). | Trazabilidad (§2.4) |
 
 ---
 
