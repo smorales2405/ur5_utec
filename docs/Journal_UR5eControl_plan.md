@@ -1,7 +1,10 @@
 # Plan actualizado — Incisión con UR5e por par: LQR-SDRE vs SMC optimizado
 
-- **Fecha:** 2026-10-27 · **Revisión 7** — B0 cerrado (§2.6); cinco rondas de respuestas del usuario, §9, y la
-  escena real del laboratorio, §2.5)
+- **Fecha:** 2026-10-28 · **Revisión 8** — retardo de tubería del real medido
+  (**5 ciclos**, §2.7, V15); B4.4 y B7.0 preparados (protocolo en
+  `docs/09a_session_protocol.md`); B4.4 corregido (qué gravedad entra en el
+  lazo); payload con acople; `RobotReceiveTimeout` aclarado. Rev. 7: B0 cerrado
+  (§2.6), rondas de respuestas (§9), escena real (§2.5)
 - **Sustituye como hoja de ruta a:** `Documents/UTEC/Journal Q2/PLAN_INCISION_UR5e.md`
   (se conserva como histórico; la numeración de FASES original se cita para
   trazabilidad con `docs/00`–`09` y con los commits).
@@ -126,7 +129,7 @@ B0 reubicación + coherencia ─┬─> B4 leyes reformuladas ──────
 
 | FASE | Estado | Evidencia | Validez hoy / salvedades |
 |---|---|---|---|
-| 0 Compuertas | ✅ | `00_prereqs.md` | G6 parcial: `RobotReceiveTimeout` sin verificar; la prueba "desconectar el nodo → paro seguro" en el real no está documentada. Pinocchio 4.1.0 (cambió de 3.9.0 el 2026-09-01). **Los planos de seguridad del pendant hay que rehacerlos tras la reubicación.** |
+| 0 Compuertas | ✅ | `00_prereqs.md` | G6 parcial: `RobotReceiveTimeout` es fijo (20 ms, driver 2.14) y solo cubre la caída del driver o de la red; la muerte del nodo la cubre ahora `command_deadman.py` (B7.0). Las dos pruebas en el real, preparadas y sin ejecutar (`09a_session_protocol.md` §2). Pinocchio 4.1.0 (cambió de 3.9.0 el 2026-09-01). **Los planos de seguridad del pendant hay que rehacerlos tras la reubicación.** |
 | 1 Trayectoria | ✅ | `01_trajectory.md`, 26 tests | **Doc desactualizado**: describe el trazo en `x = 0.50`, superficie 0.02, σ_min 0.2168, 27.60 s. Hoy: trazo en `base_y` 0.80→0.70 con `x = 0`, superficie 0.03, TCP 0.162686, **σ_min 0.155**, 29.43 s (V6). |
 | 2 Fricción (Gazebo) | ✅ | `02_friction.md` | Validación del 0.12 % solo en `shoulder_pan` (inmune al artefacto de retardo). |
 | 2 Fricción (real) | ✅ | `02_friction_real.md` | Pendientes: residual en muñecas, stiction/Stribeck (< 0.02 rad/s), validar la inyección en `wrist_1`/`wrist_2` de Gazebo. |
@@ -243,7 +246,8 @@ puede invertir.
 fricción real. Nada de `04_lqr_sdre.md` es comparable con la configuración
 actual, incluidos los tiempos de cómputo de la CARE.
 
-**V10 — Seguridad / real.** `RobotReceiveTimeout` sin verificar. Pasos 740–742
+**V10 — Seguridad / real.** `RobotReceiveTimeout` sin verificar (aclarado en
+B7.0: fijo en 20 ms, y no protege si muere el nodo; §2.7). Pasos 740–742
 (SMC v5 en aire en el robot) sin ejecutar (no hay CSV). La base solo está
 probada en el real hasta `G = 30`, y las ganancias v5 le piden 105 (`09` §7.1).
 
@@ -452,6 +456,60 @@ lo hará la fuerza de corte (B2–B3), como ya decía V3.
   exacto", que ya no es cierto (`PIPELINE_DELAY_STEPS` = 1, ruido de `q̇`): se
   corrige con B4.3.
 
+### 2.7 Retardo de tubería del real (B7.0, 2026-10-28)
+
+**V15 — El lazo real tiene 5 ciclos (10 ms) de retardo, no 1.** Medido con los
+CSV que ya había (`analyze_pipeline_delay.py`, `pipeline_delay.py`): en los
+barridos FL reales `fl_500`/`502`/`506`/`507` el feedforward de Coulomb cambia de
+signo en cada inversión, un escalón de ~7 N·m en 2–3 muestras. Promediando la
+respuesta alineada en 71 escalones y ajustando `k⊙i(k) = a·τ_cmd(k − D)`:
+
+| origen | corridas | escalones | D [ciclos] | D [ms] | ganancia `a` |
+|---|---|---|---|---|---|
+| **real** | `fl_500`, `502`, `506`, `507` | 71 | **5.02** (4.85–5.49) | **10.0** | 0.98 |
+| Gazebo | `smc_98801` | 21 | 1.00 | 2.0 | 0.94 |
+
+- No es un filtro de la medida de corriente: la **velocidad medida arranca en la
+  misma muestra** que la corriente. La respuesta asoma a las 2 muestras (~7 %) y
+  el grueso llega a las 5; el mejor modelo es un retardo puro de 5 con una
+  constante de tiempo de ~0.5 ms. `a` = 0.98 confirma de paso la `k` de corriente
+  a par (§8.4 de `02_friction_real.md`).
+- `D` es exactamente el `delay_steps` del evaluador (`closed_loop.simulate`,
+  hoy **1**, tomado de Gazebo) y del chequeo discreto del banner
+  (`pdDiscreteSpectralRadius`, también con 1).
+- **Consecuencia (análisis lineal por junta, dentro de la capa límite):** margen
+  de ganancia discreto con 1 → 5 ciclos:
+
+  | ley | D = 1 | D = 5 |
+  |---|---|---|
+  | CT nominal (100/20) | ×24.9 | ×7.0 |
+  | semilla LQI (ωn = 10) | ×16.5 | ×4.5 |
+  | `smc_v5_g6` (la vigente, nunca probada en el real) | todas > ×1.8 | **inestable en las tres muñecas** (hombro ×3.6, codo ×1.4) |
+  | `smc_v4_g5` (la de `smc_712`) | todas > ×1.6 | inestable en base, codo y muñecas |
+
+  En el evaluador completo, D = 3 o 5 vuelve inestables los dos juegos del SMC
+  (TV(τ) ×10⁴); con D = 1 los dos son estables. Coincide en lo cualitativo con
+  `smc_712` (ciclo límite con `smc_v4_g5`), **pero no en la frecuencia**: el
+  modelo rígido con D = 5 predice ~20 Hz y se midieron 37 Hz en las cinco juntas.
+  El retardo no lo explica todo: el modo estructural (25–35 Hz) y la no
+  linealidad de `sat` también intervienen.
+- **Qué cambia:** `smc_v5_g6` **no se lleva al robot** (B7.1) sin re-sintonizar
+  con D = 5; B5 debería usar `delay_steps` = 5 y la restricción discreta con 5
+  ciclos (§9.8, R10). Los barridos de B4.4 re-miden D con el acople.
+
+**`RobotReceiveTimeout` y el par latcheado.** En ur_robot_driver 2.14 el timeout
+es fijo (20 ms, `hardware_interface.hpp`), no un parámetro. El script del robot
+(`external_control.urscript`) sale con `stopj` si en ese plazo no llega ningún
+paquete: cubre la caída del **driver o de la red**. Pero `forward_effort_controller`
+conserva el último comando y el driver lo reenvía en **cada** ciclo, así que si
+muere el **nodo de control** sin pasar por su destructor (fallo, `kill -9`) o se
+queda en DONE, el último par sigue aplicándose y el timeout no vence nunca. Lo
+cierra `ur5_dyn_control/scripts/command_deadman.py`, en su propio proceso dentro
+de `ur5e_real.launch.py` (`deadman:=true` por defecto): con 100 ms sin comandos
+publica par cero y devuelve el mando al JTC. Medido en Gazebo con `kill -9` al
+nodo: salta a los 100 ms y el controller_manager hace el switch. Mayor hueco entre
+ciclos del nodo en 21 corridas reales: 26.6 ms.
+
 ---
 
 ## 3. Diagnóstico: qué falta para el objetivo
@@ -485,7 +543,7 @@ Para que el paper compare **leyes** y no **sintonías**:
 | gravedad | modelo interno de UR | exacta (mismo modelo) | medir la discrepancia `α_g` (B4.4) y emularla en el desajuste |
 | sensado de velocidad | encoder de 5.72 µrad → `Δq̇` = 2.86e-3 rad/s | suelo ~5e-6 rad/s (570× menor) | **relé de sensor** que cuantiza y deriva en sim (B3.2) |
 | modo estructural 25–35 / 48 Hz | medido (`smc_712/718`) | brazo rígido | no modelable en Gazebo → restricción empírica `g6` **común a las tres leyes**; declararlo |
-| retardo de tubería | **no medido** | ~1 ms | medirlo en el real (B7.0) y llevarlo al evaluador |
+| retardo de tubería | **5 ciclos = 10 ms** (V15) | 1 ciclo | llevarlo al evaluador y a la restricción discreta (B5, R10) |
 | temporización | ciclo del driver a 500 Hz | timer de pared contra reloj de sim (jitter) | timer en tiempo de simulación (B3.3) |
 | estado térmico | F_v −9.3 % frío→rodado | — | calentamiento obligatorio; ±10 % de F_v en el desajuste |
 | **tejido / corte** | real | **ausente** | plugin de corte por material (B3.1) |
@@ -646,8 +704,9 @@ q_e = q − q_d,   K_P = diag(kp_i),   K_D = diag(kd_i)
 - Ley **sin cambios** (`gz_fl_control_node`). Lo que cambia es que `kp_i, kd_i`
   se sintonizan por junta con el mismo optimizador (B5). Rigidez efectiva frente
   a perturbación: `M_ii·kp_i`; `G_i = M_ii·kd_i`.
-- Restricción discreta (con retardo de un paso): radio espectral del lazo
-  discretizado `< 1 − margen` en toda la referencia (`g3_lin`, B5).
+- Restricción discreta: radio espectral del lazo discretizado `< 1 − margen`
+  en toda la referencia (`g3_lin`, B5), con el retardo **real** de 5 ciclos
+  (V15; hasta la Rev. 7 se suponía 1).
 
 ### 4.3 LQR-SDRE con acción integral (LQI-SDRE)
 
@@ -714,9 +773,11 @@ K_i  = η_i + α_M |(M̂ q̈_r)_i| + α_C |(Ĉ q̇_r)_i| + α_g |ĝ_i|          
   velocidades; el cambio es de rigor, y corrige el comentario del nodo.
 - **R2 — Cota de incertidumbre estructurada.** Hoy un único `α = 0.3` multiplica
   `b̂`, que incluye la gravedad. Separar `α_M`, `α_C`, `α_g` con valores
-  **medidos o declarados**: `α_g` de un ensayo de sostén en varias posturas
-  (`g_UR(q) = k⊙i − τ_cmd` frente a `ĝ(q)`, B4.4), `α_M` de la incertidumbre de
-  masas (acople pesado, URDF). Con `α_g ≈ 0.07` se liberan ~50 N·m/(rad/s) de
+  **medidos o declarados**: `α_g` de barridos en varias posturas (B4.4), `α_M`
+  de la incertidumbre de masas (acople pesado, URDF). **Qué gravedad:** en el
+  real el nodo manda la ley menos `ĝ` y el robot suma su `g_UR` (G3), así que `ĝ`
+  se cancela y el error que ve el lazo es `g_real − g_UR`, no `g_UR − ĝ` (lo que
+  decía la Rev. 7: la diferencia entre dos modelos). Con `α_g ≈ 0.07` se liberan ~50 N·m/(rad/s) de
   `G` en el hombro (V2) que el optimizador puede gastar en `λ` dentro de
   `G ≤ 120`.
 - **R3 — `η` cubre la fricción residual y el corte.** `g5` ya impone
@@ -739,6 +800,10 @@ Antes de fijarla como cota de diseño común hay que medir la base en la pose de
 la incisión **de la escena nueva** (equivalente al paso 741 de `09` §7.1): hoy
 solo está probada hasta 30. Con el corte a 0.60–0.65 m la base pide menos `G`
 (V12), lo que reduce este riesgo.
+
+`G ≤ 120` es empírica. Con el retardo real medido (V15, 5 ciclos) la
+restricción discreta por junta con D = 5 es una cota **de modelo** que explica
+parte de lo mismo; se propone usar las dos en B5 (R10).
 
 ### 4.6 Protocolo de equidad (va a *Methods*)
 
@@ -767,7 +832,7 @@ respecto al plan original (§FASE 6) y sobre la misma infraestructura
 
 Fricción física por junta (inyección validada), masa/CoM/inercia del acople
 (CAD), offset del TCP (malla), G3, pose inicial, payload del pendant controlado
-por `check_session_config.py`. La **escena** sí se rehace (B0.0).
+por `check_session_config.py` (con el acople, `--payload-kg`: B7.0). La **escena** sí se rehace (B0.0).
 
 ### 5.2 Modelo de tejido y corte por material
 
@@ -855,13 +920,21 @@ crea `~/wrench`, es decir `/force_torque_sensor_broadcaster/wrench`; el
 `topic_name: ft_data` del YAML de UR no aparece en su librería. Es el default de
 `ft.topic`; **confirmar en el robot** con `ros2 topic list | grep -i wrench`.
 
-**Cierre en el robot (pendiente; necesita el robot y un peso conocido):**
+**Cierre en el robot (pendiente; lo ejecuta el usuario):**
 
 1. Driver arriba, escalas G4 a 0.0, robot en `q_ref[0]` (lo imprime
    `run_position_incision.py --solo-tabla`). Confirmar el tópico del F/T.
-2. `run_position_incision.py --test-num 800` (en aire, sin peso) y
-   `--test-num 801 --peso-kg 0.5` (peso colgado del cuerpo del acople, cerca de
-   la punta). La corrida pide el cero sola.
+   Payload 0 y **TCP en (0, 0, 0)** en las tres corridas: con payload el robot
+   descuenta el peso de la lectura; con TCP el wrench llega en otro frame.
+2. Tres masas con la misma trayectoria articular (2026-10-28, por la dificultad
+   de colgar un peso del acople): `--test-num 800` **brida libre**; `801` con el
+   **Robotiq 2F-85** (`--peso-kg` = gripper + acople de montaje **pesados**, sin
+   cable ni activación: es solo una masa, ~9–10 N, centrada en el eje); `802`
+   con el **acople y la hoja** (~1.8 N, del orden de los materiales blandos; lo
+   pesa y cierra de paso A1). Lectura `ros2 topic echo --once` del wrench antes
+   y después de cada montaje, sin hacer cero en medio. El 2F-85 mide ~0.17 m
+   desde la brida (los dedos bajan ~8 mm más que la hoja): ~29 mm al tablero en
+   el punto más bajo. La corrida pide el cero sola.
 3. `force_estimator.estimate_from_csv` sobre las dos: `ΔF_z` = `m·g` por las dos
    vías, y el SIGNO del wrench del driver queda fijado; `mean_resolution` sobre
    la meseta da la resolución efectiva de la media del F/T (decide qué materiales
@@ -917,7 +990,7 @@ más seguro y desacopla la medida de fuerza de cualquier ley propia.
 | B4.2 | ✅ LQI-SDRE (§4.3) en `lqr_sdre_law.hpp` + nodo: `lqr.integral` (18 estados; `false` = la FASE 4, ablación), `lqr.weights` `polynomial` (semilla: K = [a₀M, a₁M, a₂M], un CT con integral) o `physical` (Q, R diagonales constantes, para B5), integral solo en TRACK/HOLD_END, congelada por junta con `onSaturation` y acotada a `lqr.integral_tau_frac`·τ_max/K_I. Tests: 18 polos en las raíces (< 1e-6), K analítica (< 1e-8), CARE = scipy (< 1e-8), anti-windup, CARE de 18 estados en **176 µs** en banco. Semilla por defecto ωn = 10 (con 20, G = 160 en el hombro): G = 33.8/80.3/28.8. Gazebo (`lqr_98823`): corte **0.0133 mm** frente a 0.0425 del LQR de 12 estados, max Re(λ) ≤ −3.4, \|σ\| ≤ 1.2e-3. **Cómputo con Gazebo cargando la CPU: ley media 807 µs, p99 1673, > 2 ms en el 0.20 % de los ciclos** (la CARE sola nunca; el resto es la vigilancia de autovalores y controlabilidad de 18 estados). En el real, sin Gazebo, sobra; si no, `lqr.care_update_rate`. |
 | B4.3 | ✅ R1 y R2 (§4.4) en `smc_law.hpp` (ley pura, la usa el nodo) **y** en `SmcLaw` del evaluador; `alpha_M`/`alpha_C`/`alpha_g` (= `alpha` hasta medir `α_g` en B4.4). Test dorado C++↔Python: mismo par en 200 casos (< 1e-9). Con `smc_v5_g6` sin re-sintonizar: G 83.1/106.7/81.6, corte 0.0025 mm (antes 0.0036) y TV(τ) 21 (antes 50) en Gazebo (`smc_98822`). **R3**: `g5` ya exige η ≥ d̄_f + d̄_cut (`run_gain_tuning`); falta sustituir la `d̄_cut` del corte sintético por la envolvente medida de los cuatro materiales (B2). |
 | ⚠️ | **Regresión de B0 encontrada y corregida (`7bfcf55`)**: con el común `/**` delante y los YAML de ley con sección `<nodo>:`, los overrides de los launches (comodín en `launch_ros` si el `Node` no lleva nombre) se ignoraban en silencio en las incisiones (`lambda_joint`, `phi`, `alpha`, `wn`, `kp`/`kd`), también en el real. Ahora los YAML de ley van en `/**` y los launches nombran el `Node`; dos tests lo fijan. |
-| B4.4 | Ensayo de sostén para `α_g`: varias posturas en el real con `gravity_comp`, `g_UR = k⊙i − τ_cmd` frente a `ĝ`. Sin seguimiento, riesgo mínimo. |
+| B4.4 | 🔶 **Preparado (2026-10-28), sin ejecutar.** `α_g` = `|g_real − g_UR| / |ĝ|` (§4.4), con **barridos** y no con sostén: quieto, la fricción estática de hombro y codo (±7 N·m) tapa un error de ~1.5. Por junta y postura, `g_real = ½[k⊙i(+v) + k⊙i(−v)] − Cq̇` a q emparejada (la fricción es impar) y `g_UR = k⊙i − τ_cmd(k − D)` con D = 5 (V15). 4 posturas sobre el trazo (inicio y tres a 60 mm de la cota del corte) × hombro, codo, `wrist_1`, ±0.05 rad a 0.05 y 0.10 rad/s, CT por par con acople (sin hoja) y payload = acople pesado. Ganancias 100/20 y 900/60 en muñecas (margen ×2.2 con D = 5). Herramientas: `config/gravity_sweep_params.yaml`, `run_gravity_sweeps_real.py` (semiautomático, holgura ≥ 71 mm al tablero comprobada, nunca sobrescribe), `analyze_gravity_sweeps.py`, `gravity_sweeps.py` (6 tests: IK, holgura, cancelación de fricción, D y `k` recuperados de un CSV sintético). **Gazebo con la fricción real inyectada** (`fl_98831`–`98833`, `corte_medio`): `g_real − ĝ` = 0.004 / 0.002 / 0.0002 N·m, igual a las dos velocidades. Protocolo: `09a_session_protocol.md` §3. |
 | B4.5 | Las tres leyes en el gemelo (aire + fuerza sintética corregida). |
 
 ### B5 — Sintonía equitativa (FASE 7 ampliada)
@@ -957,8 +1030,8 @@ más seguro y desacopla la medida de fuerza de cualquier ley propia.
 
 | # | paso |
 |---|---|
-| B7.0 | Sesión: payload 0, G4 = 0.0, calentamiento, `check_session_config.py`, guardas activas, §7 firmado. **Verificar `RobotReceiveTimeout`** y la prueba de desconexión del nodo. **Medir el retardo de tubería** (escalón de par pequeño en aire). |
-| B7.1 | Bring-up en aire **por ley** en la escena nueva (sin hoja → hoja al aire con `ft_data ≈ 0`): barrido en `q_init`, barrido de la base en la pose de la incisión, incisión en aire. Empezar por el SMC (equivale a 740–742) en cuanto exista la escena: valida la `G` de la base que usan las tres sintonías. |
+| B7.0 | 🔶 **Preparado (2026-10-28).** Sesión: **payload = la configuración montada** (brida desnuda → 0; acople → masa pesada y CoG del CAD (−2.2, 2.1, 29.4) mm; la gravedad la compensa el robot), G4 = 0.0, calentamiento, `check_session_config.py --payload-kg`, guardas activas, §7 firmado. **Retardo: medido con datos existentes, 5 ciclos** (§2.7, V15); B4.4 lo re-mide con el acople. **Seguridad** (`09a_session_protocol.md` §2): `kill -9` al nodo en sostén → el vigilante `command_deadman.py` (nuevo, 3 tests, probado en Gazebo: 100 ms) corta y devuelve el mando al JTC; Ctrl-C → par cero; desenchufar Ethernet → `RobotReceiveTimeout` (20 ms, fijo) para el robot. |
+| B7.1 | Bring-up en aire **por ley** en la escena nueva (sin hoja → hoja al aire con `ft_data ≈ 0`): barrido en `q_init`, barrido de la base en la pose de la incisión, incisión en aire. Empezar por el SMC (equivale a 740–742) en cuanto exista la escena: valida la `G` de la base que usan las tres sintonías. **No con `smc_v5_g6`:** con el retardo real (V15) sus muñecas son inestables en el análisis lineal; antes, re-sintonizar con D = 5 (R10). El CT nominal (×7.0) sí puede ir. |
 | B7.2 | Corte piloto con par en un carril de EVA (la muestra con más área), una vez por ley. |
 | B7.3 | Campaña: por material, en **una sesión**, rondas aleatorizadas (§3.5 f) hasta N = 3 por ley; CSV + `.params.yaml` + `ft_data` + foto + metadatos. |
 | B7.4 | **Medida del corte (D6), protocolo escrito antes de cortar** (`docs/09b_cut_protocol.md`): cámara calibrada (intrínsecos con tablero; escala con una referencia en el plano de la superficie de cada muestra) en vista superior → longitud, rectitud (desviación máxima a la recta objetivo) y ancho, foto tras cada corte. **Profundidad**: una vista superior no la da; se propone una **sección transversal al final de cada material** (corte perpendicular a todos los carriles en 3 estaciones, fotografiado con la misma cámara), que mide la profundidad de todos los cortes a la vez. |
@@ -1095,11 +1168,19 @@ R8 `smc_605` la lanzó el usuario para visualizar el robot en Gazebo (§2.4); no
 hay corrida suya en `smc_1.csv`, así que lo que sobrescribieron los `dry_run`
 era un artefacto de desarrollo · commit y push del txt corregido · arrancar S2.
 
-### 9.7 Pendiente
+### 9.7 Séptima ronda (2026-10-28)
+
+Push de los 6 commits de S2 · B1 se cierra con brida libre (800), Robotiq 2F-85
+(801) y acople (802), no colgando un peso del acople · `α_g` con **nuevos
+barridos** · el retardo, con los datos que ya hay · preparar scripts y protocolo
+de lo que falte · corregir B4.4, el payload con acople y `RobotReceiveTimeout`.
+
+### 9.8 Pendiente
 
 | # | pregunta | por qué importa |
 |---|---|---|
 | **R2** | Conseguir las muestras según §3.5 (h) y confirmar sus medidas reales al tenerlas. | Fija N por material; la referencia no cambia salvo que obligue a acortar el trazo |
+| **R10** | ¿Llevar D = 5 (V15) al evaluador (`PIPELINE_DELAY_STEPS`) y a la restricción discreta de las tres leyes en B5, y re-sintonizar el SMC antes de B7.1? | Con D = 1 el optimizador premia ganancias que el real no tolera; `smc_v5_g6` es inestable en las muñecas con D = 5 |
 
 ---
 
@@ -1108,7 +1189,7 @@ era un artefacto de desarrollo · commit y push del txt corregido · arrancar S2
 | semana | fechas | bloques | hito |
 |---|---|---|---|
 | S1 | 27-oct → 1-nov | ~~B0~~ (**cerrado el 27-oct**, §2.6); arranca B4.2 | referencia única en la escena nueva |
-| S2 | 2 → 8-nov | B1; B4.1–B4.3; **B0.1 (geometría congelada: R2, R4)**; B7.0 (retardo, `RobotReceiveTimeout`); B4.4; fabricación de la fijación | `ft_data` en el CSV; leyes reformuladas con tests; referencia definitiva |
+| S2 | 2 → 8-nov | B1; B4.1–B4.3; **B0.1 (geometría congelada: R2, R4)**; B7.0 (retardo, `RobotReceiveTimeout`); B4.4; fabricación de la fijación | `ft_data` en el CSV; leyes reformuladas con tests; referencia definitiva. **Hecho sin robot:** B1, B4.1–B4.3, retardo (V15), herramientas y protocolo de B4.4 y B7.0. **Falta en el robot:** cierre de B1, B7.0, B4.4 |
 | S3 | 9 → 15-nov | B2 pilotos en posición (4 materiales); B3.2–B3.4; B7.1 SMC en aire | primeros perfiles de fuerza reales |
 | S4 | 16 → 22-nov | B3.1 plugin + validación; B4.5; arranque de B5 (noches) | gemelo con tejido validado |
 | S5 | 23 → 29-nov | B5 (3 leyes) + re-verificación en el gemelo; B7.1 CT y LQR en aire | tres juegos de ganancias aprobados |

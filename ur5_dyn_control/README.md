@@ -204,6 +204,24 @@ ceros confirmados. `ft.ref_offset_z`: dónde está el TCP del pendant respecto a
 `tool0` (0 = brida). En Gazebo no hay sensor: `wrench` = 0 y `ft_stamp` = NaN.
 La segunda vía, por corriente, es offline: `ur5_identification/force_estimator.py`.
 
+### Retardo y vigilante de comandos en el real (B7.0)
+
+- **Retardo de tubería: 5 ciclos (10 ms) en el UR5e, 1 en Gazebo** — el par
+  mandado en una fila del CSV aparece en la corriente (y en la velocidad) cinco
+  filas después. Medido con los escalones del feedforward de Coulomb de los
+  barridos reales: `ur5_identification/scripts/analyze_pipeline_delay.py`
+  (plan, V15). El evaluador offline y el chequeo discreto del banner suponen
+  todavía 1.
+- **`scripts/command_deadman.py`**, lanzado por `ur5e_real.launch.py` en su
+  propio proceso (`deadman:=true`, `deadman_timeout:=0.10`). Si el nodo de
+  control deja de publicar 100 ms —muere sin destructor o se queda en DONE—
+  publica par cero y devuelve el mando a `scaled_joint_trajectory_controller`.
+  Hace falta porque `forward_effort_controller` retiene el último par y el
+  driver lo reenvía en cada ciclo: el `RobotReceiveTimeout` del robot (20 ms,
+  fijo en el driver 2.14) solo vence si cae el driver o la red. Se arma con el
+  primer comando no nulo (en el real PRE_HOLD publica ceros exactos). No se usa
+  en Gazebo. Protocolo de prueba: `docs/09a_session_protocol.md` §2.
+
 ### Parámetros añadidos por las fases posteriores
 
 | Parámetro | Fase | Para qué |
@@ -346,11 +364,14 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
 - `test_dynamics_cross.py` (B0) — `M`, `g` y `C` del nodo (C++, ejecutable de
   prueba `dump_dynamics`) contra la `Plant` del evaluador offline (Python), con
   el acople, en configuraciones aleatorias (< 1e-9; hoy coinciden exactamente).
+- `test_lqi` (B4.2), `test_smc_law_cross.py` (B4.3), `test_care_scipy.py`
+  (B4.2) — polos y K del LQI, mismo par C++↔Python del SMC, CARE contra scipy.
+- `test_command_deadman.py` (B7.0) — el vigilante corta y devuelve el mando al
+  JTC cuando el nodo calla; los ceros del arranque no lo arman; se rearma.
 
-Total (2026-10-27, B0): **80 gtest** en 6 ejecutables y **24 pytest** en
-`ur5_dyn_control`, + 19 pytest en `ur5_identification` y 32 en
-`ur5_trajectory_optimization`: **155** (164 en `colcon test-result`, que cuenta
-además los 9 envoltorios de CTest).
+Total en `colcon test-result` (2026-10-28): **135** en `ur5_dyn_control`, 37 en
+`ur5_identification` (con `test_pipeline_delay.py` y `test_gravity_sweeps.py`)
+y 32 en `ur5_trajectory_optimization`: **204**, todos en verde.
 
 ## Seguridad del lazo (FASE 3)
 

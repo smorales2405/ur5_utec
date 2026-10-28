@@ -498,8 +498,11 @@ firman el día del ensayo.
       `[45, 45, 45, 8.4, 8.4, 8.4]` N·m) y subida gradual
 - [ ] **Watchdog probado** — ⛔ **BLOQUEANTE. No existe todavía: es entregable
       de la FASE 3.** Mientras no esté, no se activa torque en el robot real.
-- [ ] `RobotReceiveTimeout` en decenas de ms *(se configura con el bring-up del
-      driver, FASE 9)*
+- [ ] `RobotReceiveTimeout` en decenas de ms *(2026-10-28: en ur_robot_driver
+      2.14 es FIJO, 20 ms, no un parámetro; solo protege de la caída del driver
+      o de la red. Si muere el nodo de control el driver sigue reenviando el
+      último par y no vence nunca: lo cubre `command_deadman.py`. Las dos
+      pruebas, en `09a_session_protocol.md` §2 — plan B7.0)*
 - [ ] Primer ensayo sin bisturí montado y sin material *(por sesión)*
 - [ ] Segundo ensayo con bisturí al aire, verificando `ft_data ≈ 0` *(por sesión)*
 - [ ] `zero_ftsensor` ejecutado y verificado antes de aproximar *(por corte)*
@@ -534,7 +537,7 @@ razón; aquí queda además como requisito de seguridad firmado.
 | Qué | Dónde se resuelve |
 |---|---|
 | Watchdog probado (§7) | FASE 3 |
-| `RobotReceiveTimeout` en decenas de ms | FASE 9 (bring-up del driver) |
+| `RobotReceiveTimeout` (fijo, 20 ms) y nodo muerto (`command_deadman.py`) | B7.0: `09a_session_protocol.md` §2 |
 | Puntos de sesión del §7 (bisturí, `zero_ftsensor`, espacio libre) | FASE 9, por sesión/corte |
 | Masa/CoM/inercia del acople del bisturí (A1) | Antes de la FASE 9; hook ya listo |
 | Distancia real `tool0` → punta de la hoja (A2) | Al montar el bisturí |

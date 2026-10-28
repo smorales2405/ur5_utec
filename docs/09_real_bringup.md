@@ -600,6 +600,13 @@ referidas a la pose de `q_init`.
 
 - **Payload del pendant = 0 con la brida desnuda**, y borrado de la instalación,
   no sólo del programa: vuelve solo al recargar (§1.1).
+- **Con el acople montado, payload = el acople** (masa pesada, CoG del CAD
+  (−2.2, 2.1, 29.4) mm desde la brida), no 0. En el real la gravedad la compensa
+  el robot con el payload configurado (G3): el nodo manda la ley menos su `ĝ` y
+  `ĝ` se cancela, así que con payload 0 el peso del acople queda sin compensar
+  (0.88 N·m en hombro y codo en `q_init`). Se comprueba con
+  `check_session_config.py --payload-kg <masa>` (plan B7.0,
+  `09a_session_protocol.md`).
 - **G4 a 0.0 por servicio**, con el driver ya arriba y **antes** del primer
   ensayo. No persiste: cada vez que se relanza el driver vuelven las escalas por
   defecto (§6.6).
