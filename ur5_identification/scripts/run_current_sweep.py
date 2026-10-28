@@ -78,11 +78,19 @@ def build_reference(joint: int, params_file: str, out_csv: str,
     Se lanza el nodo con `perform_switch:=false` y `perform_unpause:=false`: NO
     toca controladores ni comanda par, solo construye la tabla y la escribe.
     """
-    cmd = ["ros2", "run", "ur5_dyn_control", "gz_fl_control_node", "--ros-args",
+    import tempfile
+    from ament_index_python.packages import get_package_prefix
+    # El EJECUTABLE y no `ros2 run`: al vencer el timeout, subprocess mata solo
+    # el envoltorio y el nodo quedaba huerfano. Y su CSV a un directorio
+    # temporal: con el test_num por defecto sobrescribia ~/.ros/.../fl_1.csv.
+    exe = os.path.join(get_package_prefix("ur5_dyn_control"), "lib",
+                       "ur5_dyn_control", "gz_fl_control_node")
+    cmd = [exe, "--ros-args",
            "--params-file", params_file,
            "-p", "use_sim_time:=false",
            "-p", "perform_switch:=false",
            "-p", "perform_unpause:=false",
+           "-p", f"csv_output_dir:={tempfile.mkdtemp(prefix='ref_sweep_')}",
            "-p", f"sweep.joint:={joint}",
            "-p", f"reference_table_out:={out_csv}"]
     if os.path.exists(out_csv):

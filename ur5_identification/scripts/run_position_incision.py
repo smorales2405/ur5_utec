@@ -55,11 +55,16 @@ def build_incision_reference(out_csv: str, timeout: float = 120.0) -> bool:
     temporal: NO toca ~/.ros/ur5_dyn_control (el `test_num` por defecto
     sobrescribiría <prefijo>_1.csv).
     """
-    from ament_index_python.packages import get_package_share_directory
+    from ament_index_python.packages import (get_package_prefix,
+                                              get_package_share_directory)
     cfg = os.path.join(get_package_share_directory("ur5_dyn_control"), "config")
     tmp = tempfile.mkdtemp(prefix="ref_incision_")
     sidecar = os.path.join(tmp, "smc_1.params.yaml")
-    cmd = ["ros2", "run", "ur5_dyn_control", "gz_smc_control_node", "--ros-args",
+    # El EJECUTABLE, no `ros2 run`: terminate() sobre `ros2 run` mata solo el
+    # envoltorio y el nodo queda huerfano, colgado de systemd (paso, 2026-10-27).
+    exe = os.path.join(get_package_prefix("ur5_dyn_control"), "lib",
+                       "ur5_dyn_control", "gz_smc_control_node")
+    cmd = [exe, "--ros-args",
            "--params-file", os.path.join(cfg, "incision_common.yaml"),
            "--params-file", os.path.join(cfg, "smc_params.yaml"),
            "-p", "dry_run:=true", "-p", "use_sim_time:=false",
@@ -73,7 +78,11 @@ def build_incision_reference(out_csv: str, timeout: float = 120.0) -> bool:
     while time.time() - t0 < timeout and not os.path.exists(sidecar):
         time.sleep(0.2)
     proc.terminate()
-    proc.wait(timeout=10)
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
     return os.path.exists(out_csv) and os.path.getsize(out_csv) > 0
 
 
