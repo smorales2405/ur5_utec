@@ -1,7 +1,8 @@
 <sdf version='1.9'>
   <!-- Mundo minimo de diagnostico/desarrollo: sin mesa_base ni surgery_table
        (sin contactos trimesh-trimesh -> fisica limpia y RTF alto).
-       El robot se spawnea a z=0.63 como en el mundo de laboratorio. -->
+       El robot se spawnea a z=0.816 como en el mundo de laboratorio
+       (launch/world_defaults.py). -->
   <world name='default'>
     <physics name="1ms" type="ode">
       <max_step_size>0.001</max_step_size>

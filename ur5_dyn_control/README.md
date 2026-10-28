@@ -76,8 +76,9 @@ profundidad se mantiene constante durante el corte.
   `forward_effort_controller` del driver real de UR → los nodos son
   portables sim ↔ real.
 - **Reloj**: lazo de PARED a `control_rate` (500 Hz); fases y trayectoria
-  indexadas por tiempo de SIMULACIÓN (robusto al RTF bajo del mundo del
-  laboratorio, ~0.07 por las colisiones trimesh de las mesas).
+  indexadas por tiempo de SIMULACIÓN (robusto a un RTF bajo: en agosto se midió
+  ~0.07 en el mundo del laboratorio; las corridas desde septiembre van a 1.0,
+  medido con `t_wall`/`t_sim` del CSV).
 
 ## Arranque sin caída (evaluación realizada)
 
@@ -181,9 +182,13 @@ tau_sat, s, xyz, xyz_des, wrench, state`.
 
 ## Mundos
 
-- **`lab_incision_world.sdf`** — **el default de los cuatro launches**. Mesa
-  base + surgery table, física a **1 kHz** (paso 1 ms), **sin** el obstáculo del
-  caso de uso de pick & place.
+- **`lab_incision_world.sdf`** — **el default de los cuatro launches**.
+  Pedestal real (`meshes/ur5_mounting_base`, 752 × 752 × 816 mm) + mesa de
+  trabajo real en U (`meshes/u_table`, 2205 × 1800 × 770 mm, con textura),
+  medidos el 2026-10-27; física a **1 kHz** (paso 1 ms), **sin** el obstáculo
+  del caso de uso de pick & place. El robot spawnea a **z = 0.816**
+  (`world_defaults.mount_z`) y el tablero queda a z = −0.046 en `base_link`.
+  Colisiones de caja, no trimesh.
 - `lab_torque_world.sdf` — el anterior, que al copiarse de `lab_base_world.sdf`
   heredó ese obstáculo (caja AABB en (0.85, 0, 0.73)). Se conserva **intacto**
   para reproducir campañas anteriores:

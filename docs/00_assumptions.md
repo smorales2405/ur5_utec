@@ -207,10 +207,12 @@ frame `base` de UR.
 
 **Consecuencias operativas:**
 
-- En Gazebo el robot está montado a **z = 0.63 m** sobre la mesa
-  (`ur5e_effort_gz.launch.py`). Por tanto `z_Gazebo = z_base_link + 0.63`. Los
-  waypoints del YAML están en `base_link`; ninguna figura del paper debe usar la
-  coordenada de Gazebo.
+- En Gazebo el robot está montado a **z = 0.816 m** sobre el suelo, el alto
+  del pedestal real (`world_defaults.mount_z`; era 0.63 hasta el 2026-10-27, y
+  lo sigue siendo en la escena histórica `lab_torque_world.sdf`). Por tanto
+  `z_Gazebo = z_base_link + 0.816`, y el tablero de la mesa real (0.770 m)
+  queda en `z_base_link = −0.046`. Los waypoints del YAML están en `base_link`;
+  ninguna figura del paper debe usar la coordenada de Gazebo.
 - ⚠️ **Ojo con `base_link` vs `base`:** UR define `base_link` (convención ROS,
   Z arriba) y `base` (convención UR, rotada π alrededor de Z). El sensor F/T se
   publica en `tool0_controller` (ver `docs/00_prereqs.md`, G5) y

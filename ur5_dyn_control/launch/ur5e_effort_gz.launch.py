@@ -3,7 +3,9 @@ Bringup del UR5e con interfaz de comando EFFORT en Gazebo Fortress.
 
 Secuencia anti-caida (arranca PAUSADO por defecto):
   1. Gazebo pausado (mundo 1 kHz por defecto) + spawn del UR5e en la pose
-     inicial (initial_value de las state interfaces) a z=0.63 sobre la mesa.
+     inicial (initial_value de las state interfaces) sobre el pedestal, a la
+     altura de world_defaults.mount_z(world): 0.816 (0.63 en la escena
+     historica lab_torque_world.sdf).
   2. Spawners con --inactive: joint_state_broadcaster y
      forward_effort_controller (cargar+configurar SI funciona con la sim
      pausada; ACTIVAR no: gz_ros2_control solo corre el update() del
@@ -31,7 +33,7 @@ Usage:
 import os
 import sys as _sys
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from world_defaults import default_world  # noqa: E402
+from world_defaults import default_world, mount_z  # noqa: E402
 import shlex
 import subprocess
 from launch import LaunchDescription
@@ -233,7 +235,7 @@ def launch_setup(context, *args, **kwargs):
             "-allow_renaming", "true",
             "-x", "0.0",
             "-y", "0.0",
-            "-z", "0.63",
+            "-z", str(mount_z(world)),
             "-R", "0.0",
             "-P", "0.0",
             # Base girada -90 deg. El UR5e REAL esta montado asi respecto a la
@@ -384,13 +386,17 @@ def generate_launch_description():
         ),
     ]
 
-    # Recursos: meshes de ur_description (dirname del share) y de ur5_pick_place
-    # (model://ur5_base y model://surgery_table del mundo).
+    # Recursos: meshes de ur_description (dirname del share), de este paquete
+    # (model://ur5_mounting_base y model://u_table de lab_incision_world) y de
+    # ur5_pick_place (model://ur5_base y model://surgery_table, solo los usa la
+    # escena historica lab_torque_world).
     pick_place_pkg = get_package_share_directory("ur5_pick_place")
     ur_desc_share  = get_package_share_directory("ur_description")
+    dyn_ctrl_share = get_package_share_directory("ur5_dyn_control")
 
     resource_path_value = ":".join(filter(None, [
         os.path.dirname(ur_desc_share),
+        os.path.join(dyn_ctrl_share, "meshes"),
         os.path.join(pick_place_pkg, "meshes"),
         os.environ.get("IGN_GAZEBO_RESOURCE_PATH", ""),
     ]))

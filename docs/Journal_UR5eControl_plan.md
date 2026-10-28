@@ -371,6 +371,7 @@ del corte de `analyze_smc.py`:
 | real, caja del pedestal a **1 mm** del `base_link` | `smc_98807`, `98810` | 0.0082, 0.0077 | **303, 398** | defecto |
 | real sin colisiones de pedestal ni mesa | `smc_98812` | 0.0052 | 90 | aísla las cajas |
 | real, caja del pedestal a 10 mm (scratch / modelo final) | `smc_98813`, `98814` | 0.0037, 0.0038 | **12, 11** | **corregido** |
+| **escena final** (mesa a 0.426, D16) con la geometría de B0.1 (corte en 0.65, `surface_z` −0.004) | `smc_98815` | **0.0023** | **12** | `G` = 80 / 104 / 81 |
 
 La caja a 1 mm quedaba dentro del margen de contacto de la física frente al
 `base_link` del UR5e: un contacto permanente que no mueve nada (la base está

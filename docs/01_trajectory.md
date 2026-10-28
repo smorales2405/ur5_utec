@@ -12,7 +12,7 @@ Cierre de la FASE 1 del plan `PLAN_INCISION_UR5e.md`.
 
 | Parámetro | Valor | Justificación |
 |---|---|---|
-| Superficie del tejido | `z = 0.02 m` (base_link) | La mesa de cirugía queda exactamente en `z = 0.00`: pedestal del robot y mesa miden ambos 0.63 m. Es el espesor de una muestra fina apoyada sobre ella. |
+| Superficie del tejido | `z = 0.02 m` (base_link) | La mesa de cirugía queda exactamente en `z = 0.00`: pedestal del robot y mesa miden ambos 0.63 m. Es el espesor de una muestra fina apoyada sobre ella. **Desde el 2026-10-27 la escena usa las medidas reales** (pedestal 0.816 m, tablero 0.770 m): el tablero queda en `z = −0.046` y este valor se revisa en la geometría congelada (B0.1 de `Journal_UR5eControl_plan.md`). |
 | Longitud del corte **medida** | **80 mm** | Largo frente a la repetibilidad del UR5e (±0.03 mm) y a los ~0.03 mm de RMSE del lazo. Se recorre **íntegra** a feed constante. |
 | Entrada / salida (`cut_lead`) | **10 mm** a cada lado | Las rampas de aceleración y frenado ocurren aquí, fuera del tramo medido. Trazo total de material: **100 mm**. |
 | Profundidad | **5 mm** | Medible con calibrador; alcanzable en los 4 materiales. |

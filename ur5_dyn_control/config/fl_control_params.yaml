@@ -66,7 +66,7 @@ gz_fl_control_node:
     tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
 
     # -- Trayectoria cartesiana de referencia ---------------------------------
-    # Frame base_link (z=0 en la base del robot; z_Gazebo = z + 0.63).
+    # Frame base_link (z=0 en la base del robot; z_Gazebo = z + 0.816).
     # Orientacion del TCP constante: gripper apuntando hacia abajo.
     # W0 ~= FK(q_init) = [0.492, 0.133, 0.347] -> rampa inicial minima.
     # Barrido suave dentro del espacio de trabajo, lejos del obstaculo (x=0.85).

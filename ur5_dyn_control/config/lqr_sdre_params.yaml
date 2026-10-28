@@ -5,7 +5,7 @@
 #  FL y el SMC, para que la comparacion del paper sea a igualdad de referencia.
 #  Solo cambian la ley y sus pesos.
 #
-#  Geometria (frame base_link; en Gazebo z_mundo = z + 0.63):
+#  Geometria (frame base_link; en Gazebo z_mundo = z + 0.816):
 #
 #      z
 #    0.35 ┤ ●  start_pose = FK(q_init)

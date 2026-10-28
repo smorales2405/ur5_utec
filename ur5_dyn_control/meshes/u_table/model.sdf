@@ -1,0 +1,71 @@
+<?xml version="1.0" ?>
+<!-- Mesa de trabajo en U, medida sobre la real (ur5_base_table_dimensions.pdf,
+     2026-10-27). Sustituye a model://surgery_table de ur5_pick_place, que
+     estaba desactualizado.
+
+     Medidas: 2205 (ancho) x 1800 (fondo) x 770 (alto) mm; tablero de 35 mm;
+     hueco para el pedestal de 1005 (ancho) x 1100 (fondo) mm, abierto por
+     delante. Dos brazos de 600 mm a los lados del hueco y un fondo de 700 mm
+     detras de el, que es donde se apoya la muestra.
+
+     Frame del modelo: origen en el SUELO, bajo el centro del borde interior del
+     fondo de la U (el borde que mira al robot); +x hacia el fondo de la mesa,
+     alejandose del robot; z arriba. Asi la x del <pose> en el mundo es
+     directamente la distancia del eje del robot a ese borde.
+
+       fondo        x  0.000 .. 0.700   y -1.1025 .. 1.1025
+       brazos       x -1.100 .. 0.000   |y| 0.5025 .. 1.1025
+       tablero      z  0.735 .. 0.770
+
+     OJO, la malla del CAD viene INVERTIDA en z: el tablero esta en z 0..35 mm y
+     los regatones en z 770. El <pose> del visual la endereza con un giro propio
+     (roll = pi, yaw = pi/2; det = +1, no la refleja) y la lleva a este frame:
+       malla (x, y, z) [mm]  ->  modelo (y/1000 - 1.1, x/1000 - 1.1025, 0.770 - z/1000)
+     Las 'vt' del OBJ van divididas por 30 (textura cada 300 mm y no cada 10;
+     ver la cabecera de meshes/u_table.obj). Solo apariencia.
+
+     Colision: tres CAJAS con el tablero (fondo y dos brazos), no la malla: es
+     exacto para el tablero y barato, y el brazo no puede llegar a las patas ni
+     al faldon, que quedan bajo el tablero. Sin <surface>: en simulacion nada se apoya todavia en la mesa
+     (el contacto con la muestra es parte del gemelo, B3). -->
+<sdf version="1.9">
+  <model name="u_table">
+    <static>true</static>
+    <link name="link">
+      <collision name="tablero_fondo">
+        <pose>0.35 0 0.7525 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.700 2.205 0.035</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="tablero_brazo_izq">
+        <pose>-0.55 -0.8025 0.7525 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.100 0.600 0.035</size>
+          </box>
+        </geometry>
+      </collision>
+      <collision name="tablero_brazo_der">
+        <pose>-0.55 0.8025 0.7525 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.100 0.600 0.035</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <pose>-1.1 -1.1025 0.770 3.14159265358979 0 1.5707963267949</pose>
+        <cast_shadows>false</cast_shadows>
+        <geometry>
+          <mesh>
+            <scale>0.001 0.001 0.001</scale>
+            <uri>model://u_table/meshes/u_table.obj</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

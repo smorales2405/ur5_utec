@@ -5,7 +5,7 @@
 #  LQR-SDRE / SMC / ASTSMC de las FASES 4-6 reusaran este mismo bloque
 #  `incision.*` cambiando solo sus ganancias.
 #
-#  Geometria (frame base_link; en Gazebo z_mundo = z + 0.63):
+#  Geometria (frame base_link; en Gazebo z_mundo = z + 0.816):
 #
 #      z
 #    0.35 ┤ ●  start_pose = FK(q_init)
@@ -19,9 +19,11 @@
 #          approach → contact → penetration → cut → withdraw
 #          trazo total 100 mm; los 80 mm centrales a feed constante (medidos)
 #
-#  La mesa de cirugia queda exactamente en z = 0.00 de base_link (pedestal del
-#  robot y mesa miden ambos 0.63 m), asi que surface_z es el espesor de la
-#  muestra apoyada sobre ella.
+#  La mesa de trabajo queda en z = -0.046 de base_link: pedestal real 0.816 m,
+#  tablero real 0.770 m (medidos 2026-10-27; worlds/lab_incision_world.sdf).
+#  Con la escena anterior (ambos a 0.63) quedaba en z = 0 y surface_z era el
+#  espesor de la muestra; ahora es ese espesor - 0.046. El surface_z de abajo
+#  es todavia el de aquella escena: lo fija la geometria congelada (B0.1).
 #
 #  Supuestos vigentes: A2 (punta de hoja = gripper_tcp), A3 (metricas en
 #  base_link), A4 (orientacion TCP constante). A1 (brazo sin herramienta) esta

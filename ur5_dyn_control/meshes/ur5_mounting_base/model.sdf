@@ -1,0 +1,47 @@
+<?xml version="1.0" ?>
+<!-- Pedestal del UR5e, medido sobre el real (ur5_base_table_dimensions.pdf,
+     2026-10-27). Sustituye a model://ur5_base de ur5_pick_place, que estaba
+     desactualizado (900 x 900 x 630 mm).
+
+     Frame del modelo: origen en el SUELO, en el centro del pedestal; z arriba.
+     El UR5e va centrado sobre la placa superior, a z = 0.816 (la -z del spawn
+     sale de launch/world_defaults.py).
+
+       placa inferior   z 0.000 - 0.020   752 x 752   negro
+       patas (4)        z 0.020 - 0.726    75 x  75   gris
+       marco superior   z 0.726 - 0.796   752 x 752   gris
+       placa superior   z 0.796 - 0.816   752 x 752   negro
+
+     La malla es el OBJ del CAD tal cual, en mm (de ahi la escala 0.001).
+
+     Colision: una CAJA, no la malla, que acaba 10 mm POR DEBAJO de la placa
+     superior (z = 0.806). Medido (2026-10-27, smc_v5_g6, misma incision): con
+     la caja a 1 mm del base_link, TV(tau) en el corte 303 y 398 en dos
+     corridas; sin colision, 90; a 10 mm, 12. A 1 mm queda dentro del margen
+     de contacto de la fisica frente al base_link del UR5e (soldado al mundo)
+     y el contacto permanente ensucia el lazo aunque no mueva nada. Los 10 mm
+     solo importan si el brazo bajara a rozar el canto de la placa. -->
+<sdf version="1.9">
+  <model name="ur5_mounting_base">
+    <static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <pose>0 0 0.403 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.752 0.752 0.806</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <cast_shadows>false</cast_shadows>
+        <geometry>
+          <mesh>
+            <scale>0.001 0.001 0.001</scale>
+            <uri>model://ur5_mounting_base/meshes/ur5_mounting_base.obj</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

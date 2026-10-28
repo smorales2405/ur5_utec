@@ -11,11 +11,22 @@
      nominal la holgura medida era de 0.150 m, asi que las campanas anteriores
      NO estan afectadas.
 
-     lab_torque_world.sdf se conserva intacto para reproducir esas campanas. -->
+     lab_torque_world.sdf se conserva intacto para reproducir esas campanas.
+
+     2026-10-27: pedestal y mesa sustituidos por los modelos medidos sobre los
+     reales (meshes/ur5_mounting_base y meshes/u_table de ESTE paquete, cotas en
+     ur5_base_table_dimensions.pdf). Los anteriores (model://ur5_base y
+     model://surgery_table de ur5_pick_place) estaban desactualizados:
+       pedestal  900 x 900 x 630  ->  752 x 752 x 816 mm
+       mesa      tablero a 630    ->  tablero a 770 mm, U de 2205 x 1800
+     Consecuencias: el robot spawnea a z = 0.816 (no 0.63), y el tablero queda
+     46 mm POR DEBAJO de la base del robot (z = -0.046 en base_link), cuando
+     antes estaba enrasado con ella. Ambos modelos colisionan con cajas, no con
+     la malla (ver la cabecera de cada model.sdf). -->
 <sdf version='1.9'>
-  <!-- Copia de ur5_pick_place/worlds/lab_base_world.sdf con fisica a 1 kHz
-       (paso 1 ms) para control por torque. Mismo contenido: mesa_base,
-       surgery_table, obstaculo, sun, gravedad -9.8. -->
+  <!-- Derivado de ur5_pick_place/worlds/lab_base_world.sdf con fisica a 1 kHz
+       (paso 1 ms) para control por torque. Contenido: pedestal, mesa en U,
+       sun, gravedad -9.8. -->
   <world name='default'>
     <physics name="1ms" type="ode">
       <max_step_size>0.001</max_step_size>
@@ -88,24 +99,26 @@
     </model>
 
 
-    <!-- Base donde está montado el UR5 -->
-    <model name='mesa_base'>
-      <include>
-            <uri>model://ur5_base</uri>
-      </include>
-      <pose>-0.0 -0.0 -0.000817 0 -0 0</pose>
-      <static>true</static>
-    </model>
+    <!-- Pedestal real del UR5e (752 x 752 x 816 mm), centrado en el origen. El
+         robot spawnea encima, a z = 0.816 (launch/world_defaults.py). -->
+    <include>
+      <uri>model://ur5_mounting_base</uri>
+      <name>ur5_mounting_base</name>
+      <pose>0 0 0 0 0 0</pose>
+    </include>
 
-    <!-- Mesa de trabajo del UR5 (superficie sobre la que opera el efector final)
-         z=0.0: patas del mesh en el piso de Gazebo (z_local=0 = base de la mesh) -->
-    <model name='surgery_table'>
-      <include>
-            <uri>model://surgery_table</uri>
-      </include>
-      <pose>0.3 0.0 0.0 0 0 0</pose>
-      <static>true</static>
-    </model>
+    <!-- Mesa de trabajo real en U, con el pedestal metido en la abertura de la
+         U. El origen del modelo es el borde interior del fondo de la U (el que
+         mira al robot), en el suelo, asi que x es la distancia del eje del robot
+         a ese borde. x = 0.426 = 0.376 (medio pedestal) + 0.050, la holgura
+         MEDIDA en el laboratorio (2026-10-27) entre la cara del pedestal y la
+         mesa. Lateralmente centrado: 0.1265 m a cada lado. Si en el laboratorio
+         se mueve la mesa, se cambia esta x; no puede bajar de 0.376. -->
+    <include>
+      <uri>model://u_table</uri>
+      <name>u_table</name>
+      <pose>0.426 0 0 0 0 0</pose>
+    </include>
 
 
     <light name='sun' type='directional'>

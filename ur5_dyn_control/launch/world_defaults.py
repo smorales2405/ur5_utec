@@ -21,8 +21,11 @@ FASE 8: con desajuste de modelo de ±50 % y carga de 4 kg en el TCP el brazo se
 desvía mucho más que eso, y una colisión contra un objeto ajeno al experimento
 contaminaría la corrida sin dejar rastro evidente en el CSV.
 
-`lab_torque_world.sdf` se conserva intacto. Para reproducir una campaña
-anterior basta con pasarlo explícitamente:
+`lab_torque_world.sdf` se conserva intacto. OJO: la caja cae sobre el trazo
+de la incisión ACTUAL (corte en `base_y` 0.70–0.80, junto a la mesa): con la
+tabla de hoy la punta se apoya en su cara superior y el watchdog salta en
+`wrist_3` (medido 2026-10-27). Solo sirve con la trayectoria de su campaña.
+Para reproducir una campaña anterior basta con pasarlo explícitamente:
 
     ros2 launch ur5_dyn_control smc_control.launch.py \\
         world:=$(ros2 pkg prefix --share ur5_dyn_control)/worlds/lab_torque_world.sdf
@@ -38,8 +41,30 @@ DEFAULT_WORLD_FILE = "lab_incision_world.sdf"
 #: Escena histórica, con obstáculo. Solo para reproducir campañas anteriores.
 LEGACY_WORLD_FILE = "lab_torque_world.sdf"
 
+#: Altura [m] de la base del UR5e sobre el suelo de Gazebo = alto del pedestal.
+#: 0.816 es el pedestal real (meshes/ur5_mounting_base, medido 2026-10-27).
+MOUNT_Z = 0.816
+
+#: El pedestal anterior (model://ur5_base de ur5_pick_place) medía 0.63. La
+#: escena histórica lo conserva, y con él su altura: su obstáculo y su mesa
+#: están colocados respecto a una base a 0.63.
+LEGACY_MOUNT_Z = 0.63
+
 
 def default_world() -> str:
     """Ruta absoluta del mundo por defecto, ya instalado."""
     return os.path.join(get_package_share_directory("ur5_dyn_control"),
                         "worlds", DEFAULT_WORLD_FILE)
+
+
+def mount_z(world: str) -> float:
+    """Altura a la que spawnear el UR5e en `world` (ruta del SDF).
+
+    Va con el mundo y no como argumento de launch: un -z que no corresponda al
+    pedestal de la escena deja el robot flotando o empotrado en él, y eso no da
+    ningún síntoma en los CSV (la base está soldada al mundo y la gravedad es
+    uniforme), pero sí mueve el robot respecto a la mesa.
+    """
+    if os.path.basename(world) == LEGACY_WORLD_FILE:
+        return LEGACY_MOUNT_Z
+    return MOUNT_Z
