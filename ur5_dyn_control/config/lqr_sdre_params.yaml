@@ -25,6 +25,25 @@
     # Hace que los launches carguen incision_common.yaml antes de este fichero.
     trajectory_type: "incision"
 
+    # -- B4.2: LQI-SDRE (plan 4.3) ---------------------------------------------
+    # true  : x = [sigma; q_e; q̇_e] (18 estados), accion integral con
+    #         anti-windup. La integral rechaza la parte constante de la fuerza
+    #         de corte y los residuos de friccion y de gravedad.
+    # false : la FASE 4 tal cual (12 estados) = ablacion del paper: con la Q de
+    #         abajo es un CT con kp = wn^2, kd = 2 zeta wn (V3 del plan).
+    lqr.integral: true
+    # polynomial : Q ∝ M² por sintesis polinomica (lqr_sdre_law.hpp). Con integral,
+    #              a(s) = (s + wn)(s² + 2 zeta wn s + wn²) y K = [a0 M, a1 M, a2 M]:
+    #              un CT con integral. Es la SEMILLA de B5, no el diseno final.
+    # physical   : Q, R diagonales constantes en unidades fisicas (lqr.q_sigma,
+    #              lqr.q_p, lqr.q_v, lqr.r_joint; Bryson: Q_ii = 1/e_max,i²). La
+    #              rigidez deja de estar atada a M_ii: es el diseno de 4.3, y sus
+    #              valores los fija la sintonia comun (B5).
+    lqr.weights: "polynomial"
+    # |K_I sigma| <= esta fraccion de tau_max: fija la cota de sigma por junta
+    # con la K de diseno (anti-windup ademas de congelar en saturacion).
+    lqr.integral_tau_frac: 0.2
+
     # -- Pesos del LQR-SDRE (FASE 4) -----------------------------------------
     #
     # No se dan Q y R en bruto: se dan wn, zeta y r, y el nodo SINTETIZA
@@ -49,10 +68,12 @@
     # hizo falta en gravity_comp y en el eta del SMC — cuarta vez. Fijado por
     # test_care_solver::QConLaDiagonalDeMDispersaLosPolos.
     #
-    # wn = 20 rad/s: mismo polo nominal que el lambda del SMC, para comparar a
-    # igualdad de ancho de banda. Da max|lambda|*dt = 0.040 a 500 Hz, el mismo
-    # numero de estabilidad discreta que el SMC.
-    lqr.wn: 20.0
+    # wn = 10 rad/s con integral. Con integral K_D = a2 M = 3 wn M, asi que wn =
+    # 20 (el de la FASE 4) daba G = 160 en el hombro sobre la incision, por
+    # encima de g_loop_max = 120; con 10, K_D = 30 M (la ablacion sin integral
+    # con wn = 20 tenia kd = 2 zeta wn = 40). Las de la campana salen de B5.
+    lqr.wn: 10.0
+    # Con integral basta zeta >= 1/2 (a1² >= 2 a0 a2, a2² >= 2 a1). Sin ella,
     # zeta >= 1/sqrt(2) es OBLIGATORIO: con zeta menor la Qv de arriba sale
     # definida negativa. No es una limitacion del codigo, es el resultado
     # clasico de que un LQR sobre un doble integrador no amortigua por debajo de

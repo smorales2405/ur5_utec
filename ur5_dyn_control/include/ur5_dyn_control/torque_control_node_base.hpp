@@ -169,6 +169,12 @@ protected:
     dtau_ddq);
   double gLoopMax() const { return g_loop_max_; }
   double controlRate() const { return control_rate_; }
+  /// B4.2: true en TRACK y HOLD_END, donde corre una accion integral (no en la
+  /// rampa desde q_init ni en los sostenes iniciales).
+  bool trackingOrHoldEnd() const
+  {
+    return state_ == State::TRACK || state_ == State::HOLD_END;
+  }
 
   /// B1: pide el cero del sensor F/T (servicio zero_ftsensor del driver). Lo
   /// llama TRACK en la transicion aproximacion -> contacto: hoja quieta en el

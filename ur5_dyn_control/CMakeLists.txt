@@ -142,6 +142,9 @@ if(BUILD_TESTING)
   # inercia de la Q del LQR-SDRE.
   ament_add_gtest(test_care_solver test/test_care_solver.cpp)
   target_link_libraries(test_care_solver ${PROJECT_NAME}_core)
+  # B4.2: LQI-SDRE (sintesis polinomica, pesos fisicos, anti-windup, coste).
+  ament_add_gtest(test_lqi test/test_lqi.cpp)
+  target_link_libraries(test_lqi ${PROJECT_NAME}_core)
 
   # Simetria de los launches: Gazebo solo valida el robot real si puede fijar
   # la MISMA configuracion. Cinco argumentos han faltado en un lado u otro y
@@ -162,6 +165,12 @@ if(BUILD_TESTING)
   target_link_libraries(dump_smc_law ${PROJECT_NAME}_core)
   ament_add_pytest_test(test_smc_law_cross test/test_smc_law_cross.py
     ENV DUMP_SMC_LAW=$<TARGET_FILE:dump_smc_law>
+    TIMEOUT 120)
+  # B4.2: la CARE de 18 estados frente a scipy.
+  add_executable(dump_care test/dump_care.cpp)
+  target_link_libraries(dump_care ${PROJECT_NAME}_core)
+  ament_add_pytest_test(test_care_scipy test/test_care_scipy.py
+    ENV DUMP_CARE=$<TARGET_FILE:dump_care>
     TIMEOUT 120)
 endif()
 

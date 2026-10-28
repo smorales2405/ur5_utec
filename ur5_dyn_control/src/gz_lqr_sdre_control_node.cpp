@@ -17,6 +17,23 @@
 //
 //    tau = M̂(q) q̈_d + Ĉ(q,q̇) q̇_d + g(q) − K x_e
 //                                    ^^^^
+//  ── B4.2: LQI-SDRE (con accion integral, default) ─────────────────────────
+//
+//    x = [σ ; q_e ; q̇_e] ∈ R^18,  σ̇ = q_e
+//    A = [0 I 0; 0 0 I; 0 0 −M^-1 C],   B = [0; 0; M^-1]
+//    tau = M̂ q̈_d + Ĉ q̇_d + g − K_I σ − K_P q_e − K_D q̇_e
+//
+//  La integral rechaza la parte constante de la fuerza de corte, el residuo de
+//  friccion y el error de gravedad. Se integra en TRACK y HOLD_END, se congela
+//  por junta cuando la base recorta el par (onSaturation: anti-windup) y se
+//  acota |σ_i| ≤ σ_max,i, con σ_max tal que |K_I σ| no pase de
+//  `lqr.integral_tau_frac` de tau_max. Pesos (lqr_sdre_law.hpp):
+//    polynomial : Q ∝ M² por sintesis polinomica (semilla y test; con integral
+//                 da K = [a0 M, a1 M, a2 M], un CT con integral)
+//    physical   : Q, R diagonales constantes en unidades fisicas (diseno de
+//                 4.3; los valores los fija B5)
+//  `lqr.integral: false` es la FASE 4 tal cual (12 estados): la ablacion.
+//
 //  ── OJO: q̇_d, NO q̇ (discrepancia con el plan, resuelta a favor de A) ─────
 //
 //  El plan escribe el prealimentado como `Ĉ(q,dq) dq` y a la vez da
@@ -66,6 +83,7 @@
 
 #include "ur5_dyn_control/care_solver.hpp"
 #include "ur5_dyn_control/diag_logger.hpp"
+#include "ur5_dyn_control/lqr_sdre_law.hpp"
 #include "ur5_dyn_control/torque_control_node_base.hpp"
 
 namespace ur5_dyn_control
@@ -73,8 +91,7 @@ namespace ur5_dyn_control
 
 namespace
 {
-constexpr int kNx = 12;   // dimension del estado de error
-constexpr int kNu = 6;    // dimension del control
+constexpr int kNu = 6;    // dimension del control (el estado: 12 o 18, n_)
 
 using Clock = std::chrono::steady_clock;
 
@@ -98,6 +115,14 @@ public:
     // R = r I. Ver lqr_sdre_params.yaml para la derivacion completa; el
     // resultado es que los DOCE polos del lazo cerrado caen en -wn con
     // amortiguamiento zeta, en las coordenadas normalizadas por masa.
+    // B4.2: con integral (LQI, 18 estados) por defecto; false = la FASE 4.
+    integral_ = declare_parameter<bool>("lqr.integral", true);
+    n_ = lqrStates(integral_);
+    weights_ = declare_parameter<std::string>("lqr.weights", "polynomial");
+    if (weights_ != "polynomial" && weights_ != "physical") {
+      throw std::runtime_error(
+        "lqr.weights desconocido: '" + weights_ + "' (validos: polynomial, physical)");
+    }
     wn_ = declare_parameter<double>("lqr.wn", 20.0);
     zeta_ = declare_parameter<double>("lqr.zeta", 1.0);
     const double r_ctrl = declare_parameter<double>("lqr.r", 1.0);
@@ -109,7 +134,7 @@ public:
     // menos amortiguamiento que el de Butterworth (zeta = 1/sqrt(2), que es
     // justo el caso Qv = 0). Pedir menos exigiria Q indefinida.
     constexpr double kZetaMin = 0.70710678118654746;   // 1/sqrt(2)
-    if (zeta_ < kZetaMin) {
+    if (!integral_ && weights_ == "polynomial" && zeta_ < kZetaMin) {
       throw std::runtime_error(
         "lqr.zeta = " + std::to_string(zeta_) + " < 1/sqrt(2): con Q = "
         "blkdiag(r wn^4 M^2, r wn^2 (4 zeta^2 - 2) M^2) eso da Qv definida "
@@ -118,6 +143,27 @@ public:
     }
     R_ = Eigen::MatrixXd::Identity(kNu, kNu) * r_ctrl;
     r_ctrl_ = r_ctrl;
+    if (weights_ == "physical") {
+      // Pesos por junta en unidades fisicas (Bryson: Q_ii = 1/e_max,i^2).
+      auto vec6 = [this](const char * name) {
+          const auto v = declare_parameter<std::vector<double>>(name, std::vector<double>{});
+          if (v.size() != 6) {
+            throw std::runtime_error(std::string(name) +
+                    " debe tener 6 valores con lqr.weights = physical");
+          }
+          Vector6d out;
+          for (int i = 0; i < 6; ++i) {out[i] = v[static_cast<std::size_t>(i)];}
+          return out;
+        };
+      q_sigma_ = integral_ ? vec6("lqr.q_sigma") : Vector6d::Zero();
+      q_p_ = vec6("lqr.q_p");
+      q_v_ = vec6("lqr.q_v");
+      const Vector6d r_joint = vec6("lqr.r_joint");
+      if ((r_joint.array() <= 0.0).any()) {
+        throw std::runtime_error("lqr.r_joint debe ser > 0 en las seis juntas");
+      }
+      R_ = r_joint.asDiagonal();
+    }
 
     // fixed     : Q constante, sintetizada con M(q_init). Es la formulacion del
     //             plan (Q y R son PESOS DE COSTE, constantes) y la que hace que
@@ -163,7 +209,7 @@ public:
     // de reserva si la primera actualizacion en linea falla, y (3) reportar los
     // polos de diseno, que es donde se ve si el escalado por inercia esta bien.
     {
-      Eigen::MatrixXd A(kNx, kNx), B(kNx, kNu);
+      Eigen::MatrixXd A, B;
       buildSdcAt(qInit(), Vector6d::Zero(), A, B);
       const CareResult r = solveCare(A, B, Q_, R_, opt_);
       if (!r.ok) {
@@ -181,8 +227,8 @@ public:
       // diagonal de K por junta, que solo seria valida si M fuese diagonal — y
       // no lo es ni de lejos (ver buildQ()).
       const Eigen::EigenSolver<Eigen::MatrixXd> es(A - B * K_, false);
-      Eigen::VectorXd mag(kNx);
-      for (int i = 0; i < kNx; ++i) {mag(i) = std::abs(es.eigenvalues()(i));}
+      Eigen::VectorXd mag(n_);
+      for (int i = 0; i < n_; ++i) {mag(i) = std::abs(es.eigenvalues()(i));}
       const double dt_nom = 1.0 / ctrl_rate;
       const double wn_dt_max = mag.maxCoeff() * dt_nom;
       RCLCPP_INFO(get_logger(),
@@ -198,13 +244,46 @@ public:
       }
     }
 
+    // ── Cota del estado integral (anti-windup) ───────────────────────────────
+    // |K_I σ| no puede pasar de una fraccion del par del actuador: con la K de
+    // diseno, σ_max,i = frac * tau_max,i / |K_I,ii|.
+    if (integral_) {
+      const double frac = declare_parameter<double>("lqr.integral_tau_frac", 0.2);
+      const auto tau_max = get_parameter("tau_max").as_double_array();
+      const Matrix6d K_I = gainBlock(K_, true, 0);
+      for (int i = 0; i < 6; ++i) {
+        const double k = std::abs(K_I(i, i));
+        sigma_max_[i] = (k > 1e-12)
+          ? frac * tau_max[static_cast<std::size_t>(i)] / k
+          : std::numeric_limits<double>::infinity();
+      }
+      RCLCPP_INFO(get_logger(),
+                  "  integral: |K_I sigma| <= %.0f %% de tau_max -> sigma_max = "
+                  "[%.3g %.3g %.3g %.3g %.3g %.3g] rad.s", 100.0 * frac,
+                  sigma_max_[0], sigma_max_[1], sigma_max_[2], sigma_max_[3],
+                  sigma_max_[4], sigma_max_[5]);
+    }
+
     RCLCPP_INFO(get_logger(),
-                "LQR-SDRE | Q_mode=%s wn=%.1f rad/s zeta=%.2f r=%.3g | "
-                "CARE cada %d ciclos (%.0f Hz, ZOH sobre K) | "
+                "%s | pesos=%s Q_mode=%s wn=%.1f rad/s zeta=%.2f r=%.3g | "
+                "CARE %dx%d cada %d ciclos (%.0f Hz, ZOH sobre K) | "
                 "residual_tol=%.1e stable_margin=%.1e | max fallos seguidos=%d",
-                q_mode_.c_str(), wn_, zeta_, r_ctrl_,
+                integral_ ? "LQI-SDRE" : "LQR-SDRE (sin integral)",
+                weights_.c_str(), q_mode_.c_str(), wn_, zeta_, r_ctrl_, n_, n_,
                 care_decim_, ctrl_rate / care_decim_, opt_.residual_tol,
                 opt_.stable_margin, max_fails_);
+
+    // B4.1 / plan 4.5: la G comun, la fila i de K_D sobre toda la referencia.
+    reportLoopGain(
+      "K_D,ii (fila i de K_D)",
+      [this](const Vector6d & q, const Vector6d & dq, const Vector6d &) {
+        Eigen::MatrixXd A, B;
+        const Matrix6d M = dyn().M(q);
+        buildSdc(M, dyn().coriolis(q, dq), integral_, A, B);
+        const Eigen::MatrixXd Q = (q_mode_ == "scheduled") ? buildQ(M) : Q_;
+        const CareResult r = solveCare(A, B, Q, R_, opt_);
+        return r.ok ? Matrix6d(gainBlock(r.K, integral_, 2)) : Matrix6d(gainBlock(K_, integral_, 2));
+      });
 
     start();
 
@@ -212,7 +291,8 @@ public:
       const bool ok = diag_.open(
         csvDir(), csvPrefix(), testNum(),
         {"max_re_eig", "cond_M", "ctrl_margin", "care_residual", "care_iters",
-         "care_updated", "t_care_us", "t_law_us", "k_max", "care_fails"},
+         "care_updated", "t_care_us", "t_law_us", "k_max", "care_fails",
+         "sigma_abs_max"},
         traceMetadata());
       if (ok) {
         RCLCPP_INFO(get_logger(), "CSV de diagnostico: %s", diag_.path().c_str());
@@ -224,7 +304,7 @@ public:
 
 protected:
   Vector6d computeTau(const Vector6d & q, const Vector6d & dq,
-                      const JointRef & ref, double /*dt*/) override
+                      const JointRef & ref, double dt) override
   {
     const Clock::time_point t0 = Clock::now();
 
@@ -232,8 +312,8 @@ protected:
     const Matrix6d C = dyn().coriolis(q, dq);
     const Vector6d g = dyn().gravity(q);
 
-    Eigen::MatrixXd A(kNx, kNx), B(kNx, kNu);
-    buildSdc(M, C, A, B);
+    Eigen::MatrixXd A, B;
+    buildSdc(M, C, integral_, A, B);
 
     // ── Estabilizabilidad del par (A, B) ──────────────────────────────────
     // Se certifica por controlabilidad (controlable => estabilizable). Para
@@ -296,10 +376,11 @@ protected:
     }
 
     // ── Ley de control ────────────────────────────────────────────────────
-    Eigen::VectorXd x_e(kNx);
-    x_e.head(6) = q - ref.q;
-    x_e.tail(6) = dq - ref.dq;
-    const Vector6d tau = M * ref.ddq + C * ref.dq + g - (K_ * x_e);
+    // B4.2: la integral solo corre en TRACK y HOLD_END (no en la rampa desde
+    // q_init) y en las juntas que la base no esta recortando (onSaturation).
+    if (integral_ && trackingOrHoldEnd()) {integ_.update(q - ref.q, dt, sigma_max_);}
+    const Vector6d tau =
+      lqrTorque(M, C, g, ref, K_, q - ref.q, dq - ref.dq, integ_.sigma, integral_);
 
     const double t_law = elapsedMicros(t0, Clock::now());
     t_law_max_ = std::max(t_law_max_, t_law);
@@ -319,58 +400,32 @@ protected:
                 {max_re_eig_, cond_m_, ctrl_margin, care_residual_,
                  static_cast<double>(care_iters_), updated ? 1.0 : 0.0,
                  t_care, t_law, K_.cwiseAbs().maxCoeff(),
-                 static_cast<double>(care_fails_)});
+                 static_cast<double>(care_fails_), integ_.sigma.cwiseAbs().maxCoeff()});
     }
     return tau;
   }
 
   std::string csvPrefix() const override {return "lqr";}
 
-private:
-  /**
-   * Q = blkdiag(r wn^4 M^2, r wn^2 (4 zeta^2 - 2) M^2).
-   *
-   * DERIVACION (limite desacoplado C = 0, R = r I). Con A = [0 I; 0 0],
-   * B = [0; M^-1] y P = [P11 P12; P12^T P22], la CARE se parte en
-   *
-   *    (1,1): P12 G22 P12^T = Qp          G22 = M^-1 R^-1 M^-1 = M^-2 / r
-   *    (2,2): P12 + P12^T - P22 G22 P22 + Qv = 0
-   *    K = R^-1 B^T P = (1/r) M^-1 [P12^T, P22]  =>  Kp = M^-1 P12^T / r,
-   *                                                  Kd = M^-1 P22 / r
-   *
-   * Imponer el lazo cerrado M q̈_e + Kd q̇_e + Kp q_e = 0 con TODOS los modos en
-   * (wn, zeta) pide Kp = wn^2 M y Kd = 2 zeta wn M, o sea P12 = r wn^2 M^2 y
-   * P22 = 2 r zeta wn M^2, y sustituyendo arriba salen las Qp y Qv de esta
-   * funcion. Verificado numericamente: los 12 autovalores caen en -wn.
-   *
-   * OJO: M^2 con la M COMPLETA, no diag(M)^2. M(q_init) esta lejos de ser
-   * diagonal — M(1,5) = 2.8e-2 con M(5,5) = 5.4e-3, es decir un acoplo CINCO
-   * veces la propia diagonal — y con la receta diagonal los polos medidos se
-   * dispersan de 8.4 a 290 rad/s (34x) y wn*dt sube a 0.58, muy por encima del
-   * limite discreto. Es la cuarta vez que el escalado por inercia muerde en
-   * este paquete; ahora hay un test que lo fija (test_care_solver).
-   */
-  Eigen::MatrixXd buildQ(const Matrix6d & M) const
+  /// ANTI-WINDUP (B4.2): congela la integral en las juntas recortadas por
+  /// saturacion o por limite de tasa en este tick.
+  void onSaturation(const SaturationFlags & flags) override
   {
-    const Matrix6d M2 = M * M;
-    Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(kNx, kNx);
-    Q.topLeftCorner(6, 6) = r_ctrl_ * std::pow(wn_, 4) * M2;
-    Q.bottomRightCorner(6, 6) =
-      r_ctrl_ * wn_ * wn_ * (4.0 * zeta_ * zeta_ - 2.0) * M2;
-    return Q;
+    for (std::size_t i = 0; i < 6; ++i) {
+      integ_.frozen[i] = flags.saturated[i] || flags.rate_limited[i];
+    }
   }
 
-  /// A(q,q̇) y B(q) de la parametrizacion SDC, a partir de M y C ya calculadas.
-  void buildSdc(const Matrix6d & M, const Matrix6d & C,
-                Eigen::MatrixXd & A, Eigen::MatrixXd & B) const
+private:
+  /// Q segun `lqr.weights` (lqr_sdre_law.hpp). Con `polynomial` va Q ∝ M²
+  /// con la M COMPLETA, no diag(M)²: M(q_init) esta lejos de ser diagonal
+  /// (M(1,5) = 2.8e-2 con M(5,5) = 5.4e-3) y con la receta diagonal los polos
+  /// se dispersaban de 8.4 a 290 rad/s (test_care_solver lo fija).
+  Eigen::MatrixXd buildQ(const Matrix6d & M) const
   {
-    // M es simetrica definida positiva: Cholesky en vez de inverse().
-    const Matrix6d Minv = M.llt().solve(Matrix6d::Identity());
-    A.setZero();
-    A.topRightCorner(6, 6) = Matrix6d::Identity();
-    A.bottomRightCorner(6, 6) = -Minv * C;
-    B.setZero();
-    B.bottomRows(6) = Minv;
+    return (weights_ == "physical")
+      ? physicalQ(q_sigma_, q_p_, q_v_, integral_)
+      : polynomialQ(M, wn_, zeta_, r_ctrl_, integral_);
   }
 
   /// Version que evalua la dinamica ella misma (solo para el arranque). Nombre
@@ -380,7 +435,7 @@ private:
   void buildSdcAt(const Vector6d & q, const Vector6d & dq,
                   Eigen::MatrixXd & A, Eigen::MatrixXd & B)
   {
-    buildSdc(dyn().M(q), dyn().coriolis(q, dq), A, B);
+    buildSdc(dyn().M(q), dyn().coriolis(q, dq), integral_, A, B);
   }
 
   /// cond(M) = lambda_max / lambda_min. M es simetrica definida positiva, asi
@@ -397,7 +452,13 @@ private:
   }
 
   Eigen::MatrixXd Q_, R_;
-  Eigen::MatrixXd K_ = Eigen::MatrixXd::Zero(kNu, kNx);
+  Eigen::MatrixXd K_;
+  bool integral_ = true;                // B4.2: LQI (18) o la FASE 4 (12)
+  int n_ = 18;
+  std::string weights_ = "polynomial";
+  Vector6d q_sigma_ = Vector6d::Zero(), q_p_ = Vector6d::Zero(), q_v_ = Vector6d::Zero();
+  IntegralState integ_;
+  Vector6d sigma_max_ = Vector6d::Constant(std::numeric_limits<double>::infinity());
   CareOptions opt_;
   double wn_ = 20.0;
   double zeta_ = 1.0;
