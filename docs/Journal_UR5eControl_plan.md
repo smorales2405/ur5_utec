@@ -59,7 +59,8 @@ con el **Computed Torque (CT)** como línea base natural.
 | D20 | Pinocchio 4.1 (actualizado desde 3.1 hace unos meses) se **retiene** | Hecho: `apt-mark hold` de `robotpkg-{,py310-}pinocchio` 4.1.0 y de lo que lleva compilado dentro, `robotpkg-{,py310-}coal` 3.0.4, `robotpkg-py310-eigenpy` 3.13.0, `robotpkg-{,py310-}casadi` 3.7.2. Para actualizar: `sudo apt-mark unhold <paquete>` y re-verificar (test cruzado de B0.4) |
 | D21 | Muestras aún sin comprar: el usuario las conseguirá según las **dimensiones recomendadas** | §3.5 (h) |
 | D22 | **Trabajo futuro**, tras el corte recto: corte **curvo** con la hoja tangente a la trayectoria | B10 |
-| D23 | **R10 (2026-10-28): el retardo real de 5 ciclos entra en el evaluador y en la estabilidad discreta de las tres leyes; el SMC se re-sintoniza antes de llevarlo al robot** | Hecho: `PIPELINE_DELAY_STEPS` = 5, `g7` (margen MIMO ≥ ×2, propuesto) en el optimizador, `pipeline_delay_steps` = 5 en `ur5e_real.launch.py` y rechazo en el arranque (§2.7). La re-sintonía del SMC, tras medir `α_g` (B4.4) |
+| D24 | **R11 (2026-10-30): margen mínimo de `g7` = ×2 (6 dB)** | Elección de diseño, no medida (`MARGIN_MIN_DEFAULT`). Con 5 ciclos: CT nominal ×6.95 pasa; la semilla del LQI (×1.32) no, y B5 tendrá que bajarla; el nodo solo rechaza por debajo de ×1 |
+| D23 | **R10 (2026-10-28): el retardo real de 5 ciclos entra en el evaluador y en la estabilidad discreta de las tres leyes; el SMC se re-sintoniza antes de llevarlo al robot** | Hecho: `PIPELINE_DELAY_STEPS` = 5, `g7` (margen MIMO ≥ ×2, confirmado: D24) en el optimizador, `pipeline_delay_steps` = 5 en `ur5e_real.launch.py` y rechazo en el arranque (§2.7). La re-sintonía del SMC, tras medir `α_g` (B4.4) |
 
 ### 0.2 Cambios respecto al plan original
 
@@ -509,7 +510,7 @@ respuesta alineada en 71 escalones y ajustando `k⊙i(k) = a·τ_cmd(k − D)`:
   - Evaluador: `PIPELINE_DELAY_STEPS` = 5 (`…_GAZEBO` = 1); `run_gain_tuning
     --delay-steps`.
   - Optimizador: restricción **`g7`**, margen MIMO ≥ `--margin-min` (×2 =
-    6 dB, **propuesto**: R11) con ese retardo; viaja en la receta del pool.
+    6 dB, **confirmado**: D24) con ese retardo; viaja en la receta del pool.
   - Nodos: `pipeline_delay_steps` (1 por defecto; **5 en `ur5e_real.launch.py`**).
     El banner de CT, SMC (capa límite) y LQR/LQI da el margen MIMO; **en el real,
     si es < ×1 el nodo no arranca** (salida limpia con código 1), salvo
@@ -1202,12 +1203,15 @@ de lo que falte · corregir B4.4, el payload con acople y `RobotReceiveTimeout`.
 
 Push de los 3 commits de B7.0/B4.4/docs · **R10: sí** → D23.
 
-### 9.9 Pendiente
+### 9.9 Novena ronda (2026-10-30)
+
+Push de los 2 commits de R10 · **R11: ×2** → D24.
+
+### 9.10 Pendiente
 
 | # | pregunta | por qué importa |
 |---|---|---|
 | **R2** | Conseguir las muestras según §3.5 (h) y confirmar sus medidas reales al tenerlas. | Fija N por material; la referencia no cambia salvo que obligue a acortar el trazo |
-| **R11** | ¿Margen mínimo de `g7` = ×2 (6 dB)? Es una elección de diseño, no una medida. | Fija cuánta ganancia puede usar cada ley con el retardo real; con ×2 la semilla del LQI (×1.32) no pasa y B5 tendrá que bajarla |
 
 ---
 

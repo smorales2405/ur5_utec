@@ -165,8 +165,9 @@ G_LOOP_MAX = 120.0
 TCP_TOL_MM_DEFAULT = 2.0
 
 #: g7 (R10): margen de ganancia mínimo del lazo DISCRETO MIMO con el retardo
-#: real (5 ciclos). ELECCIÓN DE DISEÑO, no medida: ×2 (6 dB) es el mínimo
-#: clásico, y aquí cubre lo que el análisis lineal no ve —la flexibilidad de
+#: real (5 ciclos). ELECCIÓN DE DISEÑO, no medida, confirmada por el usuario
+#: (R11 -> D24 del plan): ×2 (6 dB) es el mínimo clásico, y aquí cubre lo que
+#: el análisis lineal no ve —la flexibilidad de
 #: 25–35 Hz desestabiliza, la fricción estabiliza—. El nodo, por su parte, solo
 #: se NIEGA a arrancar por debajo de ×1. Referencias con 5 ciclos: CT nominal
 #: ×6.95, semilla del LQI ×1.32 (peor punto del trazo), `smc_v5_g6` 0.
