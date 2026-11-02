@@ -238,6 +238,14 @@ arrancan en `q_init`; SMC/LQR 14 717 (29.43 s) que arrancan 21.7 mm más arriba.
 solo existe en las YAML del SMC: FL y LQR no compensan fricción salvo por
 argumento de launch.
 
+*Corrección (2026-11-02):* B0 unificó en 0.3469, el valor del TCP antiguo, y lo
+documentó como `FK(q_init)`, que con la punta es 0.3252. La tabla arranca por
+tanto 21.7 mm sobre `q_init` (0.057 rad en codo y `wrist_1`). **No se cambia:** las
+leyes por par lo absorben en la transición de 3 s, el corte no depende de ello y
+cambiarlo movería 0.27 s las fases respecto a lo ya medido. Lo destapó el runner
+por posición, que no tiene transición y nunca se había ejecutado: ahora se traslada
+al inicio de la tabla antes de empezar.
+
 **V7 — `ft_data` no se registra.** `last_wrench_` se declara y se vuelca al CSV
 pero ninguna suscripción lo escribe: la columna `wrench` es 0 también en el robot.
 
@@ -945,8 +953,10 @@ crea `~/wrench`, es decir `/force_torque_sensor_broadcaster/wrench`; el
 
 **Cierre en el robot (pendiente; lo ejecuta el usuario):**
 
-1. Driver arriba, escalas G4 a 0.0, robot en `q_ref[0]` (lo imprime
-   `run_position_incision.py --solo-tabla`). Confirmar el tópico del F/T.
+1. Driver arriba, External Control en *play*, slider al 100 % (el script se
+   niega si no), escalas G4 a 0.0 y robot en `q_init` o cerca: el script lo lleva
+   al inicio de la tabla, pidiendo confirmación. Tópico del F/T y `zero_ftsensor`
+   confirmados en el robot el 2026-11-02.
    Payload 0 y **TCP en (0, 0, 0)** en las tres corridas: con payload el robot
    descuenta el peso de la lectura; con TCP el wrench llega en otro frame.
 2. Tres masas con la misma trayectoria articular (2026-10-28, por la dificultad

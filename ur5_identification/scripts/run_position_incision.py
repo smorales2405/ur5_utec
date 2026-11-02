@@ -23,7 +23,14 @@ wrench, ft_stamp, ft_zero, state), así que `force_estimator.estimate_from_csv`
 lo lee igual que el de una corrida por par. `state` lleva la fase de la
 incisión (approach ... withdraw) y `plateau` la meseta del corte.
 
-Uso (robot en q_init, driver arriba, escalas G4 ya a 0.0):
+La tabla NO arranca en q_init sino 21.7 mm más arriba (`start_pose` de
+incision_common.yaml). Las leyes por par lo absorben con su transición; aquí el
+primer punto de la tabla va en t = 0 y el JTC SALTARÍA a él, así que antes de
+empezar el script lleva el robot al inicio, despacio y pidiendo confirmación
+(MAX_MOVE: desde q_init o desde el final de la corrida anterior, sí; de más lejos,
+a mano).
+
+Uso (driver arriba, External Control en play, slider al 100 %, escalas G4 a 0.0):
     run_position_incision.py --test-num 800 --material eva --lane 1
     run_position_incision.py --test-num 801 --peso-kg 0.5     # cierre de B1
     run_position_incision.py --solo-tabla                      # sin robot
@@ -40,12 +47,27 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-#: Tolerancia de arranque: el JTC parte de donde esté el robot.
-Q_START_TOL = 0.02          # [rad]
+#: Salto máximo admitido al primer punto de la tabla, que va en t = 0.
+Q_START_TOL = 0.005         # [rad]
+#: Traslado al inicio de la tabla, a la velocidad de run_gravity_sweeps_real.py.
+MOVE_SPEED = 0.10           # [rad/s]
+#: Hasta aquí se recoloca solo: la tabla se aleja 0.83 rad de su inicio (wrist_1),
+#: así que cubre q_init y el final de una corrida. Más lejos, a mano.
+MAX_MOVE = 1.0              # [rad]
+#: Lo que el traslado puede bajar la punta respecto al más bajo de sus extremos.
+MAX_DIP = 0.005             # [m]
+#: El JTC escala SU tiempo con el slider; el cero del F/T y las fases del CSV van
+#: en tiempo de pared. Por debajo, el cero cae con el brazo en movimiento.
+MIN_SPEED_SCALING = 0.99
+#: Se vacía la cola de /joint_states antes de grabar: se llenó durante las esperas
+#: y sus ~100 muestras viejas adelantarían t0 0.2 s, desfasando q_des y las fases
+#: (2 mm de error aparente a 10 mm/s).
+DRAIN_TIME = 0.3            # [s]
 #: Antes del primer contacto: el reposo de 0.3 s ya empezó, la hoja está quieta.
 ZERO_LEAD = 0.15            # [s]
 FT_TOPIC = "/force_torque_sensor_broadcaster/wrench"
 ZERO_SRV = "/io_and_status_controller/zero_ftsensor"
+SCALING_TOPIC = "/speed_scaling_state_broadcaster/speed_scaling"
 
 
 def build_incision_reference(out_csv: str, timeout: float = 120.0) -> bool:
@@ -107,6 +129,99 @@ def zero_time(dt: float, phase: np.ndarray) -> float:
     """Instante [s] desde el inicio de la tabla en que se pide el cero del F/T."""
     k = int(np.flatnonzero(phase == "contact")[0])
     return k * dt - ZERO_LEAD
+
+
+def scaling_problem(value: float):
+    """Motivo para no correr con esta escala de velocidad, o None.
+
+    El tópico da 0..1 o 0..100 según la versión del driver; se admiten las dos.
+    Con External Control parado vale 0 (medido, 2026-11-02): el JTC acepta la
+    trayectoria y no la avanza, y sin esto se grabarían 31 s de brazo parado.
+    """
+    frac = value / 100.0 if value > 1.5 else value
+    if frac <= 0.0:
+        return ("speed_scaling = 0: External Control no esta en play "
+                "(o el robot esta en paro). Darle play en el pendant.")
+    if frac < MIN_SPEED_SCALING:
+        return (f"slider de velocidad al {100 * frac:.0f} %: ponerlo al 100 %. El JTC "
+                "escala su tiempo, pero el cero del F/T y las fases del CSV no.")
+    return None
+
+
+def start_move(plant, q, q0):
+    """(err, problema) del traslado articular lineal q -> q0.
+
+    `err` es |q - q0| máximo [rad]; `problema`, el motivo para no hacerlo solo, o
+    None. No se mira la holgura absoluta sino que la punta no baje por el camino:
+    tras un aborto puede estar legítimamente cerca de la muestra.
+    """
+    from run_gravity_sweeps_real import path_min_tip_z
+    from ur5_identification.gravity_sweeps import tip_position
+    q, q0 = np.asarray(q, float), np.asarray(q0, float)
+    err = float(np.abs(q - q0).max())
+    if err > MAX_MOVE:
+        return err, (f"El robot esta a {err:.3f} rad del inicio de la tabla (maximo "
+                     f"{MAX_MOVE} rad para recolocarlo solo): llevarlo con el pendant "
+                     f"a {np.round(q0, 4).tolist()}")
+    z_low = min(tip_position(plant, q)[2], tip_position(plant, q0)[2])
+    z_min = path_min_tip_z(plant, q, q0)
+    if z_min < z_low - MAX_DIP:
+        return err, (f"El traslado al inicio de la tabla bajaria la punta a z = "
+                     f"{z_min:.3f} m (extremos: {z_low:.3f} m): llevarlo con el pendant "
+                     f"a {np.round(q0, 4).tolist()}")
+    return err, None
+
+
+def wait_listener(node, pub, timeout: float = 5.0) -> bool:
+    """Espera a que el JTC escuche: lo publicado antes se pierde sin aviso."""
+    import rclpy
+    t0 = time.time()
+    while pub.get_subscription_count() == 0:
+        if time.time() - t0 > timeout:
+            return False
+        rclpy.spin_once(node, timeout_sec=0.1)
+    return True
+
+
+def check_speed_scaling(node, timeout: float = 3.0):
+    """Motivo para no correr según la escala de velocidad, o None."""
+    import rclpy
+    from std_msgs.msg import Float64
+    seen = []
+    sub = node.create_subscription(Float64, SCALING_TOPIC,
+                                   lambda m: seen.append(m.data), 10)
+    t0 = time.time()
+    while not seen and time.time() - t0 < timeout:
+        rclpy.spin_once(node, timeout_sec=0.1)
+    node.destroy_subscription(sub)
+    if not seen:
+        return f"No llega {SCALING_TOPIC}: ¿driver arriba?"
+    return scaling_problem(seen[-1])
+
+
+def move_to_start(q, q0, err, ask: bool = True):
+    """Lleva el robot a q0 con el JTC (`go_home` de las campañas) y lo comprueba."""
+    from run_friction_campaign_real import Checker
+    from ur5_identification.campaign_levels import JOINT_NAMES
+    q, q0 = np.asarray(q, float), np.asarray(q0, float)
+    worst = JOINT_NAMES[int(np.abs(q - q0).argmax())]
+    dur = max(3.0, err / MOVE_SPEED)
+    print(f"  El robot esta a {err:.3f} rad del inicio de la tabla (peor: {worst}).")
+    if ask:
+        input(f"  Traslado con el JTC a {MOVE_SPEED} rad/s, {dur:.1f} s. Paro de "
+              f"emergencia a mano. Enter para moverlo... ")
+    chk = Checker()
+    if not wait_listener(chk, chk._jtc):
+        sys.exit("El JTC no escucha en su topico: no se ha movido nada.")
+    chk.go_home(q0.tolist(), speed=MOVE_SPEED)
+    still, _ = chk.wait_until_still()
+    now = chk.joint_state()
+    chk.destroy_node()
+    left = np.abs(np.asarray(now) - q0).max() if now is not None else float("inf")
+    if not still or left > Q_START_TOL:
+        sys.exit(f"El traslado no llego al inicio de la tabla (error {left:.4f} rad, "
+                 f"quieto: {still}). ¿External Control en play, slider al 100 %?")
+    print(f"  En el inicio de la tabla (error {left:.4f} rad).")
 
 
 def write_csv(path, samples, ft, zero_t, ref, meta, plant):
@@ -212,16 +327,31 @@ def main():
     st = node.wait_state()
     if st is None:
         sys.exit("Sin /joint_states: ¿driver arriba?")
-    err = np.abs(np.asarray(st[0]) - q_ref[0]).max()
-    if err > Q_START_TOL:
-        sys.exit(f"El robot no esta en el inicio de la tabla (|dq| max {err:.3f} rad): "
-                 f"llevarlo a {np.round(q_ref[0], 4)}")
+    problem = check_speed_scaling(node)
+    if problem:
+        sys.exit(problem)
+    plant = Plant(default_urdf())
+    err, problem = start_move(plant, st[0], q_ref[0])
+    if problem:
+        sys.exit(problem)
     ok, why = node.ensure_jtc()
     if not ok:
         sys.exit(f"No se pudo activar el JTC: {why}")
+    if err > Q_START_TOL:
+        move_to_start(st[0], q_ref[0], err, ask=not args.yes)
+    if not wait_listener(node, node._pub):
+        sys.exit("El JTC no escucha en su topico: no se ha movido nada.")
     if not args.yes:
         input(f"Incision en POSICION ({len(q_ref) * dt:.1f} s), peso {args.peso_kg} kg. "
               f"Paro de emergencia a mano. Enter para empezar... ")
+
+    t_drain = time.time()
+    while (time.time() - t_drain < DRAIN_TIME
+           or (not ft and time.time() - t_drain < 3.0)):
+        rclpy.spin_once(node, timeout_sec=0.01)
+    if not ft:
+        sys.exit(f"Sin F/T en {FT_TOPIC}: la corrida no serviria para el cierre. "
+                 "No se ha movido nada.")
 
     # El cero se pide desde el bucle de grabacion, a su hora.
     state = {"zero_t": None, "asked": False}
@@ -245,7 +375,6 @@ def main():
             "reference": "incision_common.yaml (dry_run del nodo C++)"}
     # zero_t va en reloj de pared; las muestras de /joint_states, en el sello del
     # driver, que en el real es reloj de pared.
-    plant = Plant(default_urdf())
     if write_csv(out, node.samples, ft, state["zero_t"], ref, meta, plant):
         print(f"CSV: {out}  ({len(node.samples)} muestras de estado, {len(ft)} de F/T)")
     else:

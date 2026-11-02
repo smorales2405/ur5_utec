@@ -20,7 +20,7 @@
 #  Geometria (frame base_link; en Gazebo z_mundo = z + 0.816):
 #
 #      z
-#    0.35 ┤ ●  start_pose = FK(q_init)
+#    0.35 ┤ ●  start_pose (21.7 mm sobre FK(q_init))
 #         │  \
 #    0.026┤   ●───────────────●          z_above = surface_z + approach_height
 #         │   │               ↑
@@ -118,9 +118,11 @@
     tcp_orientation_rpy: [3.14159265, 0.0, 3.14159265]
 
     incision:
-      # Pose de partida: FK(q_init) con el TCP en la punta de la hoja, para que
-      # la rampa inicial sea minima. (El FL partia de 0.3252, la del TCP viejo
-      # de 0.141 m: V6 del plan.)
+      # Pose de partida: 21.7 mm POR ENCIMA de q_init, no FK(q_init). Con el TCP
+      # en la punta de la hoja, FK(q_init) = (-0.1333, 0.4919, 0.3252); 0.3469 es
+      # la del TCP viejo de 0.141 m y quedo al unificar en B0 (V6 del plan). Las
+      # leyes por par suben esos 21.7 mm en la transicion y run_position_incision
+      # se traslada antes de empezar; el corte no depende de esto.
       start_pose: [-0.1333, 0.4919, 0.3469]
 
       # Superficie de la muestra (B0.1, D16-D17 del plan): tablero a -0.046 en

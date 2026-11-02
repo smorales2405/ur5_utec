@@ -241,7 +241,7 @@ gz_smc_control_node:
     tcp_orientation_rpy: [3.14159265, 0.0, 3.14159265]
 
     incision:
-      # Pose de partida: FK(q_init), para que la rampa inicial sea minima.
+      # Pose de partida: 21.7 mm sobre FK(q_init); ver incision_common.yaml.
       start_pose: [-0.1333, 0.4919, 0.3469]
 
       # Superficie e incision (decisiones experimentales, docs/00_prereqs.md).

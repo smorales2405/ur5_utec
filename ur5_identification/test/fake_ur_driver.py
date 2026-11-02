@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""
+Driver UR falso para probar los runners por posición de punta a punta sin robot.
+
+Lo que un runner ve del driver real (medido en el robot el 2026-11-02): el orden
+de `/joint_states` distinto al de la tabla, la escala de velocidad, el JTC que al
+primer punto con `time_from_start = 0` SALTA a él, `zero_ftsensor` y el wrench.
+
+Solo tiene sentido en un ROS_DOMAIN_ID propio: el robot real vive en otro, y un
+runner que hablase con él movería el brazo. Por eso se niega a arrancar sin
+`--domain` igual al del entorno.
+
+Cada evento (trayectoria recibida, cero, cambio de controlador) va a `--log` como
+una línea JSON.
+"""
+
+import argparse
+import json
+import os
+import sys
+import time
+
+import numpy as np
+import rclpy
+from controller_manager_msgs.srv import SwitchController
+from geometry_msgs.msg import WrenchStamped
+from rclpy._rclpy_pybind11 import RCLError
+from rclpy.executors import ExternalShutdownException
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Float64
+from std_srvs.srv import Trigger
+from trajectory_msgs.msg import JointTrajectory
+
+#: Orden de la tabla.
+JOINTS = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+          "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
+#: Orden en que el broadcaster real publica: no es el de la tabla.
+PUBLISH_ORDER = [2, 1, 5, 3, 4, 0]
+PERIOD = 0.004              # [s]
+
+
+def _seconds(duration) -> float:
+    return duration.sec + duration.nanosec * 1e-9
+
+
+class FakeUr(Node):
+    def __init__(self, q0, scaling, log_path):
+        super().__init__("fake_ur_driver")
+        self.q = np.asarray(q0, float)
+        self.q_prev = self.q.copy()
+        self.scaling = scaling
+        self.log_path = log_path
+        self.traj = None
+        self.pub_js = self.create_publisher(JointState, "/joint_states", 100)
+        self.pub_ft = self.create_publisher(
+            WrenchStamped, "/force_torque_sensor_broadcaster/wrench",
+            qos_profile_sensor_data)
+        self.pub_scaling = self.create_publisher(
+            Float64, "/speed_scaling_state_broadcaster/speed_scaling", 10)
+        self.create_subscription(
+            JointTrajectory, "/scaled_joint_trajectory_controller/joint_trajectory",
+            self._on_trajectory, 10)
+        self.create_service(SwitchController, "/controller_manager/switch_controller",
+                            self._on_switch)
+        self.create_service(Trigger, "/io_and_status_controller/zero_ftsensor",
+                            self._on_zero)
+        self.create_timer(PERIOD, self._tick)
+
+    def _event(self, **kw):
+        with open(self.log_path, "a") as fh:
+            fh.write(json.dumps(kw) + "\n")
+
+    def _on_switch(self, req, res):
+        self._event(kind="switch", activate=list(req.activate_controllers))
+        res.ok = True
+        return res
+
+    def _on_zero(self, _req, res):
+        self._event(kind="zero", t=time.time())
+        res.success = True
+        return res
+
+    def _on_trajectory(self, msg):
+        order = [msg.joint_names.index(n) for n in JOINTS]
+        times = np.array([_seconds(p.time_from_start) for p in msg.points])
+        qs = np.array([[p.positions[i] for i in order] for p in msg.points])
+        # Como el JTC: de donde esté al primer punto, en el tiempo de ese punto.
+        # Con t = 0 el "movimiento" es un salto de la consigna.
+        jump = float(np.abs(self.q - qs[0]).max()) if times[0] == 0.0 else 0.0
+        if times[0] > 0.0:
+            times = np.r_[0.0, times]
+            qs = np.vstack([self.q, qs])
+        self._event(kind="trajectory", points=len(msg.points),
+                    duration=float(times[-1]), jump=jump, target=qs[-1].tolist())
+        if self.scaling > 0.0:
+            self.traj = (time.time(), times, qs)
+
+    def _tick(self):
+        now = time.time()
+        if self.traj is not None:
+            t0, times, qs = self.traj
+            t = now - t0
+            self.q_prev, self.q = self.q, np.array(
+                [np.interp(t, times, qs[:, j]) for j in range(6)])
+            if t > times[-1]:
+                self.traj = None
+        else:
+            self.q_prev = self.q
+        stamp = self.get_clock().now().to_msg()
+        js = JointState()
+        js.header.stamp = stamp
+        js.name = [JOINTS[i] for i in PUBLISH_ORDER]
+        js.position = [float(self.q[i]) for i in PUBLISH_ORDER]
+        dq = (self.q - self.q_prev) / PERIOD
+        js.velocity = [float(dq[i]) for i in PUBLISH_ORDER]
+        js.effort = [0.1] * 6
+        self.pub_js.publish(js)
+        w = WrenchStamped()
+        w.header.stamp = stamp
+        w.wrench.force.z = 5.0
+        self.pub_ft.publish(w)
+        self.pub_scaling.publish(Float64(data=float(self.scaling)))
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--domain", type=int, required=True,
+                    help="tiene que coincidir con ROS_DOMAIN_ID del entorno")
+    ap.add_argument("--q0", type=float, nargs=6, required=True)
+    ap.add_argument("--scaling", type=float, default=1.0)
+    ap.add_argument("--log", required=True)
+    args = ap.parse_args()
+    if os.environ.get("ROS_DOMAIN_ID") != str(args.domain):
+        sys.exit("ROS_DOMAIN_ID del entorno distinto de --domain: no arranco")
+    rclpy.init()
+    node = FakeUr(args.q0, args.scaling, args.log)
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException, RCLError):
+        pass
+
+
+if __name__ == "__main__":
+    main()
