@@ -110,10 +110,12 @@ def segment_problem(seg, samples):
     return None
 
 
-def report(rows, combined):
+def report(rows, combined, ranges):
     from ur5_identification.campaign_levels import JOINT_NAMES
-    print(f"\n  {'junta':14s} {'postura':12s} {'n':>2s} {'M med':>8s} {'+-':>7s} "
-          f"{'M modelo':>9s} {'rotor':>8s} {'+-2 ms':>7s} {'s':>8s} {'resid':>7s}")
+    print("\n  Fasores: M med, +-, rotor, +-2 ms, s, resid. Celdas de velocidad: rotor cel, s cel.")
+    print(f"  {'junta':14s} {'postura':12s} {'n':>2s} {'M med':>8s} {'+-':>7s} "
+          f"{'M modelo':>9s} {'rotor':>8s} {'+-2 ms':>7s} {'s':>8s} {'resid':>7s} "
+          f"{'rotor cel':>9s} {'s cel':>7s}")
     for r in rows:
         name = JOINT_NAMES[r["joint"]].replace("_joint", "")
         if r["M"] is None:
@@ -121,14 +123,17 @@ def report(rows, combined):
             continue
         print(f"  {name:14s} {r['posture']:12s} {r['n']:2d} {r['M']:8.3f} {r['err']:7.3f} "
               f"{r['M_model']:9.3f} {r['dI']:8.3f} {r['sens']:7.3f} {r['s']:8.1f} "
-              f"{r['resid']:7.3f}  {r['note']}")
+              f"{r['resid']:7.3f} {r['dI_cell']:9.3f} {r['s_cell']:7.1f}  {r['note']}")
     print("\n  Rotor por junta [kg.m2]:")
     for j, c in combined.items():
         name = JOINT_NAMES[j].replace("_joint", "")
         note = "" if c["consistent"] else (
             f"  LAS POSTURAS NO COINCIDEN (difieren {c['spread']:.3f}): no usar sin revisar")
-        print(f"    {name:14s} {c['dI']:7.3f} +- {c['err']:.3f}  "
+        low, high = ranges[j]
+        print(f"    {name:14s} {c['dI']:7.3f} +- {c['err']:.3f}  rango {low:.3f}-{high:.3f}  "
               f"({c['postures']} postura(s)){note}")
+    print("  El +- sale del ajuste de fasores y no incluye la diferencia entre estimadores.\n"
+          "  Para margenes, el extremo bajo del rango: menos inercia, menos margen.")
     missing = sorted(set(range(6)) - set(combined))
     if missing:
         print("    sin medida valida: " + ", ".join(JOINT_NAMES[j] for j in missing))
@@ -137,7 +142,8 @@ def report(rows, combined):
 def analyze(paths, plant, out_yaml=None):
     """Reúne uno o varios CSV de este script, informa y escribe el YAML."""
     import yaml
-    from ur5_identification.inertia_id import combine_joints, fit_groups, read_csv
+    from ur5_identification.inertia_id import (combine_joints, fit_groups, read_csv,
+                                               rotor_range)
     segments, mass, cog = [], None, None
     tests = []
     for path in paths:
@@ -154,8 +160,9 @@ def analyze(paths, plant, out_yaml=None):
         sys.exit("Ningun segmento en los CSV.")
     rows = fit_groups(segments, plant.model, plant.data, mass, cog)
     combined = combine_joints(rows)
+    ranges = rotor_range(rows)
     print(f"Corridas {tests}: {len(segments)} segmentos; herramienta {mass} kg en {cog} mm.")
-    report(rows, combined)
+    report(rows, combined, ranges)
     if out_yaml:
         if os.path.exists(out_yaml):
             print(f"  {out_yaml} ya existe: no se sobrescribe")
@@ -163,6 +170,8 @@ def analyze(paths, plant, out_yaml=None):
             with open(out_yaml, "w") as fh:
                 yaml.safe_dump({
                     "test_nums": tests, "masa_kg": mass, "cog_mm": list(cog),
+                    "rotor_bajo_kg_m2": {int(j): round(r[0], 4) for j, r in ranges.items()},
+                    "rotor_alto_kg_m2": {int(j): round(r[1], 4) for j, r in ranges.items()},
                     "rotor_kg_m2": {int(j): round(c["dI"], 4) for j, c in combined.items()},
                     "rotor_err": {int(j): round(c["err"], 4) for j, c in combined.items()},
                     "sensibilidad_2ms": {int(j): round(c["sens"], 4)

@@ -1,8 +1,9 @@
 # Plan actualizado — Incisión con UR5e por par: LQR-SDRE vs SMC optimizado
 
-- **Fecha:** 2026-11-03 · **Revisión 10** — la re-sintonía con la planta del URDF es
-  infactible y el URDF no trae la inercia de los rotores (V16); se mide antes de usarla
-  (D25, B4.6). Rev. 9 (2026-10-28): R10 aplicado (D23): retardo real de
+- **Fecha:** 2026-11-03 · **Revisión 11** — B4.6 cerrado: inercia de los rotores medida en el
+  robot, 1.03–1.45 kg·m² en las juntas grandes y 0.07–0.17 en las muñecas (V16, D25). Rev. 10: la
+  re-sintonía con la planta del URDF es infactible y el URDF no trae esa inercia; se mide antes
+  de usarla. Rev. 9 (2026-10-28): R10 aplicado (D23): retardo real de
   5 ciclos en el evaluador, restricción discreta MIMO `g7` y chequeo en el
   banner de las tres leyes, que en el real **no arranca** si la ley es inestable
   con ese retardo (§2.7). Rev. 8: retardo de tubería del real medido
@@ -61,7 +62,7 @@ con el **Computed Torque (CT)** como línea base natural.
 | D20 | Pinocchio 4.1 (actualizado desde 3.1 hace unos meses) se **retiene** | Hecho: `apt-mark hold` de `robotpkg-{,py310-}pinocchio` 4.1.0 y de lo que lleva compilado dentro, `robotpkg-{,py310-}coal` 3.0.4, `robotpkg-py310-eigenpy` 3.13.0, `robotpkg-{,py310-}casadi` 3.7.2. Para actualizar: `sudo apt-mark unhold <paquete>` y re-verificar (test cruzado de B0.4) |
 | D21 | Muestras aún sin comprar: el usuario las conseguirá según las **dimensiones recomendadas** | §3.5 (h) |
 | D22 | **Trabajo futuro**, tras el corte recto: corte **curvo** con la hoja tangente a la trayectoria | B10 |
-| D25 | **(2026-11-03) La inercia de los rotores se mide en el robot antes de usarla** | Opción A del usuario frente a V16: prueba corta por posición (B4.6, `09b_inertia_protocol.md`), después inercia medida en la planta del evaluador y en `g7`, re-sintonía y rampa de `wrist_1` por escalones antes de cualquier incisión. Tocar el chequeo de arranque del nodo necesita visto bueno aparte: es una protección de seguridad. Descartado relajar `g4` con el URDF: el error (≥ 17 mm) supera la profundidad de corte (5 mm) |
+| D25 | **(2026-11-03) La inercia de los rotores se mide en el robot antes de usarla** | Opción A del usuario frente a V16: prueba corta por posición (B4.6, `09b_inertia_protocol.md`), después inercia medida en la planta del evaluador y en `g7`, re-sintonía y rampa de `wrist_1` por escalones antes de cualquier incisión. Tocar el chequeo de arranque del nodo necesita visto bueno aparte: es una protección de seguridad. Descartado relajar `g4` con el URDF: el error (≥ 17 mm) supera la profundidad de corte (5 mm). **Tras medir (2026-11-03), confirmado por el usuario:** en planta y `g7` entra el extremo bajo del rango medido, porque menos inercia da menos margen; la ley se queda con la M del URDF, porque poner el rotor también en ella obliga a bajar λ con `G ≤ 120` (estático: 0.7 frente a 1.5 mm en la punta) |
 | D24 | **R11 (2026-10-30): margen mínimo de `g7` = ×2 (6 dB)** | Elección de diseño, no medida (`MARGIN_MIN_DEFAULT`). Con 5 ciclos: CT nominal ×6.95 pasa; la semilla del LQI (×1.32) no, y B5 tendrá que bajarla; el nodo solo rechaza por debajo de ×1 |
 | D23 | **R10 (2026-10-28): el retardo real de 5 ciclos entra en el evaluador y en la estabilidad discreta de las tres leyes; el SMC se re-sintoniza antes de llevarlo al robot** | Hecho: `PIPELINE_DELAY_STEPS` = 5, `g7` (margen MIMO ≥ ×2, confirmado: D24) en el optimizador, `pipeline_delay_steps` = 5 en `ur5e_real.launch.py` y rechazo en el arranque (§2.7). La re-sintonía del SMC, tras medir `α_g` (B4.4) |
 
@@ -588,6 +589,42 @@ Lo que esto **no** prueba:
 - La fuerza de corte de 5 N sigue siendo sintética (B2).
 
 Decisión: D25.
+
+**Medido en el robot (B4.6, 2026-11-03; detalle en `09b_inertia_protocol.md` §8).** Rango de dos
+estimadores y las posturas medidas, en kg·m²:
+
+| junta | M URDF con acople | rotor medido |
+|---|---|---|
+| `shoulder_pan` | 1.15–2.22 | 1.03–1.18 |
+| `shoulder_lift` | 2.80 | 1.25–1.45 |
+| `elbow` | 0.97–0.99 | 1.05–1.39 |
+| `wrist_1` | 0.033 | 0.125–0.147 |
+| `wrist_2` | 0.011 | 0.139–0.170 |
+| `wrist_3` | 0.0004 | 0.072–0.113, poco fiable |
+
+Corrige la tabla preliminar de arriba: `shoulder_lift` no era compatible con 0, y las muñecas
+no llegan a 0.19. `shoulder_pan` valida el método: su M del URDF casi se duplica entre posturas y el
+rotor apenas cambia (1.076 y 1.032).
+
+Margen discreto (D = 5, en `Q_INIT`) con el extremo bajo en la planta y la ley con la M del URDF:
+
+| corrida | robot | margen con URDF | margen con rotor medido |
+|---|---|---|---|
+| `713` | limpia | 0 | ×6.17 |
+| `715` | limpia | 0 | ×4.83 |
+| `722` | limpia | 0 | ×2.76 |
+| `717` | limpia | 0 | ×2.63 |
+| `718` | limpia | 0 | ×2.25 |
+| `712` | ciclo a 35 Hz | 0 | ×1.38 |
+
+El requisito de ×2 separa ahora la corrida que falló de las limpias, **pero no explica el fallo**:
+ningún modelo rígido da 35 Hz, y `smc_712` tenía `G` de 186, 240 y 134 en las juntas grandes.
+`G ≤ 120` sigue siendo necesaria.
+
+El cálculo estático por junta da para `wrist_1` un `K_P` de unos 350 N·m/rad y 0.7 mm en la punta.
+Es optimista, como el de arriba: con la proporción de antes (7 a ≥ 17 mm) serían unos 1.8 mm. Y 350
+es casi el 349 con el que falló `smc_712`, con `wrist_1` probada limpia solo hasta unos 50: la rampa
+por escalones sigue siendo obligatoria.
 
 ---
 
@@ -1152,7 +1189,7 @@ más seguro y desacopla la medida de fuerza de cualquier ley propia.
 | ⚠️ | **Regresión de B0 encontrada y corregida (`7bfcf55`)**: con el común `/**` delante y los YAML de ley con sección `<nodo>:`, los overrides de los launches (comodín en `launch_ros` si el `Node` no lleva nombre) se ignoraban en silencio en las incisiones (`lambda_joint`, `phi`, `alpha`, `wn`, `kp`/`kd`), también en el real. Ahora los YAML de ley van en `/**` y los launches nombran el `Node`; dos tests lo fijan. |
 | B4.4 | ✅ **Hecho (2026-11-02): `α_g` = 0.0543** (peor postura: hombro 0.039, codo 0.054, `wrist_1` 0.047; `fl_1101`–`1133`, 12 de 12 completas, margen ×2.19, sin `SAFE_HOLD`; `g_real − ĝ` coincide a las dos velocidades hasta en 0.07 N·m). **`Δ` es proporcional a `ĝ` en cada junta**, sin depender de la postura: 3.56 % en hombro (`Δ` hasta 1.49 N·m; residuo ≤ 0.08), 5.36 % en codo (hasta 1.12; ≤ 0.013) y 3.86 % en `wrist_1` (hasta 0.09; ≤ 0.016). El robot compensa con el modelo nominal (`g_UR` a 0.08 N·m de él) y la gravedad real es menor. Sin hoja; para los cortes el payload vuelve a 0.179 kg. Método: `α_g` = `|g_real − g_UR| / |ĝ|` (§4.4), con **barridos** y no con sostén: quieto, la fricción estática de hombro y codo (±7 N·m) tapa un error de ~1.5. Por junta y postura, `g_real = ½[k⊙i(+v) + k⊙i(−v)] − Cq̇` a q emparejada (la fricción es impar) y `g_UR = k⊙i − τ_cmd(k − D)` con D = 5 (V15). 4 posturas sobre el trazo (inicio y tres a 60 mm de la cota del corte) × hombro, codo, `wrist_1`, ±0.05 rad a 0.05 y 0.10 rad/s, CT por par con acople (sin hoja) y payload = acople pesado. Ganancias 100/20 y 900/60 en muñecas (margen ×2.2 con D = 5). Herramientas: `config/gravity_sweep_params.yaml`, `run_gravity_sweeps_real.py` (semiautomático, holgura ≥ 71 mm al tablero comprobada, nunca sobrescribe), `analyze_gravity_sweeps.py`, `gravity_sweeps.py` (6 tests: IK, holgura, cancelación de fricción, D y `k` recuperados de un CSV sintético). **Gazebo con la fricción real inyectada** (`fl_98831`–`98833`, `corte_medio`): `g_real − ĝ` = 0.004 / 0.002 / 0.0002 N·m, igual a las dos velocidades. Protocolo: `09a_session_protocol.md` §3. |
 | B4.5 | Las tres leyes en el gemelo (aire + fuerza sintética corregida). |
-| B4.6 | **Preparado, sin ejecutar.** Inercia efectiva por junta (V16, D25): `run_inertia_id.py`, por posición, senos de 1 a 4 Hz. Protocolo y criterio fijado antes de ver datos en `09b_inertia_protocol.md`. Después, sin empezar hasta confirmarlo: inercia en la planta y en `g7`, re-sintonía, rampa de `wrist_1`. Los márgenes de CT y LQI hay que recalcularlos y el gemelo tampoco tiene esta inercia. |
+| B4.6 | **Cerrado (2026-11-03).** Inercia efectiva por junta (V16, D25) medida en el robot, sin paradas (`iner_1300`, `1301`, `1302`): `run_inertia_id.py`, por posición, senos de 1 a 4 Hz, con dos estimadores (fasores y celdas de velocidad). `wrist_1` 0.125–0.147 kg·m², criterio ≥ 0.10 cumplido; `wrist_3` poco fiable, no limita. Resultado en `09b_inertia_protocol.md` §8 y `ur5_identification/config/rotor_inertia_b46.yaml`. Queda: inercia en la planta y en `g7`, re-sintonía, rampa de `wrist_1`. Los márgenes de CT y LQI hay que recalcularlos y el gemelo tampoco tiene esta inercia. |
 
 ### B5 — Sintonía equitativa (FASE 7 ampliada)
 

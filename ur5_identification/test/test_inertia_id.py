@@ -20,8 +20,8 @@ sys.path.insert(0, _SCRIPTS)
 from ur5_identification.force_estimator import K_CURRENT  # noqa: E402
 from ur5_identification.inertia_id import (  # noqa: E402
     DT, FREQS, RAMP, V_PEAK, append_segment, combine_joints, dynamic_stiffness,
-    excitation, fit_groups, fit_slope, harmonic, model_inertia, read_csv, steady_window,
-    write_header)
+    excitation, fit_groups, fit_slope, harmonic, model_inertia, read_csv, rotor_range,
+    steady_window, velocity_cell_fit, write_header)
 
 try:
     from ur5_trajectory_optimization.gain_tuning.closed_loop import (
@@ -36,10 +36,11 @@ Q0 = np.array([1.5708, -1.5694, 1.5141, -1.5155, -1.5708, 3.1416])
 
 
 def synth_samples(seg, inertia, stiffness=0.0, coulomb=0.0, viscous=0.0, noise=0.0,
-                  skew=0.0, sign=1.0, seed=0, dt=DT):
+                  skew=0.0, sign=1.0, seed=0, dt=DT, friction_lag=0.0):
     """/joint_states de un brazo que sigue la consigna, con la física de la junta.
 
     `skew`: la corriente va `skew` segundos por detrás de la posición.
+    `friction_lag`: solo la fricción de Coulomb va retrasada, como al invertir.
     """
     rng = np.random.default_rng(seed)
     j = seg.joint
@@ -47,7 +48,8 @@ def synth_samples(seg, inertia, stiffness=0.0, coulomb=0.0, viscous=0.0, noise=0
     dq = seg.dq[:, j]
     ddq = np.gradient(dq, dt)
     x = seg.q[:, j] - seg.q0[j]
-    tau = (inertia * ddq + stiffness * x + coulomb * np.tanh(dq / 0.002)
+    tau = (inertia * ddq + stiffness * x
+           + coulomb * np.tanh(np.interp(t - friction_lag, t, dq) / 0.002)
            + viscous * dq + 3.0)
     if skew:
         tau = np.interp(t - skew, t, tau)
@@ -209,6 +211,45 @@ def test_dos_posturas_que_no_coinciden_se_dicen():
 def test_una_junta_con_aviso_no_entra():
     bad = dict(_row(1, "a", 2.0), note="POCA SENAL")
     assert combine_joints([bad, _row(0, "a", 1.0)]).keys() == {0}
+
+
+# --- Celdas de velocidad -----------------------------------------------------------
+
+def test_celdas_recuperan_inercia_y_rigidez(tmp_path):
+    segs = segments_from(tmp_path, 3, 0.19, stiffness=1.0, coulomb=1.8, viscous=1.3,
+                         noise=0.02)
+    M, s = velocity_cell_fit(segs)
+    assert M == pytest.approx(0.19, abs=0.002)
+    assert s == pytest.approx(1.0, abs=0.3)
+
+
+def test_celdas_no_ven_el_retraso_de_la_friccion_y_los_fasores_si(tmp_path):
+    # El motivo de tener los dos: el sesgo de fasores es (4 F_c/pi)(lag/v) = 0.017.
+    segs = segments_from(tmp_path, 3, 0.19, coulomb=1.8, friction_lag=0.003)
+    rows = fit_groups(segs)
+    assert rows[0]["M"] == pytest.approx(0.19 - 0.017, abs=0.002)
+    assert velocity_cell_fit(segs)[0] == pytest.approx(0.19, abs=0.002)
+
+
+def test_celdas_toleran_otra_friccion_en_cada_segmento(tmp_path):
+    # La fricción deriva con la temperatura entre un segmento y el siguiente.
+    a = segments_from(tmp_path, 3, 0.19, freqs=(1.0, 2.0), coulomb=1.8)
+    b = segments_from(tmp_path, 3, 0.19, freqs=(3.0, 4.0), index0=2, coulomb=2.3,
+                      posture="otra")
+    M, _ = velocity_cell_fit(a + b)
+    assert M == pytest.approx(0.19, abs=0.002)
+
+
+def test_celdas_con_dos_frecuencias_no_ajustan(tmp_path):
+    assert velocity_cell_fit(segments_from(tmp_path, 3, 0.19, freqs=(1.0, 3.0))) is None
+
+
+def test_el_rango_cubre_los_dos_estimadores_y_todas_las_posturas():
+    rows = [dict(_row(3, "inicio", 0.132), dI_cell=0.147),
+            dict(_row(3, "corte", 0.125), dI_cell=0.145),
+            dict(_row(4, "inicio", 0.139), dI_cell=None),
+            dict(_row(5, "inicio", 0.5), dI_cell=0.6, note="POCA SENAL")]
+    assert rotor_range(rows) == {3: (0.125, 0.147), 4: (0.139, 0.139)}
 
 
 # --- Modelo rígido ---------------------------------------------------------------

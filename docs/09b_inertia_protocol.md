@@ -1,7 +1,7 @@
 # Protocolo — inercia efectiva por junta en el UR5e real (B4.6)
 
-**Estado:** preparado, sin ejecutar. Plan: V16, D25 y B4.6 de
-`Journal_UR5eControl_plan.md`. Método: `ur5_identification/inertia_id.py`.
+**Estado:** ejecutado el 2026-11-03 (`iner_1300`, `1301`, `1302`); resultado en §8. Plan:
+V16, D25 y B4.6 de `Journal_UR5eControl_plan.md`. Método: `ur5_identification/inertia_id.py`.
 
 **Por qué.** El URDF no incluye la inercia de los rotores y `g7` se calcula con él. Con
 esa planta la re-sintonía del SMC no tiene solución (V16). Los barridos de fricción
@@ -120,3 +120,57 @@ protocolo.
 
 La salida de la consola de 2.2 a 2.5 y lo observado en el pendant. Los datos quedan en
 `~/.ros/ur5_dyn_control/iner_*.csv` e `iner_*.yaml`.
+
+## 8. Resultado (2026-11-03)
+
+64 segmentos completos en `iner_1301` y `iner_1302`, más los 3 de `iner_1300`. Sin paradas:
+seguimiento ≥ 0.968, un solo hueco de 3.5 ms y par máximo del 46 % del límite
+(`shoulder_lift`, casi todo gravedad). En 25–40 Hz, como mucho 0.6 N·m en las juntas grandes,
+en armónicos del seno: parece excitación y no una oscilación propia. Sale de:
+
+```bash
+cd ~/.ros/ur5_dyn_control
+ros2 run ur5_identification run_inertia_id.py --analizar iner_1301.csv iner_1302.csv
+```
+
+Copia del resultado: `ur5_identification/config/rotor_inertia_b46.yaml`.
+
+| junta | M del URDF con acople | rotor, fasores | rotor, celdas | **rango** |
+|---|---|---|---|---|
+| `shoulder_pan` | 1.146 (`inicio`), 2.217 (`corte_medio`) | 1.076, 1.032 | 1.178, 1.067 | **1.032–1.178** |
+| `shoulder_lift` | 2.796, 2.795 | 1.415, 1.344 | 1.454, 1.247 | **1.247–1.454** |
+| `elbow` | 0.965, 0.985 | 1.238, 1.054 | 1.386, 1.096 | **1.054–1.386** |
+| `wrist_1` | 0.033, 0.033 | 0.132, 0.125 | 0.147, 0.145 | **0.125–0.147** |
+| `wrist_2` | 0.011 | 0.139 | 0.170 | **0.139–0.170** |
+| `wrist_3` | 0.0004 | 0.072 | 0.113 | **0.072–0.113**, poco fiable |
+
+Unidades: kg·m². Con dos valores, el orden es `inicio`, `corte_medio`.
+
+**Decisión (§5):** `wrist_1` ≥ 0.10 confirma los barridos. El **extremo bajo** del rango es el
+que entra en la planta y en `g7`, porque menos inercia da menos margen (D25).
+
+**Comprobaciones de §5:**
+
+- *`shoulder_pan` entre posturas:* su M del URDF casi se duplica y el rotor apenas cambia
+  (1.076 y 1.032). Es la mejor prueba del método.
+- *Repetibilidad:* `wrist_1` da 0.132, 0.132 y 0.133 en las tres corridas; las demás juntas
+  varían menos del 1.2 %.
+- *Muñecas parecidas:* `wrist_1` y `wrist_2` sí, `wrist_3` no. Su M sube con la frecuencia sin
+  converger (0.031, 0.049, 0.060 y 0.074 con la rigidez del modelo), y en celdas depende del umbral
+  de velocidad (0.096, 0.114 y 0.142). Su fricción, 4.3 N·m, tapa la inercia, 0.7 N·m a 4 Hz. Se
+  usa su extremo bajo porque no limita: su `K_P` en `smc_712` era 1.8, frente a 349 de `wrist_1`.
+
+**Qué no se resuelve:**
+
+- La diferencia entre fasores y celdas es sistemática y sigue sin explicación; se sospecha de la
+  fricción al invertir, sin demostrarlo. Un desfase de corriente no basta: en `wrist_1` harían
+  falta 3.5 ms, y a 2 y 3 Hz la fricción cambia de signo como mucho 0.4 ms después de invertir.
+- La rigidez de gravedad del modelo no desempata: en `shoulder_lift` (−42.8 en `inicio`) acierta
+  mejor celdas (−38.0) que fasores (−19.5), y en `shoulder_pan` (0) y `elbow` (−0.1) al revés.
+- Dos ajustes exploratorios de fasores con un término extra de fricción bajan `wrist_1` a
+  0.088–0.127, pero ese término cambia de signo entre juntas y no se usan.
+- Para separar del todo fricción e inercia haría falta otra excitación: la misma frecuencia con
+  dos amplitudes. No se hizo porque el resultado no cambia la decisión.
+
+**Corrige lo preliminar de V16:** `shoulder_lift` no es compatible con 0, y las muñecas rondan
+0.13–0.17 y no 0.19.

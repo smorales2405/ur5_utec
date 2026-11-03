@@ -383,7 +383,7 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   fijan también los gtest `PidDiscrete`/`MimoDiscrete` y su espejo en Python.
 
 Total en `colcon test-result` (2026-11-03): **154** en `ur5_dyn_control`,
-118 en `ur5_identification` y 42 en `ur5_trajectory_optimization`: **314**, todos
+123 en `ur5_identification` y 42 en `ur5_trajectory_optimization`: **319**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)

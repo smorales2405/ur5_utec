@@ -36,6 +36,21 @@ ciclo; aun así se informa de cuánto cambia `M` con ±2 ms.
 El rotor de cada junta sale de restar el modelo rígido con la herramienta. No depende
 de la postura; si dos posturas no coinciden, algo falla y se dice.
 
+Dos estimadores, porque en el robot no coinciden
+------------------------------------------------
+Con el mismo dato, `fit_slope` (fasores) y `velocity_cell_fit` (celdas de velocidad)
+difieren más que la repetibilidad, que es de menos del 1.2 %: es un sesgo, no ruido.
+
+- Los fasores usan todo el ciclo, y su parte en fase con la posición pesa más justo en
+  las inversiones. Si la fricción tarda en cambiar de signo, ahí se cuela: basta un 3-4 %
+  del par para mover `M`.
+- Las celdas comparan aceleración y frenado a igual velocidad y solo lejos de las
+  inversiones, pero suponen que fuera de ellas la fricción depende solo de la velocidad.
+
+La rigidez de gravedad, que el modelo sí da, no los desempata (B4.6). Por eso se informa
+del rango (`rotor_range`) y no de un número, y para los márgenes se usa su extremo bajo:
+menos inercia, menos margen.
+
 A esta frecuencia el brazo se comporta como rígido: el modo flexible está en 25-35 Hz.
 Esta medida no dice nada de ese modo, que sigue limitado por `G ≤ 120` y hay que
 comprobarlo en el robot.
@@ -67,6 +82,10 @@ MIN_POINTS = 3
 #: Por encima de esta incertidumbre relativa, el ajuste no se da por bueno.
 MAX_REL_ERR = 0.15
 SKEW_TEST = 0.002           # [s]
+#: Celdas de velocidad: solo muestras con |v| por encima de esta fracción del pico. Con
+#: 0.3, 0.5 y 0.7 el rotor de `wrist_1` da 0.148, 0.147 y 0.141.
+CELL_MIN_SPEED = 0.5
+CELL_BINS = 5
 
 
 @dataclass
@@ -246,6 +265,46 @@ def segment_point(seg, k=K_CURRENT, skew=0.0):
     return seg["freq"], z, q
 
 
+def velocity_cell_fit(segments, k=K_CURRENT, min_speed=CELL_MIN_SPEED, bins=CELL_BINS):
+    """(M, s) de `τ = M q̈ + s q + F(v)`, lejos de las inversiones; None si no se puede.
+
+    `F` es libre: una constante por celda de velocidad, sentido y segmento. Así la deriva
+    térmica de la fricción entre segmentos no entra, y `M` y `s` salen solo de lo que
+    cambia entre acelerar y frenar a igual velocidad. En un segmento `q̈ = −ω² q`, de modo
+    que hacen falta varias frecuencias para separarlas, igual que en `fit_slope`.
+    """
+    usable = [s for s in segments if segment_point(s, k) is not None]
+    if len({s["freq"] for s in usable}) < MIN_POINTS:
+        return None
+    acc, pos, tau, cell = [], [], [], []
+    for n, seg in enumerate(usable):
+        j, w = seg["joint"], 2.0 * math.pi * seg["freq"]
+        mask = steady_window(seg["t_rel"], seg["freq"], seg["cycles"])
+        t = seg["t"][mask]
+        # El movimiento ajustado: derivar la posición medida solo añadiría ruido.
+        rot = harmonic(t, seg["q"][mask, j], seg["freq"]) * np.exp(1j * w * t)
+        q, v = rot.real, (1j * w * rot).real
+        v_max = np.abs(v).max()
+        keep = np.abs(v) >= min_speed * v_max
+        edges = np.linspace(min_speed * v_max, v_max * (1.0 + 1e-6), bins + 1)
+        bin_ = np.clip(np.digitize(np.abs(v[keep]), edges) - 1, 0, bins - 1)
+        cell.append(bin_ + bins * (v[keep] > 0) + 2 * bins * n)
+        acc.append(-w * w * q[keep])
+        pos.append(q[keep])
+        tau.append(k[j] * seg["cur"][mask, j][keep])
+    cell = np.unique(np.concatenate(cell), return_inverse=True)[1]
+    count = np.bincount(cell)
+
+    def within(x):
+        # Quitar la media de cada celda equivale a una constante libre por celda.
+        x = np.concatenate(x)
+        return x - (np.bincount(cell, x) / count)[cell]
+
+    sol = np.linalg.lstsq(np.column_stack([within(acc), within(pos)]), within(tau),
+                          rcond=None)[0]
+    return float(sol[0]), float(sol[1])
+
+
 def tracking_ratio(seg) -> float:
     """Amplitud medida / mandada en la junta excitada; 0 si no hay amplitud constante."""
     mask = steady_window(seg["t_rel"], seg["freq"], seg["cycles"])
@@ -266,7 +325,8 @@ def fit_groups(segments, model=None, data=None, mass=0.0, cog_mm=(0.0, 0.0, 0.0)
         pts = [p for p in (segment_point(s, k) for s in segs) if p is not None]
         row = {"joint": joint, "posture": posture, "n": len(pts), "points": pts,
                "M": None, "s": None, "err": None, "resid": None, "sens": None,
-               "M_model": None, "dI": None, "note": ""}
+               "M_model": None, "dI": None, "note": "",
+               "M_cell": None, "s_cell": None, "dI_cell": None}
         if len({p[0] for p in pts}) < MIN_POINTS:
             row["note"] = f"menos de {MIN_POINTS} frecuencias: sin ajuste"
             out.append(row)
@@ -282,6 +342,11 @@ def fit_groups(segments, model=None, data=None, mass=0.0, cog_mm=(0.0, 0.0, 0.0)
             q_mean = np.mean(np.vstack([s["q"] for s in segs]), axis=0)
             row["M_model"] = model_inertia(model, data, q_mean, joint, mass, cog_mm)
             row["dI"] = row["M"] - row["M_model"]
+        cells = velocity_cell_fit(segs, k)
+        if cells is not None:
+            row["M_cell"], row["s_cell"] = cells
+            if row["M_model"] is not None:
+                row["dI_cell"] = row["M_cell"] - row["M_model"]
         if row["M"] <= 0.0:
             row["note"] = "M negativa o nula: NO USABLE (¿signo de la corriente?)"
         elif row["err"] > MAX_REL_ERR * row["M"]:
@@ -312,3 +377,15 @@ def combine_joints(rows):
                       "sens": max(r["sens"] for r in vals), "postures": len(vals),
                       "consistent": len(vals) < 2 or spread <= limit}
     return out
+
+
+def rotor_range(rows):
+    """{junta: (bajo, alto)} de los dos estimadores y todas las posturas válidas."""
+    out = {}
+    for r in rows:
+        if r["dI"] is None or r["note"]:
+            continue
+        values = [r["dI"]] + ([] if r["dI_cell"] is None else [r["dI_cell"]])
+        low, high = out.get(r["joint"], (math.inf, -math.inf))
+        out[r["joint"]] = (min(low, *values), max(high, *values))
+    return dict(sorted(out.items()))
