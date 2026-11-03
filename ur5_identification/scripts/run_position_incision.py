@@ -68,6 +68,11 @@ ZERO_LEAD = 0.15            # [s]
 FT_TOPIC = "/force_torque_sensor_broadcaster/wrench"
 ZERO_SRV = "/io_and_status_controller/zero_ftsensor"
 SCALING_TOPIC = "/speed_scaling_state_broadcaster/speed_scaling"
+TCP_TOPIC = "/tcp_pose_broadcaster/pose"
+#: TCP del pendant admitido. La cinemática calibrada del robot difiere ~1 mm de la
+#: nominal, y 0.2° de orientación (medido, 2026-11-02).
+MAX_TCP_OFFSET = 0.005      # [m]
+MAX_TCP_ROTATION = 0.02     # [rad]
 
 
 def build_incision_reference(out_csv: str, timeout: float = 120.0) -> bool:
@@ -146,6 +151,55 @@ def scaling_problem(value: float):
         return (f"slider de velocidad al {100 * frac:.0f} %: ponerlo al 100 %. El JTC "
                 "escala su tiempo, pero el cero del F/T y las fases del CSV no.")
     return None
+
+
+def tcp_offset(plant, q, position, quat_xyzw):
+    """(traslación [m], rotación [rad]) del TCP del pendant respecto a la brida.
+
+    Compara la pose que publica el controlador con la FK del modelo, en ejes de
+    tool0. La base del controlador es base_link girada 180° sobre z.
+    """
+    import pinocchio as pin
+    from ur5_trajectory_optimization.gain_tuning.closed_loop import TCP_OFFSET
+    pin.framesForwardKinematics(plant.model, plant.data, np.asarray(q, float))
+    tip = plant.data.oMf[plant.tcp]
+    flange = tip.translation - tip.rotation @ np.array([0.0, 0.0, TCP_OFFSET])
+    rz = np.diag([-1.0, -1.0, 1.0])
+    expected = rz @ tip.rotation
+    x, y, z, w = quat_xyzw
+    actual = pin.Quaternion(w, x, y, z).toRotationMatrix()
+    return (expected.T @ (np.asarray(position, float) - rz @ flange),
+            pin.log3(expected.T @ actual))
+
+
+def tcp_problem(offset, rotation):
+    """Motivo para no correr con este TCP del pendant, o None.
+
+    El driver refiere el momento del wrench a ese punto, y el CSV lo traslada a la
+    punta suponiendo que es la brida. Con rotación, también giran las fuerzas.
+    """
+    if (np.linalg.norm(offset) <= MAX_TCP_OFFSET
+            and np.linalg.norm(rotation) <= MAX_TCP_ROTATION):
+        return None
+    mm = np.round(1e3 * np.asarray(offset), 1).tolist()
+    return (f"TCP del pendant en {mm} mm, rotacion {np.linalg.norm(rotation):.3f} rad: "
+            "ponerlo en (0, 0, 0) en Instalacion > TCP.")
+
+
+def check_pendant_tcp(node, plant, q, timeout: float = 3.0):
+    """Motivo para no correr según el TCP del pendant, o None."""
+    import rclpy
+    from geometry_msgs.msg import PoseStamped
+    seen = []
+    sub = node.create_subscription(PoseStamped, TCP_TOPIC, seen.append, 10)
+    t0 = time.time()
+    while not seen and time.time() - t0 < timeout:
+        rclpy.spin_once(node, timeout_sec=0.1)
+    node.destroy_subscription(sub)
+    if not seen:
+        return f"No llega {TCP_TOPIC}: ¿driver arriba?"
+    p, o = seen[-1].pose.position, seen[-1].pose.orientation
+    return tcp_problem(*tcp_offset(plant, q, (p.x, p.y, p.z), (o.x, o.y, o.z, o.w)))
 
 
 def start_move(plant, q, q0):
@@ -331,6 +385,9 @@ def main():
     if problem:
         sys.exit(problem)
     plant = Plant(default_urdf())
+    problem = check_pendant_tcp(node, plant, st[0])
+    if problem:
+        sys.exit(problem)
     err, problem = start_move(plant, st[0], q_ref[0])
     if problem:
         sys.exit(problem)

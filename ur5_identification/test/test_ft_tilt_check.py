@@ -71,11 +71,39 @@ def test_la_senal_es_medible_con_el_acople():
         assert np.abs(exp).max() == pytest.approx(MASS * 9.8 * np.sin(TILT), rel=0.02)
 
 
-@pytest.mark.parametrize("gain, word", [
-    (1.02, "EXTERNA"), (-0.95, "brida sobre la carga"),
-    (0.03, "NO VE"), (0.5, "FUERA DE RANGO"), (1.6, "FUERA DE RANGO")])
-def test_veredicto(gain, word):
-    assert word in verdict(gain)
+def _result(gain, x=(1.0, 0.03), y=(1.0, 0.03), z=(1.0, 0.03)):
+    return {"gain": gain, "axes": {"x": x, "y": y, "z": z}}
+
+
+@pytest.mark.parametrize("result, word", [
+    (_result(1.02), "EXTERNA"),
+    (_result(-0.95, x=(-1.0, 0.03), y=(-1.0, 0.03), z=(-1.0, 0.03)), "brida sobre la carga"),
+    (_result(0.03), "NO VE"),
+    (_result(0.5), "FUERA DE RANGO"),
+    (_result(0.874, x=(0.669, 0.047), y=(1.052, 0.031), z=(1.071, 0.155)), "de x se sale"),
+])
+def test_veredicto(result, word):
+    assert word in verdict(result)
+
+
+def test_un_eje_sin_senal_no_entra_en_el_veredicto():
+    assert verdict(_result(1.0, z=(0.3, 0.155))).startswith("OK")
+
+
+@needs_plant
+def test_ganancias_por_eje_e_incertidumbre():
+    """Un eje flojo no puede quedar escondido en el `gain` global (tilt_1)."""
+    plant = Plant(URDF)
+    gains = np.array([0.67, 1.05, 1.0])
+    rows = [(n, q, gains * weight_in_tool(plant, q, MASS) + np.array([3.0, -3.5, 0.3]))
+            for n, q in sequence()]
+    r = fit_gain(plant, rows, MASS)
+    assert r["axes"]["x"][0] == pytest.approx(0.67, abs=1e-6)
+    assert r["axes"]["y"][0] == pytest.approx(1.05, abs=1e-6)
+    rng = np.random.default_rng(1)
+    noisy = [(n, q, f + rng.normal(0.0, 0.05, 3)) for n, q, f in rows]
+    err = fit_gain(plant, noisy, MASS)["axes"]["x"][1]
+    assert 0.01 < err < 0.2
 
 
 @needs_plant
@@ -96,6 +124,7 @@ def test_plan_desde_q_init_y_desde_el_final_de_la_tabla():
     assert plan_problems(plant, Q_BASE) == []
     q_end = np.array([1.5708, -1.0855, 1.7772, -2.2625, -1.5708, 3.1416])
     assert plan_problems(plant, q_end) == []
+    assert plan_problems(plant, Q_BASE, tilt=1.0) == []
     lejos = Q_BASE.copy()
     lejos[0] += 1.5
     assert any("pendant" in p for p in plan_problems(plant, lejos))
@@ -133,4 +162,4 @@ def test_e2e_contra_el_driver_falso(tmp_path):
     mass, rows = read_csv(str(tmp_path / "tilt_1.csv"))
     r = fit_gain(Plant(URDF), rows, mass)
     assert r["gain"] == pytest.approx(1.0, abs=0.05)
-    assert "EXTERNA" in res.stdout
+    assert "EXTERNA" in res.stdout and "eje x" in res.stdout

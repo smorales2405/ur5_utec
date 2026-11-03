@@ -50,8 +50,9 @@ def test_csv_de_posicion_compatible_con_el_estimador(tmp_path):
     assert write_csv(str(out), samples, ft, 100.03, ref, {"test_num": 1}, plant)
     r = estimate_from_csv(str(out), plant=plant, gazebo=True)
     assert r["F"].shape == (n, 3)
-    # Con la hoja hacia abajo (A4), x de la herramienta = -x de base_link.
-    np.testing.assert_allclose(r["F_ft"][:, 0], -1.0, atol=1e-9)
+    # Con la hoja hacia abajo (A4), x de la herramienta = -x de base_link; y el
+    # wrench es la fuerza externa, opuesta al convenio del estimador: +1.
+    np.testing.assert_allclose(r["F_ft"][:, 0], 1.0, atol=1e-9)
     st = np.genfromtxt(str(out), delimiter=",", names=True, dtype=None,
                        encoding="utf-8", skip_header=1)
     assert list(st["ft_zero"][:15]) == [0] * 15 and st["ft_zero"][-1] == 1
@@ -73,7 +74,7 @@ e2e = pytest.mark.skipif(not (os.path.exists(URDF) and os.path.exists(_exe_table
                          reason="sin ur5_dyn_control o el evaluador instalados")
 
 
-def _run_against_fake(tmp_path, q0, scaling=1.0, test_num=1, timeout=120):
+def _run_against_fake(tmp_path, q0, scaling=1.0, test_num=1, timeout=120, tcp_z=0.0):
     """Devuelve (resultado del runner, eventos del driver falso)."""
     domain = random.choice([d for d in range(150, 200)
                             if str(d) != os.environ.get("ROS_DOMAIN_ID")])
@@ -83,6 +84,7 @@ def _run_against_fake(tmp_path, q0, scaling=1.0, test_num=1, timeout=120):
     fake = subprocess.Popen(
         [sys.executable, os.path.join(_TEST, "fake_ur_driver.py"),
          "--domain", str(domain), "--scaling", str(scaling), "--log", str(log),
+         "--tcp-z", str(tcp_z),
          "--q0", *[str(v) for v in q0]], env=env)
     try:
         res = subprocess.run(
@@ -180,3 +182,27 @@ def test_traslado_al_inicio():
     a, b = q0.copy(), q0.copy()
     a[3], b[3] = low + 0.45, low - 0.45
     assert "bajaria" in start_move(plant, a, b)[1]
+
+
+@e2e
+def test_e2e_con_tcp_en_el_pendant_no_mueve_ni_gasta_la_corrida(tmp_path):
+    res, events = _run_against_fake(tmp_path, Q_INIT, tcp_z=0.16)
+    assert res.returncode != 0
+    assert "TCP del pendant" in res.stderr + res.stdout
+    assert not [e for e in events if e["kind"] == "trajectory"]
+    assert not (tmp_path / "pos_1.csv").exists()
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF/evaluador no instalado")
+def test_tcp_del_pendant_con_la_lectura_real():
+    """Lo que publico el robot el 2026-11-02 con el TCP en 160 mm, en q_init."""
+    from run_position_incision import tcp_offset, tcp_problem
+    plant = Plant(URDF)
+    offset, rot = tcp_offset(plant, Q_INIT, (0.1343, -0.4913, 0.328),
+                             (1.0, 0.0017, -0.001, 0.0001))
+    assert offset[2] == pytest.approx(0.16, abs=0.001)
+    assert np.linalg.norm(rot) < 0.01
+    assert "TCP del pendant" in tcp_problem(offset, rot)
+    # La diferencia de ~1 mm entre la cinematica calibrada y la nominal no cuenta.
+    assert tcp_problem(np.array([0.001, -0.0006, 0.0]), np.array([-1e-4, -2e-3, -3e-3])) is None
+    assert "rotacion" in tcp_problem(np.zeros(3), np.array([0.0, 0.0, 0.1]))

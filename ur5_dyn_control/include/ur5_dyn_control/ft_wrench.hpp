@@ -24,9 +24,9 @@ namespace ur5_dyn_control
  *   m_tip = m_b - r_b x f_b
  *
  * `ref_to_tip_z` = tcp_offset_z (punta) - ft.ref_offset_z (punto del pendant, 0 si
- * el TCP del pendant esta en la brida). El SIGNO es el del driver, sin tocar: que
- * sea la fuerza que el entorno ejerce sobre la herramienta o la contraria se fija
- * en el cierre de B1 con un peso conocido colgado de la punta.
+ * el TCP del pendant esta en la brida). El SIGNO es el del driver, sin tocar: la
+ * fuerza que el entorno ejerce sobre la herramienta (medido en B1 inclinando una
+ * masa conocida, run_ft_tilt_check.py); force_estimator.py lo invierte al leerlo.
  *
  * @param R_base_tool  rotacion de tool0 (= gripper_tcp) en base_link
  * @param w_tool       [f; m] tal como llega del driver

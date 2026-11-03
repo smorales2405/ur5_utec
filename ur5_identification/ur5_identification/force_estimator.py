@@ -46,6 +46,12 @@ FRICTION_REAL = [FrictionParams(f_v=v, f_c=c) for v, c in zip(
     [13.64, 11.55, 13.74, 1.28, 1.35, 2.12],
     [6.85, 6.76, 7.46, 1.78, 1.96, 2.35])]
 
+#: Signo del wrench del driver respecto al convenio de este módulo (hoja sobre el
+#: entorno). El driver da la fuerza EXTERNA sobre la brida: medido inclinando una
+#: masa conocida (run_ft_tilt_check.py, tilt_1, 2026-11-02). Las columnas `wrench`
+#: del CSV quedan como las da el driver; el cambio de signo se hace al leerlas.
+FT_TO_ESTIMATOR_SIGN = -1.0
+
 #: Umbral de observabilidad: diagonal del proyector sobre el espacio de filas.
 OBSERVABLE_MIN = 0.99
 
@@ -139,7 +145,8 @@ def estimate_from_csv(csv_path: str, plant=None, k=K_CURRENT, gazebo=False,
                                       friction, deadband)
     out = {"t_sim": d["t_sim"], "F": F, "observable": obs, "state": d.get("state")}
     if "wrench1" in d:
-        out["F_ft"] = np.column_stack([d[f"wrench{i}"] for i in (1, 2, 3)])
+        out["F_ft"] = FT_TO_ESTIMATOR_SIGN * np.column_stack(
+            [d[f"wrench{i}"] for i in (1, 2, 3)])
     return out
 
 

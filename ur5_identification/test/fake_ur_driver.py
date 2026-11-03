@@ -23,7 +23,8 @@ import time
 import numpy as np
 import rclpy
 from controller_manager_msgs.srv import SwitchController
-from geometry_msgs.msg import WrenchStamped
+import pinocchio as pin
+from geometry_msgs.msg import PoseStamped, WrenchStamped
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -46,16 +47,16 @@ def _seconds(duration) -> float:
 
 
 class FakeUr(Node):
-    def __init__(self, q0, scaling, log_path, ft_gain_kg=None):
+    def __init__(self, q0, scaling, log_path, ft_gain_kg=None, tcp_z=0.0):
         super().__init__("fake_ur_driver")
         # Con `ft_gain_kg` el wrench es de verdad el peso de esa masa en ejes de la
         # herramienta, con ruido como el medido (0.11 N); el signo va en la masa.
         self.ft_gain_kg = ft_gain_kg
-        self.plant = None
-        if ft_gain_kg is not None:
-            from ur5_trajectory_optimization.gain_tuning.closed_loop import (
-                Plant, default_urdf)
-            self.plant = Plant(default_urdf())
+        self.tcp_z = tcp_z
+        from ur5_trajectory_optimization.gain_tuning.closed_loop import (
+            TCP_OFFSET, Plant, default_urdf)
+        self.tip_offset = TCP_OFFSET
+        self.plant = Plant(default_urdf())
         self.q = np.asarray(q0, float)
         self.q_prev = self.q.copy()
         self.scaling = scaling
@@ -65,6 +66,7 @@ class FakeUr(Node):
         self.pub_ft = self.create_publisher(
             WrenchStamped, "/force_torque_sensor_broadcaster/wrench",
             qos_profile_sensor_data)
+        self.pub_tcp = self.create_publisher(PoseStamped, "/tcp_pose_broadcaster/pose", 10)
         self.pub_scaling = self.create_publisher(
             Float64, "/speed_scaling_state_broadcaster/speed_scaling", 10)
         self.create_subscription(
@@ -127,13 +129,24 @@ class FakeUr(Node):
         self.pub_js.publish(js)
         w = WrenchStamped()
         w.header.stamp = stamp
-        if self.plant is None:
+        pin.framesForwardKinematics(self.plant.model, self.plant.data, self.q)
+        tip = self.plant.data.oMf[self.plant.tcp]
+        rz = np.diag([-1.0, -1.0, 1.0])     # base del controlador
+        tcp = rz @ (tip.translation + tip.rotation @ np.array(
+            [0.0, 0.0, self.tcp_z - self.tip_offset]))
+        quat = pin.Quaternion(rz @ tip.rotation)
+        pose = PoseStamped()
+        pose.header.stamp = stamp
+        pose.header.frame_id = "base"
+        pose.pose.position.x, pose.pose.position.y, pose.pose.position.z = (
+            float(v) for v in tcp)
+        pose.pose.orientation.x, pose.pose.orientation.y = float(quat.x), float(quat.y)
+        pose.pose.orientation.z, pose.pose.orientation.w = float(quat.z), float(quat.w)
+        self.pub_tcp.publish(pose)
+        if self.ft_gain_kg is None:
             w.wrench.force.z = 5.0
         else:
-            import pinocchio as pin
-            pin.framesForwardKinematics(self.plant.model, self.plant.data, self.q)
-            f = self.plant.data.oMf[self.plant.tcp].rotation.T @ np.array(
-                [0.0, 0.0, -self.ft_gain_kg * 9.8])
+            f = tip.rotation.T @ np.array([0.0, 0.0, -self.ft_gain_kg * 9.8])
             f = f + np.array([0.7, -0.4, 1.1]) + np.random.normal(0.0, 0.11, 3)
             w.wrench.force.x, w.wrench.force.y, w.wrench.force.z = (float(v) for v in f)
         self.pub_ft.publish(w)
@@ -148,11 +161,13 @@ def main():
     ap.add_argument("--scaling", type=float, default=1.0)
     ap.add_argument("--log", required=True)
     ap.add_argument("--ft-gain-kg", type=float, default=None)
+    ap.add_argument("--tcp-z", type=float, default=0.0,
+                    help="TCP del pendant en z de tool0 [m]")
     args = ap.parse_args()
     if os.environ.get("ROS_DOMAIN_ID") != str(args.domain):
         sys.exit("ROS_DOMAIN_ID del entorno distinto de --domain: no arranco")
     rclpy.init()
-    node = FakeUr(args.q0, args.scaling, args.log, args.ft_gain_kg)
+    node = FakeUr(args.q0, args.scaling, args.log, args.ft_gain_kg, args.tcp_z)
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException, RCLError):

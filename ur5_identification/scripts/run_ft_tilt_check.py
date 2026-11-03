@@ -21,11 +21,15 @@ constante (A4) y el peso no cambia en ejes del sensor.
   gain ≈ −1  el wrench es la fuerza de la brida sobre la carga.
   gain ≈  0  no ve la masa, o el payload del pendant la está compensando.
 
+Se informa también por eje: el primer ensayo (tilt_1) dio x 0.67, y 1.05, y un
+`gain` global de 0.87 lo escondía. Cada eje lleva su incertidumbre, la dispersión
+de los reposos alrededor de su deriva lineal.
+
 Requisitos: masa montada y pesada, **payload 0 y TCP (0, 0, 0)** en el pendant,
 External Control en play, slider al 100 %. Control de POSICIÓN con el JTC.
 
 Uso:
-    run_ft_tilt_check.py --test-num 1 --masa-kg 0.179
+    run_ft_tilt_check.py --test-num 2 --masa-kg 0.179 --tilt 1.0 --hold 10
     run_ft_tilt_check.py --analizar ~/.ros/ur5_dyn_control/tilt_1.csv
 """
 
@@ -52,6 +56,9 @@ GRAVITY = 9.8
 #: Veredicto sobre |gain|.
 GAIN_OK = (0.8, 1.2)
 GAIN_BLIND = 0.2
+#: Un eje con más incertidumbre que esto no entra en el veredicto: sin señal, no
+#: se puede decir ni que esté bien ni que esté mal.
+MAX_AXIS_ERR = 0.10
 JOINT_TILTED = {"wrist_1": 3, "wrist_2": 4}
 AXES = "xyz"
 
@@ -91,25 +98,42 @@ def fit_gain(plant, rows, mass):
         exp = weight_in_tool(plant, q, mass) - 0.5 * (
             weight_in_tool(plant, q_a, mass) + weight_in_tool(plant, q_b, mass))
         detail.append((name, meas, exp))
-    m = np.concatenate([d[1] for d in detail])
-    e = np.concatenate([d[2] for d in detail])
+    M = np.array([d[1] for d in detail])
+    E = np.array([d[2] for d in detail])
+    m, e = M.ravel(), E.ravel()
     gain = float(e @ m / (e @ e))
     rms = float(np.sqrt(np.mean((m - gain * e) ** 2)))
-    return {"gain": gain, "rms": rms, "detail": detail}
+    # Cada diferencia lleva el ruido de un reposo como referencia: sigma·sqrt(1.5).
+    rest = np.array([np.asarray(f, float) for name, _, f in rows if name == "reposo"])
+    k = np.arange(len(rest))
+    fit = np.polyfit(k, rest, 1)
+    sigma = np.sqrt(((rest - (np.outer(k, fit[0]) + fit[1])) ** 2).sum(axis=0)
+                    / max(len(rest) - 2, 1))
+    axes = {}
+    for j, axis in enumerate(AXES):
+        norm = float(np.linalg.norm(E[:, j]))
+        axes[axis] = (float(E[:, j] @ M[:, j]) / norm ** 2,
+                      float(sigma[j] * np.sqrt(1.5) / norm))
+    return {"gain": gain, "rms": rms, "detail": detail, "axes": axes}
 
 
-def verdict(gain: float) -> str:
-    size = abs(gain)
-    if size < GAIN_BLIND:
+def verdict(result) -> str:
+    gain = result["gain"]
+    if abs(gain) < GAIN_BLIND:
         return ("NO VE LA MASA: si el payload del pendant es 0, el F/T no sirve como "
                 "medida de fuerza en esta configuracion.")
-    if not GAIN_OK[0] <= size <= GAIN_OK[1]:
-        return "GANANCIA FUERA DE RANGO: no usar el F/T como medida sin revisarlo."
-    if gain > 0:
-        return ("OK, y el wrench es la fuerza EXTERNA sobre la brida: opuesto al "
-                "convenio de force_estimator (hoja sobre el entorno).")
-    return ("OK, y el wrench es la fuerza de la brida sobre la carga: el mismo "
-            "convenio que force_estimator.")
+    sign = ("el wrench es la fuerza EXTERNA sobre la brida, opuesta al convenio de "
+            "force_estimator (hoja sobre el entorno)" if gain > 0 else
+            "el wrench es la fuerza de la brida sobre la carga, el mismo convenio "
+            "que force_estimator")
+    off = [a for a, (g, err) in result["axes"].items()
+           if err <= MAX_AXIS_ERR and not GAIN_OK[0] <= abs(g) <= GAIN_OK[1]]
+    if off:
+        return (f"VE LA MASA, pero la ganancia de {', '.join(off)} se sale de "
+                f"{GAIN_OK}: no usar ese eje como medida sin revisarlo. Signo: {sign}.")
+    if not GAIN_OK[0] <= abs(gain) <= GAIN_OK[1]:
+        return f"GANANCIA FUERA DE RANGO, no usar sin revisarlo. Signo: {sign}."
+    return f"OK; {sign}."
 
 
 def report(result, mass):
@@ -120,7 +144,10 @@ def report(result, mass):
     gain = result["gain"]
     print(f"\n  gain = {gain:+.3f}  (masa vista {gain * mass:+.3f} kg de {mass} kg); "
           f"residuo rms {result['rms']:.3f} N")
-    print(f"  {verdict(gain)}")
+    for axis, (g, err) in result["axes"].items():
+        note = "  (sin senal suficiente)" if err > MAX_AXIS_ERR else ""
+        print(f"  eje {axis}: {g:+.3f} +- {err:.3f}{note}")
+    print(f"  {verdict(result)}")
 
 
 def write_csv(path, meta, poses):
@@ -156,12 +183,12 @@ def read_csv(path):
     return mass, rows
 
 
-def plan_problems(plant, q_now):
+def plan_problems(plant, q_now, tilt=TILT):
     """Por qué no ejecutar esta secuencia desde `q_now`; lista vacía si se puede."""
     from run_position_incision import start_move
     from ur5_identification.gravity_sweeps import tip_position
     problems = []
-    low = min(tip_position(plant, q)[2] for _, q in sequence())
+    low = min(tip_position(plant, q)[2] for _, q in sequence(tilt=tilt))
     if low < MIN_TIP_Z:
         problems.append(f"la punta bajaria a z = {low:.3f} m (minimo {MIN_TIP_Z} m)")
     _, problem = start_move(plant, q_now, Q_BASE)
@@ -175,6 +202,7 @@ def main():
     ap.add_argument("--test-num", type=int)
     ap.add_argument("--masa-kg", type=float, help="masa montada, pesada")
     ap.add_argument("--hold", type=float, default=HOLD, help="promedio en cada pose [s]")
+    ap.add_argument("--tilt", type=float, default=TILT, help="inclinacion [rad]")
     ap.add_argument("--analizar", help="reanalizar un CSV de este script, sin robot")
     ap.add_argument("--yes", action="store_true", help="no pedir confirmacion")
     ap.add_argument("--out-dir", default=os.path.expanduser("~/.ros/ur5_dyn_control"))
@@ -197,7 +225,8 @@ def main():
     from geometry_msgs.msg import WrenchStamped
     from rclpy.qos import qos_profile_sensor_data
     from run_friction_campaign_real import Checker
-    from run_position_incision import FT_TOPIC, check_speed_scaling, wait_listener
+    from run_position_incision import (FT_TOPIC, check_pendant_tcp, check_speed_scaling,
+                                       wait_listener)
 
     rclpy.init()
     chk = Checker()
@@ -218,7 +247,10 @@ def main():
     problem = check_speed_scaling(chk)
     if problem:
         sys.exit(problem)
-    problems = plan_problems(plant, q_now)
+    problem = check_pendant_tcp(chk, plant, q_now)
+    if problem:
+        sys.exit(problem)
+    problems = plan_problems(plant, q_now, args.tilt)
     if problems:
         sys.exit("No se ejecuta: " + "; ".join(problems))
     ok, why = chk.release_effort()
@@ -227,9 +259,9 @@ def main():
     if not wait_listener(chk, chk._jtc):
         sys.exit("El JTC no escucha en su topico: no se ha movido nada.")
 
-    poses = sequence()
-    total = len(poses) * (TILT / MOVE_SPEED + SETTLE + 1.5 + args.hold)
-    print(f"Inclinacion de la herramienta: {len(poses)} poses, +-{TILT} rad en wrist_1 y "
+    poses = sequence(tilt=args.tilt)
+    total = len(poses) * (max(3.0, args.tilt / MOVE_SPEED) + SETTLE + 1.5 + args.hold)
+    print(f"Inclinacion de la herramienta: {len(poses)} poses, +-{args.tilt} rad en wrist_1 y "
           f"wrist_2, unos {total:.0f} s. Masa {args.masa_kg} kg.")
     if not args.yes:
         input("  Pendant con payload 0 y TCP (0, 0, 0)? Paro de emergencia a mano. "
@@ -259,7 +291,8 @@ def main():
               + " ".join(f"{v:+7.3f}" for v in f) + f"  ({len(live['samples'])} muestras)")
 
     write_csv(out, {"masa_kg": args.masa_kg, "test_num": args.test_num,
-                    "tilt_rad": TILT, "ft_topic": FT_TOPIC, "frame": "tool0_controller"},
+                    "tilt_rad": args.tilt, "ft_topic": FT_TOPIC,
+                    "frame": "tool0_controller"},
               recorded)
     print(f"CSV: {out}")
     mass, rows = read_csv(out)
