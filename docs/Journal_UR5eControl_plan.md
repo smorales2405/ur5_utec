@@ -993,23 +993,48 @@ punto, y se recuperan con `m_tip = m_csv + (R·[0, 0, 0.1599]) × f`.
   varía 0.35 N entre 801–803 pero 1.37 N con 800, por el codo (0.76 N·m de residuo;
   causa sin determinar). El corte hay que restarlo de una pasada en aire con la misma
   herramienta.
-- **Vía F/T: signo fijado, ganancia a medias** (`run_ft_tilt_check.py`, `tilt_1`,
-  acople, ±0.5 rad). El wrench es la fuerza EXTERNA sobre la brida, opuesta al convenio
-  del estimador: `force_estimator` lo invierte al leerlo, y las columnas del CSV quedan
-  como las da el driver. Ganancia por eje: **`y` 1.05 ± 0.03**, coherente también en
-  momento (corregido el TCP, palanca 25–28 mm frente a 29.4 de CAD); **`x` 0.67 ± 0.05,
-  sin explicar**, y tampoco coherente en momento; `z` 1.07 ± 0.16, sin señal suficiente.
-  Pendiente de repetir con `--tilt 1.0 --hold 10`.
-- **Por qué no se vio la masa al montarla:** el sensor la ve, así que los 9 N se pierden
-  entre las dos lecturas, en las que se paró el programa, se usó Freedrive y se volvió
-  a arrancar. Además 800 leía ~0 antes del cero con 9.6 N de payload de más. Apunta a
-  una tara al arrancar el programa o al usar Freedrive, sin documentación oficial y sin
-  aislar. Consecuencia: **no comparar el F/T a través de un paro**; hacer cero antes de
-  cada medida, como ya hacen los runners.
-- **Deriva del F/T con el robot quieto: 0.1–0.2 N/min** en `x` e `y` (llegó a 4.7 N en
-  25 min sin hacer cero). Resolución de la media en la meseta si se confirma la
-  ganancia: 0.15 N (dispersión entre corridas en `F_z`, rango 0.31 N); el error típico
-  estadístico es ≤ 0.02 N, así que manda la deriva.
+- **Vía F/T: signo fijado; válida para `F_y` y `F_z`, no para `F_x`** (`tilt_1`
+  ±0.5 rad con TCP en 160 mm, `tilt_2` ±1.0 rad y 10 s por pose con TCP en 0; acople,
+  q_init, `wrist_3` en π). El wrench es la fuerza EXTERNA sobre la brida, opuesta al
+  convenio del estimador: `force_estimator` lo invierte al leerlo, y las columnas del
+  CSV quedan como las da el driver. Medido = G · esperado, ajustado con las dos corridas
+  (residuo 0.037 N), en ejes de herramienta:
+
+  ```
+  G = [ 0.639  -0.212  -0.076 ]     tilt_1: x 0.669±0.047  y 1.052±0.031  z 1.071±0.155
+      [-0.020   1.052   0.032 ]     tilt_2: x 0.629±0.036  y 1.052±0.024  z 1.123±0.052
+      [ 0.063   0.058   1.119 ]
+  ```
+
+  `y` y `z` cumplen el criterio (0.8–1.2) con acoplamientos ≤ 6 %. **No se corrige
+  todavía:** con 179 g, una masa extra de 10–20 g más allá del sensor daría esos 5–12 %,
+  y no se puede separar de la ganancia del sensor. Queda ±12 % de escala, en un rango
+  ensayado de 1.5 N laterales y 0.8 N axiales.
+
+  **`x` no sirve** y no es falta de señal ni de tiempo: igual a 0.5 y a 1.0 rad, y sin
+  moverse en 10 s (cambios ≤ 0.1 N). Tampoco es una carga real: en `y` el momento cuadra
+  (−0.042 N·m frente a −0.045 con el CoG de CAD), y en `x` el momento sale 1.45 veces
+  alto (0.064 frente a 0.044) mientras la fuerza sale 0.63 veces baja, lo que ninguna
+  masa produce. Apunta al par de canales `F_x`–`T_y` del sensor o de su procesado, y
+  además `F_x` recoge −0.21·`F_y`. Sin aislar si va con el sensor o con la postura (haría
+  falta girar `wrist_3`); el corte va siempre con `wrist_3` en π (D18), así que vale esta G.
+
+  **Pendiente de B2:** comparar F/T y corriente durante los cortes reales, en el rango y
+  la postura de verdad. Si no cuadran, inclinar con el gripper (7.5 N laterales, y la
+  masa extra deja de pesar).
+- **Por qué no se vio la masa al montarla: arrancar el programa tara el sensor.** Con
+  TCP ya en 0 y sin Freedrive, antes de *play* (4.73, −5.08, 1.18) N y 56 s después
+  (−0.02, 0.04, −0.06) N. No lo hace `external_control.urscript` (solo llama a
+  `zero_ftsensor` por comando) ni ningún nodo nuestro; UR no lo documenta. Una sola
+  observación limpia, pero explica también las demás: 800 leía ~0 con 9.6 N de payload
+  de más. Montar exige parar el programa, así que **el método «leer antes y después de
+  montar» no puede funcionar**. Tampoco afecta a las corridas: los runners hacen cero en
+  el reposo antes del contacto.
+- **Deriva del F/T con el robot quieto: 0.06–0.2 N/min** en `x` e `y` (7 N acumulados
+  sin tara hasta el *play* anterior). Resolución de la media en la meseta: 0.15 N
+  (dispersión entre corridas en `F_z`, rango 0.31 N); el error típico estadístico es
+  ≤ 0.02 N, así que manda la deriva. Frente a la corriente (±0.3 N en diferencia, escala
+  al 1 % con el gripper): el F/T resuelve mejor y la corriente tiene mejor escala.
 - Los runners por posición y de inclinación se niegan ahora si el TCP del pendant no
   está en 0: lo comparan con la FK (`/tcp_pose_broadcaster/pose`).
 - **Seguimiento por posición en aire**, punta por FK de los encoders (no es la punta

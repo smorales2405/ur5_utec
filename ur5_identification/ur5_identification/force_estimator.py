@@ -50,6 +50,8 @@ FRICTION_REAL = [FrictionParams(f_v=v, f_c=c) for v, c in zip(
 #: entorno). El driver da la fuerza EXTERNA sobre la brida: medido inclinando una
 #: masa conocida (run_ft_tilt_check.py, tilt_1, 2026-11-02). Las columnas `wrench`
 #: del CSV quedan como las da el driver; el cambio de signo se hace al leerlas.
+#: En ejes de herramienta solo valen `y` y `z` (ganancia 1.05 y 1.12, sin corregir:
+#: +-12 % de escala). `x` no: 0.63, y recoge -0.21*F_y (plan, cierre de B1).
 FT_TO_ESTIMATOR_SIGN = -1.0
 
 #: Umbral de observabilidad: diagonal del proyector sobre el espacio de filas.
