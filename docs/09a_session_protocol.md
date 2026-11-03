@@ -1,7 +1,6 @@
 # Protocolo de sesión con par en el UR5e real — B7.0 (seguridad) y B4.4 (α_g)
 
-**Estado:** preparado el 2026-10-28, valores del acople medidos el 2026-11-02,
-**sin ejecutar**. Plan: B4.4 y B7.0 de
+**Estado:** **ejecutado el 2026-11-02**. Plan: B4.4 y B7.0 de
 `Journal_UR5eControl_plan.md`. B7.0 va **antes** de B4.4 en la misma sesión:
 B4.4 es el primer uso del par con el acople montado.
 
@@ -9,17 +8,17 @@ Números de corrida: `gravity_comp_1203`–`1204` (lo que queda de B7.0) y `fl_1
 (B4.4: `1100 + 10·postura + junta`). Los scripts y `ur5e_real.launch.py` se niegan a
 sobrescribir un CSV con datos.
 
-**Estado tras la sesión del 2026-11-02 (B7.0 a medias, B4.4 3 de 12):**
+**Resultado de la sesión del 2026-11-02 (§2 y §3 completas, `α_g` = 0.0543):**
 
 | Corrida | Qué es | Estado |
 |---|---|---|
 | `gravity_comp_1200` | Sostén 221 s | **Perdida:** la sobrescribió una prueba del asistente, solo cabecera. Quedan los valores: `g_robot` −21.06 / −21.01 / −1.98 N·m y deriva ≤ 0.0001 rad |
 | `gravity_comp_1201` | Fin limpio, 2.3 | Válida |
 | `gravity_comp_1202` | Red, 2.4 | **Sin valor:** se quedó en `PRE_HOLD`, sin par; un relanzamiento pisó el primer intento |
-| `fl_1101`–`1103` | Postura `inicio` | Válidas |
-| `fl_1111` | Postura `corte_lejos` | Sin datos: cuelgue en `PRE_HOLD`, ya corregido; `--resume` la aparta y la repite |
-
-Sin probar todavía en el robot: **2.2 (vigilante)** y **2.4 (red)**.
+| `gravity_comp_1203` | Sostén y vigilante, 2.1 y 2.2 | Válida. El vigilante cortó en 105 ms |
+| `gravity_comp_1204` | Red, 2.4 | Válida. «Socket timed out» en el Registro |
+| `fl_1101`–`1133` | Barridos, §3 | Válidas, 12 de 12. `α_g` en `~/.ros/gravity_sweeps/alpha_g.yaml` |
+| `fl_1111.stub` | Primer intento | Sin datos: cuelgue en `PRE_HOLD`, ya corregido |
 
 ---
 

@@ -382,8 +382,8 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   el retardo del launch real es el del evaluador. Los números del chequeo los
   fijan también los gtest `PidDiscrete`/`MimoDiscrete` y su espejo en Python.
 
-Total en `colcon test-result` (2026-10-28, R10): **146** en `ur5_dyn_control`,
-37 en `ur5_identification` y 36 en `ur5_trajectory_optimization`: **219**, todos
+Total en `colcon test-result` (2026-11-02): **153** en `ur5_dyn_control`,
+77 en `ur5_identification` y 36 en `ur5_trajectory_optimization`: **266**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)

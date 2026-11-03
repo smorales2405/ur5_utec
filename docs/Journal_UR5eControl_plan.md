@@ -525,8 +525,10 @@ respuesta alineada en 71 escalones y ajustando `k⊙i(k) = a·τ_cmd(k − D)`:
     `discrete_check.allow_unstable: true`. Hoy: CT ×6.95, barridos de B4.4 ×2.19,
     LQI semilla ×1.32 (arranca, pero no cumpliría `g7`), `smc_v5_g6` rechazado.
   - `smc_v5_g6` no va al robot. El SMC se re-sintoniza con D = 5 **después de
-    B4.4**, que da `α_g` (entra en K por R2). Los barridos de B4.4 re-miden D con
-    el acople.
+    B4.4**, que da `α_g` (entra en K por R2). Los barridos de B4.4 no pudieron
+    re-medir D: el limitador de tasa del feedforward deja rampas de 0.3 N·m por ciclo,
+    no escalones, y las estimaciones salen entre 0 y 5.7 ciclos con ganancia 0.7–1.3.
+    Quedan los 5 ciclos, medidos sin acople; el retardo es de la tubería de comunicación.
 
 **`RobotReceiveTimeout` y el par latcheado.** En ur_robot_driver 2.14 el timeout
 es fijo (20 ms, `hardware_interface.hpp`), no un parámetro. El script del robot
@@ -808,7 +810,7 @@ K_i  = η_i + α_M |(M̂ q̈_r)_i| + α_C |(Ĉ q̇_r)_i| + α_g |ĝ_i|          
   de la incertidumbre de masas (acople pesado, URDF). **Qué gravedad:** en el
   real el nodo manda la ley menos `ĝ` y el robot suma su `g_UR` (G3), así que `ĝ`
   se cancela y el error que ve el lazo es `g_real − g_UR`, no `g_UR − ĝ` (lo que
-  decía la Rev. 7: la diferencia entre dos modelos). Con `α_g ≈ 0.07` se liberan ~50 N·m/(rad/s) de
+  decía la Rev. 7: la diferencia entre dos modelos). Con `α_g ≈ 0.07` (medido: 0.054, B4.4) se liberan ~50 N·m/(rad/s) de
   `G` en el hombro (V2) que el optimizador puede gastar en `λ` dentro de
   `G ≤ 120`.
 - **R3 — `η` cubre la fricción residual y el corte.** `g5` ya impone
@@ -1083,18 +1085,16 @@ más seguro y desacopla la medida de fuerza de cualquier ley propia.
 | B3.4 | `wrist_3` con solo Coulomb: su viscoso aporta ≤ 0.088 N·m en toda la incisión (≤ 0.006 en la meseta) frente a 2.35 de Coulomb, y es el término que congela el integrador (`b·dt/I` = 11). Declararlo. Validar la inyección en `wrist_1`/`wrist_2`. |
 | B3.5 | Validación sim↔real en aire con la escena nueva (B7.1) y criterio §5.3. |
 
-**Sesión con par del 2026-11-02 (B7.0 a medias, B4.4 3 de 12; detalle y estado por corrida
-en `09a_session_protocol.md`):**
+**Sesión con par del 2026-11-02 (seguridad de B7.0 y B4.4 completas; estado por corrida en
+`09a_session_protocol.md`):**
 
-- **Sostén por par con el acople:** deriva ≤ 0.0001 rad en 221 s, `g_robot` a 0.07 N·m del
-  modelo más la firma de 0.155 kg. Payload activo leído por RTDE: 0.155 kg, TCP 0.
-- **Primeros `α_g`, solo postura `inicio`:** hombro 0.039, codo 0.053, `wrist_1` 0.041.
 - **Corrección del nodo:** una respuesta de servicio perdida en el arranque lo colgaba en
-  `PRE_HOLD` (2 de 7 arranques), y si era la del switch, la corrida iba entera con el JTC
-  mandando sin aviso. Ahora reintenta, y en el real confirma el switch antes de comandar.
+  `PRE_HOLD` (2 de los 7 primeros arranques), y si era la del switch, la corrida iba entera
+  con el JTC mandando sin aviso. Ahora reintenta, y en el real confirma el switch antes de
+  comandar. Las 11 corridas siguientes no necesitaron ningún reintento.
 - **`gravity_comp_1200` perdida por un error del asistente:** una prueba del guardia lanzó con
-  ese número cuando el parche del guardia no se había aplicado. Es un sostén de comprobación
-  y se repite como `1203`; no afecta a ningún resultado.
+  ese número cuando el parche del guardia no se había aplicado. Era un sostén de comprobación,
+  repetido como `1203`; no afecta a ningún resultado.
 
 ### B4 — Leyes reformuladas (sin robot, en paralelo con B1–B3)
 
@@ -1104,7 +1104,7 @@ en `09a_session_protocol.md`):**
 | B4.2 | ✅ LQI-SDRE (§4.3) en `lqr_sdre_law.hpp` + nodo: `lqr.integral` (18 estados; `false` = la FASE 4, ablación), `lqr.weights` `polynomial` (semilla: K = [a₀M, a₁M, a₂M], un CT con integral) o `physical` (Q, R diagonales constantes, para B5), integral solo en TRACK/HOLD_END, congelada por junta con `onSaturation` y acotada a `lqr.integral_tau_frac`·τ_max/K_I. Tests: 18 polos en las raíces (< 1e-6), K analítica (< 1e-8), CARE = scipy (< 1e-8), anti-windup, CARE de 18 estados en **176 µs** en banco. Semilla por defecto ωn = 10 (con 20, G = 160 en el hombro): G = 33.8/80.3/28.8. Gazebo (`lqr_98823`): corte **0.0133 mm** frente a 0.0425 del LQR de 12 estados, max Re(λ) ≤ −3.4, \|σ\| ≤ 1.2e-3. **Cómputo con Gazebo cargando la CPU: ley media 807 µs, p99 1673, > 2 ms en el 0.20 % de los ciclos** (la CARE sola nunca; el resto es la vigilancia de autovalores y controlabilidad de 18 estados). En el real, sin Gazebo, sobra; si no, `lqr.care_update_rate`. |
 | B4.3 | ✅ R1 y R2 (§4.4) en `smc_law.hpp` (ley pura, la usa el nodo) **y** en `SmcLaw` del evaluador; `alpha_M`/`alpha_C`/`alpha_g` (= `alpha` hasta medir `α_g` en B4.4). Test dorado C++↔Python: mismo par en 200 casos (< 1e-9). Con `smc_v5_g6` sin re-sintonizar: G 83.1/106.7/81.6, corte 0.0025 mm (antes 0.0036) y TV(τ) 21 (antes 50) en Gazebo (`smc_98822`). **R3**: `g5` ya exige η ≥ d̄_f + d̄_cut (`run_gain_tuning`); falta sustituir la `d̄_cut` del corte sintético por la envolvente medida de los cuatro materiales (B2). |
 | ⚠️ | **Regresión de B0 encontrada y corregida (`7bfcf55`)**: con el común `/**` delante y los YAML de ley con sección `<nodo>:`, los overrides de los launches (comodín en `launch_ros` si el `Node` no lleva nombre) se ignoraban en silencio en las incisiones (`lambda_joint`, `phi`, `alpha`, `wn`, `kp`/`kd`), también en el real. Ahora los YAML de ley van en `/**` y los launches nombran el `Node`; dos tests lo fijan. |
-| B4.4 | 🔶 **Preparado (2026-10-28), sin ejecutar.** `α_g` = `|g_real − g_UR| / |ĝ|` (§4.4), con **barridos** y no con sostén: quieto, la fricción estática de hombro y codo (±7 N·m) tapa un error de ~1.5. Por junta y postura, `g_real = ½[k⊙i(+v) + k⊙i(−v)] − Cq̇` a q emparejada (la fricción es impar) y `g_UR = k⊙i − τ_cmd(k − D)` con D = 5 (V15). 4 posturas sobre el trazo (inicio y tres a 60 mm de la cota del corte) × hombro, codo, `wrist_1`, ±0.05 rad a 0.05 y 0.10 rad/s, CT por par con acople (sin hoja) y payload = acople pesado. Ganancias 100/20 y 900/60 en muñecas (margen ×2.2 con D = 5). Herramientas: `config/gravity_sweep_params.yaml`, `run_gravity_sweeps_real.py` (semiautomático, holgura ≥ 71 mm al tablero comprobada, nunca sobrescribe), `analyze_gravity_sweeps.py`, `gravity_sweeps.py` (6 tests: IK, holgura, cancelación de fricción, D y `k` recuperados de un CSV sintético). **Gazebo con la fricción real inyectada** (`fl_98831`–`98833`, `corte_medio`): `g_real − ĝ` = 0.004 / 0.002 / 0.0002 N·m, igual a las dos velocidades. Protocolo: `09a_session_protocol.md` §3. |
+| B4.4 | ✅ **Hecho (2026-11-02): `α_g` = 0.0543** (peor postura: hombro 0.039, codo 0.054, `wrist_1` 0.047; `fl_1101`–`1133`, 12 de 12 completas, margen ×2.19, sin `SAFE_HOLD`; `g_real − ĝ` coincide a las dos velocidades hasta en 0.07 N·m). **`Δ` es proporcional a `ĝ` en cada junta**, sin depender de la postura: 3.56 % en hombro (`Δ` hasta 1.49 N·m; residuo ≤ 0.08), 5.36 % en codo (hasta 1.12; ≤ 0.013) y 3.86 % en `wrist_1` (hasta 0.09; ≤ 0.016). El robot compensa con el modelo nominal (`g_UR` a 0.08 N·m de él) y la gravedad real es menor. Sin hoja; para los cortes el payload vuelve a 0.179 kg. Método: `α_g` = `|g_real − g_UR| / |ĝ|` (§4.4), con **barridos** y no con sostén: quieto, la fricción estática de hombro y codo (±7 N·m) tapa un error de ~1.5. Por junta y postura, `g_real = ½[k⊙i(+v) + k⊙i(−v)] − Cq̇` a q emparejada (la fricción es impar) y `g_UR = k⊙i − τ_cmd(k − D)` con D = 5 (V15). 4 posturas sobre el trazo (inicio y tres a 60 mm de la cota del corte) × hombro, codo, `wrist_1`, ±0.05 rad a 0.05 y 0.10 rad/s, CT por par con acople (sin hoja) y payload = acople pesado. Ganancias 100/20 y 900/60 en muñecas (margen ×2.2 con D = 5). Herramientas: `config/gravity_sweep_params.yaml`, `run_gravity_sweeps_real.py` (semiautomático, holgura ≥ 71 mm al tablero comprobada, nunca sobrescribe), `analyze_gravity_sweeps.py`, `gravity_sweeps.py` (6 tests: IK, holgura, cancelación de fricción, D y `k` recuperados de un CSV sintético). **Gazebo con la fricción real inyectada** (`fl_98831`–`98833`, `corte_medio`): `g_real − ĝ` = 0.004 / 0.002 / 0.0002 N·m, igual a las dos velocidades. Protocolo: `09a_session_protocol.md` §3. |
 | B4.5 | Las tres leyes en el gemelo (aire + fuerza sintética corregida). |
 
 ### B5 — Sintonía equitativa (FASE 7 ampliada)
@@ -1145,7 +1145,7 @@ en `09a_session_protocol.md`):**
 
 | # | paso |
 |---|---|
-| B7.0 | 🔶 **Preparado (2026-10-28).** Sesión: **payload = la configuración montada** (brida desnuda → 0; acople → masa pesada y CoG del CAD (−2.2, 2.1, 29.4) mm; la gravedad la compensa el robot), G4 = 0.0, calentamiento, `check_session_config.py --payload-kg`, guardas activas, §7 firmado. **Retardo: medido con datos existentes, 5 ciclos** (§2.7, V15); B4.4 lo re-mide con el acople. **Seguridad** (`09a_session_protocol.md` §2): `kill -9` al nodo en sostén → el vigilante `command_deadman.py` (nuevo, 3 tests, probado en Gazebo: 100 ms) corta y devuelve el mando al JTC; Ctrl-C → par cero; desenchufar Ethernet → `RobotReceiveTimeout` (20 ms, fijo) para el robot. |
+| B7.0 | ✅ **Seguridad hecha (2026-11-02).** Sostén: deriva ≤ 0.0001 rad en 221 s (`1200`) y 45 s (`1203`). `kill -9` al nodo: el vigilante cortó en 105 ms, y `q` al morir el nodo y al arrancar la corrida siguiente coinciden a 0.0001 rad (`1203`, `1204`). Ctrl-C: fin limpio (`1201`). Ethernet: «Socket timed out» en el Registro del pendant (`1204`). `check_session_config`: −21.06 frente a −21.02 N·m. Sesión: **payload = la configuración montada** (brida desnuda → 0; acople → masa pesada y CoG del CAD (−2.2, 2.1, 29.4) mm; la gravedad la compensa el robot), G4 = 0.0, calentamiento, `check_session_config.py --payload-kg`, guardas activas, §7 firmado. **Retardo: medido con datos existentes, 5 ciclos** (§2.7, V15), sin acople; B4.4 no pudo re-medirlo. **Seguridad** (`09a_session_protocol.md` §2): `kill -9` al nodo en sostén → el vigilante `command_deadman.py` (nuevo, 3 tests, probado en Gazebo: 100 ms) corta y devuelve el mando al JTC; Ctrl-C → par cero; desenchufar Ethernet → `RobotReceiveTimeout` (20 ms, fijo) para el robot. |
 | B7.1 | Bring-up en aire **por ley** en la escena nueva (sin hoja → hoja al aire con `ft_data ≈ 0`): barrido en `q_init`, barrido de la base en la pose de la incisión, incisión en aire. Empezar por el SMC (equivale a 740–742) en cuanto exista la escena: valida la `G` de la base que usan las tres sintonías. **No con `smc_v5_g6`:** con el retardo real (V15) es inestable (modo de 25 Hz en `wrist_1`) y el nodo ya **se niega a arrancar** en el real (D23); antes, re-sintonizar con D = 5 tras B4.4. El CT nominal (×6.95) sí puede ir; el LQI semilla arranca (×1.32) pero sin el margen de `g7`. |
 | B7.2 | Corte piloto con par en un carril de EVA (la muestra con más área), una vez por ley. |
 | B7.3 | Campaña: por material, en **una sesión**, rondas aleatorizadas (§3.5 f) hasta N = 3 por ley; CSV + `.params.yaml` + `ft_data` + foto + metadatos. |
