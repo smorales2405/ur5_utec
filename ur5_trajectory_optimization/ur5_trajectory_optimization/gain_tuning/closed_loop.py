@@ -598,7 +598,13 @@ def simulate(law, ref: Reference, plant: Plant,
              friction_ff: "JointFriction | None" = None,
              dq_noise_std: float = DQ_NOISE_STD_GAZEBO,
              delay_steps: int = PIPELINE_DELAY_STEPS,
-             seed: int = 0) -> EvalResult:
+             seed: int = 0,
+             gravity_error: "np.ndarray | None" = None) -> EvalResult:
+    """
+    `gravity_error` (ε por junta) emula el error de gravedad del robot real: la
+    planta tiene `g_real = (1 − ε) g` y el robot compensa `g`. Sin él la gravedad
+    es exacta y bajar `α_g` no tiene coste aparente (problem.GRAVITY_ERROR_REAL).
+    """
     model, data, tcp = plant.model, plant.data, plant.tcp
     rng = np.random.default_rng(seed)
     delay_steps = max(0, int(delay_steps))
@@ -659,7 +665,10 @@ def simulate(law, ref: Reference, plant: Plant,
                                          pin.LOCAL_WORLD_ALIGNED)
             tau_ext = J.T @ force.wrench(t, rng)
 
-        ddq = pin.aba(model, data, q, dq, tau - tau_ext)
+        # M q̈ + C q̇ + (1 − ε) g = τ   ⇔   M q̈ + C q̇ + g = τ + ε g
+        tau_grav = (gravity_error * pin.computeGeneralizedGravity(model, data, q)
+                    if gravity_error is not None else 0.0)
+        ddq = pin.aba(model, data, q, dq, tau - tau_ext + tau_grav)
         if not np.all(np.isfinite(ddq)) or np.abs(dq).max() > 1e3:
             return EvalResult(np.inf, np.inf, np.inf, np.inf, np.inf,
                               np.inf, np.inf, np.inf, True, n_sat, chi_max,

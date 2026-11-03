@@ -173,6 +173,17 @@ TCP_TOL_MM_DEFAULT = 2.0
 #: ×6.95, semilla del LQI ×1.32 (peor punto del trazo), `smc_v5_g6` 0.
 MARGIN_MIN_DEFAULT = 2.0
 
+#: B4.4 (2026-11-02, `fl_1101`–`1133`): error de gravedad del robot real. El robot
+#: compensa con su modelo nominal y `Δ = g_real − g_UR` es, en cada junta, una fracción
+#: casi fija de `ĝ` sea cual sea la postura: 3.56 % en hombro (residuo ≤ 0.08 N·m), 5.36 %
+#: en codo (≤ 0.013) y 3.86 % en `wrist_1` (≤ 0.016). Son las pendientes de `Δ` frente a
+#: `|ĝ|` en cuatro posturas sobre el trazo. En base y `wrist_2`/`wrist_3` la gravedad es
+#: ~0 con la herramienta vertical: no se mide y da igual.
+GRAVITY_ERROR_REAL = np.array([0.0, 0.0356, 0.0536, 0.0386, 0.0, 0.0])
+#: `max |Δ|/|ĝ|` del mismo ensayo, para la cota `α_g |ĝ|` de la ley (R2): escalar, la
+#: peor junta y postura (codo, `fl_1132`). Sobrecubre el hombro (2.39 frente a 1.49 N·m).
+ALPHA_G_REAL = 0.0543
+
 #: Penalización devuelta cuando la simulación diverge.
 PENALTY = 1e9
 
@@ -303,7 +314,9 @@ class GainEvaluator:
                  d_bound: np.ndarray | None = None,
                  g_max: float = G_LOOP_MAX,
                  delay_steps: int = PIPELINE_DELAY_STEPS,
-                 margin_min: float = MARGIN_MIN_DEFAULT):
+                 margin_min: float = MARGIN_MIN_DEFAULT,
+                 alpha_g: float | None = None,
+                 gravity_error: np.ndarray | None = None):
         self.param = param
         self.ref = ref
         self.plant = plant
@@ -319,6 +332,13 @@ class GainEvaluator:
         self.d_bound = (np.zeros(6) if d_bound is None
                         else np.asarray(d_bound, dtype=float))
         self.alpha = float(alpha)
+        #: R2: fracción de `|ĝ|` en K. None = `alpha`, como la FASE 7.
+        self.alpha_g = None if alpha_g is None else float(alpha_g)
+        #: B4.4: ε por junta del error de gravedad de la PLANTA. Va con `alpha_g`:
+        #: bajar la cota sin poner el error en la planta sale gratis en la simulación
+        #: y se paga en el robot, la misma trampa que `d_bound` en g5.
+        self.gravity_error = (None if gravity_error is None
+                              else np.asarray(gravity_error, dtype=float))
         self.chi_safety = float(chi_safety)
         self.tcp_tol_mm = float(tcp_tol_mm)
         #: Cota de G (g6). Viaja en `_pool_recipe`: si no, los hijos la
@@ -348,10 +368,12 @@ class GainEvaluator:
             return hit
 
         lam, eta, phi = self.param.gains(x)
-        law = SmcLaw(lam=lam, eta=eta, phi=phi, alpha=self.alpha, use_sat=True)
+        law = SmcLaw(lam=lam, eta=eta, phi=phi, alpha=self.alpha, use_sat=True,
+                     alpha_g=self.alpha_g)
         try:
             res = simulate(law, self.ref, self.plant, force=self.force,
-                           friction=self.friction, delay_steps=self.delay_steps)
+                           friction=self.friction, delay_steps=self.delay_steps,
+                           gravity_error=self.gravity_error)
             if not res.diverged:
                 res.margin_discrete = smc_discrete_margin(
                     law, self.plant, self.ref, self.delay_steps)[0]
@@ -466,7 +488,9 @@ def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
                    d_bound: np.ndarray | None = None,
                    g_max: float = G_LOOP_MAX,
                    delay_steps: int = PIPELINE_DELAY_STEPS,
-                   margin_min: float = MARGIN_MIN_DEFAULT) -> GainEvaluator:
+                   margin_min: float = MARGIN_MIN_DEFAULT,
+                   alpha_g: float | None = None,
+                   gravity_error: np.ndarray | None = None) -> GainEvaluator:
     """Atajo: construye parametrización + evaluador con los valores del plan."""
     inertia = plant.inertia_diag(Q_INIT if q_ref is None else q_ref)
     param = SmcParameterization(inertia=inertia, mode=mode)
@@ -474,7 +498,8 @@ def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
     return GainEvaluator(param, ref, plant, force=force, alpha=alpha,
                          chi_safety=chi_safety, tcp_tol_mm=tcp_tol_mm,
                          friction=friction, d_bound=d_bound, g_max=g_max,
-                         delay_steps=delay_steps, margin_min=margin_min)
+                         delay_steps=delay_steps, margin_min=margin_min,
+                         alpha_g=alpha_g, gravity_error=gravity_error)
 
 
 #: Dispersión relativa de la identificación entre las TRES campañas reales

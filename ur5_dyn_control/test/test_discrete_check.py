@@ -83,6 +83,17 @@ def test_se_puede_forzar_con_el_override(tmp_path):
     assert "INESTABLE con 5 ciclos de retardo" in log
 
 
+@pytest.mark.skipif(not os.path.exists(_V5_G6), reason="sin smc_v5_g6")
+def test_alpha_g_llega_a_la_ley_y_mejora_el_margen(tmp_path):
+    """B4.4: el fichero de ganancias lleva alpha_g, y entra en K y en el chequeo."""
+    rc, log = _start(tmp_path, "gz_smc_control_node",
+                     ["incision_common.yaml", "smc_params.yaml", _V5_G6], 44,
+                     extra=[("discrete_check.allow_unstable", "true"),
+                            ("alpha_g", "0.0543")])
+    assert rc is None, log[-2000:]
+    assert "alpha M/C/g=0.30/0.30/0.05" in log
+
+
 def test_el_ct_nominal_arranca_con_margen(tmp_path):
     rc, log = _start(tmp_path, "gz_fl_control_node",
                      ["incision_common.yaml", "incision_params.yaml"], 43)

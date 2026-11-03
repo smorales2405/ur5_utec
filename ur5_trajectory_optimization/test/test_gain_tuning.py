@@ -22,9 +22,10 @@ from ur5_trajectory_optimization.gain_tuning.closed_loop import (  # noqa: E402
     JointFriction, Plant, Reference, SmcLaw,
     load_reference, simulate)
 from ur5_trajectory_optimization.gain_tuning.optimize import (  # noqa: E402
-    _cubic_features, _pool_recipe, alpha_sensitivity, seed_points)
+    _cubic_features, _pool_recipe, _worker_init, alpha_sensitivity, seed_points)
 from ur5_trajectory_optimization.gain_tuning.problem import (  # noqa: E402
-    CHI_THRESHOLD, FRICTION_DQ_EPS, G_LOOP_MAX, GainEvaluator,
+    ALPHA_G_REAL, CHI_THRESHOLD, FRICTION_DQ_EPS, G_LOOP_MAX, GRAVITY_ERROR_REAL,
+    GainEvaluator,
     SmcParameterization, disturbance_bound, friction_residual_bound)
 
 URDF = "/home/utec/ur5_ws/install/ur5_kinematics/share/ur5_kinematics/ur5e.urdf"
@@ -689,3 +690,96 @@ def test_g7_separa_ganancias_estables_de_inestables():
     eta = np.array([1.531, 3.930, 2.194, 0.820, 0.237, 0.042])
     agresiva = param.encode(lam, eta, 0.187)
     assert ev.constraints(agresiva)[6] > 0.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B4.4: alpha_g medido y error de gravedad en la planta
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_constantes_de_b44():
+    """Lo medido en fl_1101-1133: alpha_g es el peor caso de las pendientes."""
+    assert ALPHA_G_REAL == pytest.approx(0.0543)
+    assert ALPHA_G_REAL >= GRAVITY_ERROR_REAL.max()
+    np.testing.assert_allclose(GRAVITY_ERROR_REAL[[0, 4, 5]], 0.0)
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_alpha_g_cambia_k_y_baja_g():
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant)
+    param = SmcParameterization(inertia=INERTIA, mode="full")
+    x = param.encode(np.full(6, 20.0), INERTIA * 2.0, 0.25)
+    alto = GainEvaluator(param, ref, plant, force=None, alpha=0.3).result(x)
+    bajo = GainEvaluator(param, ref, plant, force=None, alpha=0.3,
+                         alpha_g=ALPHA_G_REAL).result(x)
+    assert bajo.g_joint[1] < alto.g_joint[1]
+    assert bajo.margin_discrete > alto.margin_discrete
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_el_error_de_gravedad_tiene_el_signo_medido():
+    """g_real = (1 - eps) g: quien aplica justo eso deja el brazo quieto."""
+    import pinocchio as pin
+    plant = Plant(URDF)
+    n = 500
+    q = np.tile(Q_INIT, (n, 1))
+    z = np.zeros((n, 6))
+    ref = Reference(dt=0.002, q=q, dq=z, ddq=z, phase=np.array(["cut"] * n),
+                    plateau=np.ones(n, dtype=bool))
+    eps = GRAVITY_ERROR_REAL
+
+    def ley(factor):
+        def _ley(model, data, q_, dq_, *_):
+            g = pin.computeGeneralizedGravity(model, data, q_)
+            return factor * g, np.zeros(6), {}
+        return _ley
+
+    def corre(factor):
+        return simulate(ley(factor), ref, plant, dq_noise_std=0.0, delay_steps=0,
+                        gravity_error=eps).rmse_q
+
+    assert corre(1.0 - eps) < 1e-9
+    # Con la gravedad nominal, lo que hace el robot, el brazo se mueve: lo que el lazo
+    # tiene que absorber. Y con el signo contrario, el doble.
+    assert corre(1.0) > 1e-4
+    assert corre(1.0 + eps) > 1.5 * corre(1.0)
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_la_planta_con_error_de_gravedad_sigue_peor():
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant)
+    param = SmcParameterization(inertia=INERTIA, mode="full")
+    x = param.encode(np.full(6, 20.0), INERTIA * 2.0, 0.25)
+    kw = dict(force=None, alpha=0.3, alpha_g=ALPHA_G_REAL)
+    exacta = GainEvaluator(param, ref, plant, **kw).result(x)
+    real = GainEvaluator(param, ref, plant, gravity_error=GRAVITY_ERROR_REAL, **kw).result(x)
+    assert real.rmse_q > exacta.rmse_q
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_receta_de_los_hijos_lleva_alpha_g_y_el_error():
+    """Sin esto los hijos optimizarian otra ley sobre otra planta, sin sintoma."""
+    import inspect
+    plant = Plant(URDF)
+    param = SmcParameterization(inertia=INERTIA, mode="full")
+    ev = GainEvaluator(param, _ref_sintetica(plant), plant, force=None,
+                       alpha_g=ALPHA_G_REAL, gravity_error=GRAVITY_ERROR_REAL)
+    receta = _pool_recipe(ev, URDF, "/no/existe.csv")
+    nombres = list(inspect.signature(_worker_init).parameters)
+    assert len(receta) == len(nombres)
+    por_nombre = dict(zip(nombres, receta))
+    assert por_nombre["alpha_g"] == ALPHA_G_REAL
+    np.testing.assert_allclose(por_nombre["gravity_error"], GRAVITY_ERROR_REAL)
+
+
+def test_el_yaml_lleva_alpha_g(tmp_path):
+    """Sin alpha_g el nodo usaria alpha en la gravedad: otra K y otra G."""
+    import yaml
+    from ur5_trajectory_optimization.gain_tuning.run_gain_tuning import _save_selected_yaml
+    path = tmp_path / "g.yaml"
+    _save_selected_yaml(str(path), np.ones(6), np.ones(6), np.full(6, 0.1), 0.3, {},
+                        alpha_g=ALPHA_G_REAL)
+    params = yaml.safe_load(path.read_text())["gz_smc_control_node"]["ros__parameters"]
+    assert params["alpha"] == 0.3
+    assert params["alpha_g"] == ALPHA_G_REAL

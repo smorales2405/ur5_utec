@@ -34,13 +34,16 @@ from .closed_loop import PIPELINE_DELAY_STEPS, CuttingForce, Plant, load_referen
 from .optimize import (alpha_sensitivity, certify_kkt, hv_reference_point,
                        run_epsilon_constraint, run_nsga2,
                        run_weighted_sum_baseline, seed_points)
-from .problem import (CHI_SAFETY_DEFAULT, CHI_THRESHOLD,
-                      FRICTION_REAL_G4_0, G_LOOP_MAX, MARGIN_MIN_DEFAULT, PENALTY,
+from .problem import (ALPHA_G_REAL, CHI_SAFETY_DEFAULT, CHI_THRESHOLD,
+                      FRICTION_REAL_G4_0, G_LOOP_MAX, GRAVITY_ERROR_REAL,
+                      MARGIN_MIN_DEFAULT, PENALTY,
                       TCP_TOL_MM_DEFAULT, GainEvaluator, disturbance_bound,
                       friction_residual_bound, make_evaluator)
 from .problem import SmcParameterization  # noqa: E402
 
-DEFAULT_REF = os.path.expanduser("~/.ros/ur5_dyn_control/incision_ref.csv")
+#: La tabla de B0 (corte en base_y 0.65, surface_z -0.004). Se genera con
+#: `run_position_incision.py --solo-tabla` o `reference_table_out` del nodo.
+DEFAULT_REF = os.path.expanduser("~/.ros/ur5_dyn_control/incision_ref_v3.csv")
 OBJ_NAMES = ["f1_iae_m_s", "f2_effort_N2m2s", "f3_tv_Nm"]
 CON_NAMES = ["g1_tau", "g2_dq", "g3_chi", "g4_tcp", "g5_alcance", "g6_G",
              "g7_margen_discreto"]
@@ -127,7 +130,7 @@ def _load_pareto(path: str, param) -> dict:
     return out
 
 
-def _save_selected_yaml(path, lam, eta, phi, alpha, meta: dict):
+def _save_selected_yaml(path, lam, eta, phi, alpha, meta: dict, alpha_g=None):
     doc = {"gz_smc_control_node": {"ros__parameters": {
         "lambda": [round(float(v), 8) for v in lam],
         "eta": [round(float(v), 8) for v in eta],
@@ -139,6 +142,9 @@ def _save_selected_yaml(path, lam, eta, phi, alpha, meta: dict):
            if np.atleast_1d(phi).size == 6
            else {"phi": round(float(phi), 8)}),
         "alpha": round(float(alpha), 8),
+        # Sin esto el nodo usaria `alpha` en la gravedad, con otra K y otra G que
+        # las que se han sintonizado.
+        **({} if alpha_g is None else {"alpha_g": round(float(alpha_g), 8)}),
         "switching_function": "sat",
     }}}
     with open(path, "w") as fh:
@@ -185,7 +191,13 @@ def main(argv=None):
     ap.add_argument("--eps-steps", type=int, default=12)
     ap.add_argument("--slsqp-maxiter", type=int, default=None,
                     help="por defecto se escala con la dimensión (200/n_var)")
-    ap.add_argument("--alpha", type=float, default=0.3)
+    ap.add_argument("--alpha", type=float, default=0.3,
+                    help="fraccion incierta de inercia y Coriolis en K (declarada)")
+    ap.add_argument("--alpha-g", type=float, default=ALPHA_G_REAL,
+                    help="fraccion incierta de la gravedad en K (R2), medida en B4.4")
+    ap.add_argument("--no-gravity-error", action="store_true",
+                    help="planta con gravedad exacta. Por defecto lleva el error medido "
+                         "en B4.4: sin el, bajar alpha_g no tiene coste aparente")
     ap.add_argument("--f-cut", type=float, default=5.0,
                     help="meseta de la fuerza de corte [N]; 0 = planta sin fuerza")
     ap.add_argument("--chi-safety", type=float, default=CHI_SAFETY_DEFAULT,
@@ -249,6 +261,7 @@ def main(argv=None):
     # errores articulares 100-1200x mayores. No se puede optimizar contra eso.
     # Ver el docstring de closed_loop.JointFriction.
     friction = FRICTION_REAL_G4_0 if args.friction else None
+    gravity_error = None if args.no_gravity_error else GRAVITY_ERROR_REAL
     # La cota se calcula ANTES del evaluador: g5 la necesita. Antes se calculaba
     # despues y solo servia para sembrar, que es lo que invalido las dos
     # primeras corridas.
@@ -262,7 +275,8 @@ def main(argv=None):
                         f_cut=args.f_cut, chi_safety=args.chi_safety,
                         tcp_tol_mm=args.tcp_tol_mm, friction=friction,
                         d_bound=d_bound, g_max=args.g_max,
-                        delay_steps=args.delay_steps, margin_min=args.margin_min)
+                        delay_steps=args.delay_steps, margin_min=args.margin_min,
+                        alpha_g=args.alpha_g, gravity_error=gravity_error)
     param = ev.param
 
     print(f"referencia : {ref.n} muestras · dt={ref.dt:.4f} s · {ref.n * ref.dt:.1f} s")
@@ -276,6 +290,10 @@ def main(argv=None):
           f"en las seis juntas (probado en el robot real)")
     print(f"             lazo discreto MIMO con {args.delay_steps} ciclo(s) de retardo: "
           f"margen de ganancia ≥ x{args.margin_min:g} (g7)")
+    print(f"K          : α_M = α_C = {args.alpha:g} (declarada), α_g = {args.alpha_g:g} (B4.4)")
+    print("gravedad   : " + ("exacta en la planta" if gravity_error is None else
+                             "planta con el error medido en B4.4, ε = "
+                             + np.array2string(gravity_error, precision=4)))
     if friction is None:
         print("fricción   : NINGUNA — planta ideal, NO predice el robot real")
     elif True:
@@ -556,6 +574,7 @@ def main(argv=None):
               f"{sel_name} y NO como selected_gains.yaml ***")
     _save_selected_yaml(
         os.path.join(outdir, sel_name), lam_k, eta_k, phi_k, args.alpha,
+        alpha_g=args.alpha_g, meta=
         {**({"INFACTIBLE": "viola " + ", ".join(viol_k) + " — NO CARGAR EN EL ROBOT"}
             if viol_k else {}),
          "metodo": "knee point sobre frente combinado NSGA-II + ε-restricción",
@@ -569,6 +588,10 @@ def main(argv=None):
          "fuerza_corte_N": args.f_cut,
          "retardo_ciclos": args.delay_steps,
          "margen_discreto": f"x{r_knee.margin_discrete:.2f} (minimo x{args.margin_min:g}, g7)",
+         "alpha_g": f"{args.alpha_g:g} (B4.4)",
+         "error_gravedad_planta": ("ninguno" if gravity_error is None
+                                   else " ".join(f"{v:g}" for v in gravity_error)),
+         "referencia": args.ref,
          "AVISO": f"evaluador con {args.delay_steps} ciclo(s) de retardo (el real tiene "
                   f"5, Gazebo 1) y sin el modo estructural de 25-35 Hz: re-verificar "
                   f"en Gazebo y en aire antes de la campana"})
@@ -576,6 +599,8 @@ def main(argv=None):
     report = {
         "run": {"controller": args.controller, "mode": args.mode, "seed": args.seed,
                 "pop_size": args.pop, "n_gen": args.gen, "alpha": args.alpha,
+                "alpha_g": args.alpha_g,
+                "gravity_error": None if gravity_error is None else gravity_error.tolist(),
                 "f_cut_N": args.f_cut, "chi_safety": args.chi_safety,
                 "chi_threshold": CHI_THRESHOLD.tolist(), "g_max": args.g_max,
                 "delay_steps": args.delay_steps, "margin_min": args.margin_min,
