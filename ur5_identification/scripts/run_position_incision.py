@@ -202,7 +202,7 @@ def check_pendant_tcp(node, plant, q, timeout: float = 3.0):
     return tcp_problem(*tcp_offset(plant, q, (p.x, p.y, p.z), (o.x, o.y, o.z, o.w)))
 
 
-def start_move(plant, q, q0):
+def start_move(plant, q, q0, label="inicio de la tabla"):
     """(err, problema) del traslado articular lineal q -> q0.
 
     `err` es |q - q0| máximo [rad]; `problema`, el motivo para no hacerlo solo, o
@@ -214,13 +214,13 @@ def start_move(plant, q, q0):
     q, q0 = np.asarray(q, float), np.asarray(q0, float)
     err = float(np.abs(q - q0).max())
     if err > MAX_MOVE:
-        return err, (f"El robot esta a {err:.3f} rad del inicio de la tabla (maximo "
+        return err, (f"El robot esta a {err:.3f} rad del {label} (maximo "
                      f"{MAX_MOVE} rad para recolocarlo solo): llevarlo con el pendant "
                      f"a {np.round(q0, 4).tolist()}")
     z_low = min(tip_position(plant, q)[2], tip_position(plant, q0)[2])
     z_min = path_min_tip_z(plant, q, q0)
     if z_min < z_low - MAX_DIP:
-        return err, (f"El traslado al inicio de la tabla bajaria la punta a z = "
+        return err, (f"El traslado al {label} bajaria la punta a z = "
                      f"{z_min:.3f} m (extremos: {z_low:.3f} m): llevarlo con el pendant "
                      f"a {np.round(q0, 4).tolist()}")
     return err, None
@@ -253,14 +253,14 @@ def check_speed_scaling(node, timeout: float = 3.0):
     return scaling_problem(seen[-1])
 
 
-def move_to_start(q, q0, err, ask: bool = True):
+def move_to_start(q, q0, err, ask: bool = True, label="inicio de la tabla"):
     """Lleva el robot a q0 con el JTC (`go_home` de las campañas) y lo comprueba."""
     from run_friction_campaign_real import Checker
     from ur5_identification.campaign_levels import JOINT_NAMES
     q, q0 = np.asarray(q, float), np.asarray(q0, float)
     worst = JOINT_NAMES[int(np.abs(q - q0).argmax())]
     dur = max(3.0, err / MOVE_SPEED)
-    print(f"  El robot esta a {err:.3f} rad del inicio de la tabla (peor: {worst}).")
+    print(f"  El robot esta a {err:.3f} rad del {label} (peor: {worst}).")
     if ask:
         input(f"  Traslado con el JTC a {MOVE_SPEED} rad/s, {dur:.1f} s. Paro de "
               f"emergencia a mano. Enter para moverlo... ")
@@ -273,9 +273,9 @@ def move_to_start(q, q0, err, ask: bool = True):
     chk.destroy_node()
     left = np.abs(np.asarray(now) - q0).max() if now is not None else float("inf")
     if not still or left > Q_START_TOL:
-        sys.exit(f"El traslado no llego al inicio de la tabla (error {left:.4f} rad, "
+        sys.exit(f"El traslado no llego al {label} (error {left:.4f} rad, "
                  f"quieto: {still}). ¿External Control en play, slider al 100 %?")
-    print(f"  En el inicio de la tabla (error {left:.4f} rad).")
+    print(f"  En el {label} (error {left:.4f} rad).")
 
 
 def write_csv(path, samples, ft, zero_t, ref, meta, plant):

@@ -1,0 +1,46 @@
+# FASE 7 — ganancias seleccionadas por sintonía multiobjetivo.
+# Generado por run_gain_tuning.py; NO editar a mano.
+#   INFACTIBLE: viola g5_alcance — NO CARGAR EN EL ROBOT
+#   metodo: knee point sobre frente combinado NSGA-II + ε-restricción
+#   objetivos: f1=0.738926 f2=48724.1 f3=118.43
+#   TCP_RMSE_mm: 24.9174
+#   chi: 0.0651 del umbral (limite 0.75)
+#   G: [86.3 33.2 12.4 1.0 0.4 0.0] N.m/(rad/s), limite 120 (g6)
+#   semilla: 42
+#   parametrizacion: full_phi
+#   fuerza_corte_N: 5.0
+#   retardo_ciclos: 5
+#   margen_discreto: x2.04 (minimo x2, g7)
+#   alpha_g: 0.0543 (B4.4)
+#   error_gravedad_planta: 0 0.0356 0.0536 0.0386 0 0
+#   referencia: /home/utec/.ros/ur5_dyn_control/incision_ref_v3.csv
+#   AVISO: evaluador con 5 ciclo(s) de retardo (el real tiene 5, Gazebo 1) y sin el modo estructural de 25-35 Hz: re-verificar en Gazebo y en aire antes de la campana
+#
+# Se fusiona sobre config/smc_params.yaml (solo ganancias).
+gz_smc_control_node:
+  ros__parameters:
+    lambda:
+    - 30.27843789
+    - 6.18789728
+    - 6.95972113
+    - 9.14917419
+    - 38.21440949
+    - 13.29176586
+    eta:
+    - 6.84102033
+    - 4.99027329
+    - 1.42238833
+    - 0.62739306
+    - 0.02127301
+    - 0.00673325
+    phi_joint:
+    - 0.9858336
+    - 0.51682749
+    - 0.45689685
+    - 0.99898604
+    - 0.33826519
+    - 0.55755732
+    phi: 0.9858336
+    alpha: 0.3
+    alpha_g: 0.0543
+    switching_function: sat

@@ -16,7 +16,7 @@ sobrescribir un CSV con datos.
 | `gravity_comp_1201` | Fin limpio, 2.3 | Válida |
 | `gravity_comp_1202` | Red, 2.4 | **Sin valor:** se quedó en `PRE_HOLD`, sin par; un relanzamiento pisó el primer intento |
 | `gravity_comp_1203` | Sostén y vigilante, 2.1 y 2.2 | Válida. El vigilante cortó en 105 ms |
-| `gravity_comp_1204` | Red, 2.4 | Válida. «Socket timed out» en el Registro |
+| `gravity_comp_1204` | Red, 2.4 | Válida. «Socket timed out» en el Registro; el brazo se quedó quieto (lo confirmó el operador) |
 | `fl_1101`–`1133` | Barridos, §3 | Válidas, 12 de 12. `α_g` en `~/.ros/gravity_sweeps/alpha_g.yaml` |
 | `fl_1111.stub` | Primer intento | Sin datos: cuelgue en `PRE_HOLD`, ya corregido |
 

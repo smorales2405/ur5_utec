@@ -32,7 +32,10 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64
 from std_srvs.srv import Trigger
+from scipy.interpolate import CubicHermiteSpline
 from trajectory_msgs.msg import JointTrajectory
+
+from ur5_identification.force_estimator import K_CURRENT
 
 #: Orden de la tabla.
 JOINTS = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
@@ -47,12 +50,17 @@ def _seconds(duration) -> float:
 
 
 class FakeUr(Node):
-    def __init__(self, q0, scaling, log_path, ft_gain_kg=None, tcp_z=0.0):
+    def __init__(self, q0, scaling, log_path, ft_gain_kg=None, tcp_z=0.0, rotor=None):
         super().__init__("fake_ur_driver")
         # Con `ft_gain_kg` el wrench es de verdad el peso de esa masa en ejes de la
         # herramienta, con ruido como el medido (0.11 N); el signo va en la masa.
         self.ft_gain_kg = ft_gain_kg
         self.tcp_z = tcp_z
+        # Con `rotor` el brazo sigue el spline del JTC y `effort` es la corriente que
+        # haría falta: M q̈ + g + fricción + el rotor, que el modelo no conoce.
+        self.rotor = None if rotor is None else np.asarray(rotor, float)
+        self.ddq = np.zeros(6)
+        self.dq_true = np.zeros(6)
         from ur5_trajectory_optimization.gain_tuning.closed_loop import (
             TCP_OFFSET, Plant, default_urdf)
         self.tip_offset = TCP_OFFSET
@@ -106,26 +114,50 @@ class FakeUr(Node):
                     duration=float(times[-1]), jump=jump, target=qs[-1].tolist())
         if self.scaling > 0.0:
             self.traj = (time.time(), times, qs)
+            if self.rotor is not None:
+                vel = np.array([[p.velocities[i] for i in order] for p in msg.points])
+                if len(vel) < len(qs):
+                    vel = np.vstack([np.zeros(6), vel])
+                self.spline = CubicHermiteSpline(times, qs, vel)
+
+    def _current(self, dq):
+        tau = pin.rnea(self.plant.model, self.plant.data, self.q, dq, self.ddq)
+        tau = tau + self.rotor * self.ddq + 2.0 * np.sign(dq) + 5.0 * dq
+        return tau / K_CURRENT + np.random.normal(0.0, 0.01, 6)
 
     def _tick(self):
         now = time.time()
         if self.traj is not None:
             t0, times, qs = self.traj
             t = now - t0
-            self.q_prev, self.q = self.q, np.array(
-                [np.interp(t, times, qs[:, j]) for j in range(6)])
+            if self.rotor is not None:
+                self.q_prev = self.q
+                tc = min(t, times[-1])
+                self.q = self.spline(tc)
+                self.dq_true = self.spline(tc, 1)
+                self.ddq = self.spline(tc, 2) if t < times[-1] else np.zeros(6)
+            else:
+                self.q_prev, self.q = self.q, np.array(
+                    [np.interp(t, times, qs[:, j]) for j in range(6)])
             if t > times[-1]:
                 self.traj = None
+                self.dq_true = np.zeros(6)
         else:
             self.q_prev = self.q
+            self.dq_true = np.zeros(6)
+            self.ddq = np.zeros(6)
         stamp = self.get_clock().now().to_msg()
         js = JointState()
         js.header.stamp = stamp
         js.name = [JOINTS[i] for i in PUBLISH_ORDER]
         js.position = [float(self.q[i]) for i in PUBLISH_ORDER]
-        dq = (self.q - self.q_prev) / PERIOD
+        dq = self.dq_true if self.rotor is not None else (self.q - self.q_prev) / PERIOD
         js.velocity = [float(dq[i]) for i in PUBLISH_ORDER]
-        js.effort = [0.1] * 6
+        if self.rotor is not None:
+            cur = self._current(dq)
+            js.effort = [float(cur[i]) for i in PUBLISH_ORDER]
+        else:
+            js.effort = [0.1] * 6
         self.pub_js.publish(js)
         w = WrenchStamped()
         w.header.stamp = stamp
@@ -163,11 +195,13 @@ def main():
     ap.add_argument("--ft-gain-kg", type=float, default=None)
     ap.add_argument("--tcp-z", type=float, default=0.0,
                     help="TCP del pendant en z de tool0 [m]")
+    ap.add_argument("--rotor", type=float, nargs=6, default=None,
+                    help="inercia que el modelo no conoce [kg.m2]: effort = corriente real")
     args = ap.parse_args()
     if os.environ.get("ROS_DOMAIN_ID") != str(args.domain):
         sys.exit("ROS_DOMAIN_ID del entorno distinto de --domain: no arranco")
     rclpy.init()
-    node = FakeUr(args.q0, args.scaling, args.log, args.ft_gain_kg, args.tcp_z)
+    node = FakeUr(args.q0, args.scaling, args.log, args.ft_gain_kg, args.tcp_z, args.rotor)
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException, RCLError):

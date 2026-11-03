@@ -1,0 +1,149 @@
+/usr/lib/python3/dist-packages/scipy/__init__.py:146: UserWarning: A NumPy version >=1.17.3 and <1.25.0 is required for this version of SciPy (detected version 1.26.4
+  warnings.warn(f"A NumPy version >={np_minversion} and <{np_maxversion}"
+========================================================================
+FASE 7 — sintonía multiobjetivo · controlador=smc · parametrización=full_phi
+========================================================================
+referencia : 14126 muestras · dt=0.0020 s · 28.3 s
+inercia    : diag M(q_init) = [1.10589e+00 2.65206e+00 9.29144e-01 2.83957e-02 8.63585e-03 3.78911e-04]
+variables  : 18  ['log10_lambda1', 'log10_lambda2', 'log10_lambda3', 'log10_lambda4', 'log10_lambda5', 'log10_lambda6', 'log10_eta1', 'log10_eta2', 'log10_eta3', 'log10_eta4', 'log10_eta5', 'log10_eta6', 'phi1', 'phi2', 'phi3', 'phi4', 'phi5', 'phi6']
+restricción: χ_i ≤ 0.75 · umbral_i · RMSE TCP ≤ 30.0 mm · fuerza de corte = 5.0 N
+             umbral_i = [0.22 0.22 0.32 0.99 0.99 0.99]  ->  limite = [0.165 0.165 0.24  0.742 0.742 0.742]
+             G_i = M_ii·λ_i + K_i/φ_i ≤ 120 N·m/(rad/s) en las seis juntas (probado en el robot real)
+             lazo discreto MIMO con 5 ciclo(s) de retardo: margen de ganancia ≥ x2 (g7)
+K          : α_M = α_C = 0.3 (declarada), α_g = 0.0543 (B4.4)
+gravedad   : planta con el error medido en B4.4, ε = [0.     0.0356 0.0536 0.0386 0.     0.    ]
+fricción   : NINGUNA — planta ideal, NO predice el robot real
+
+FASE 5 (λ=20, η=I·1.0, φ=0.05): f=[7.4088e+00 4.3506e+04 5.9368e+03]
+  g=[-2.5650e+01 -9.6599e-01 -1.6061e-01  5.1686e+02  7.4612e-01  7.3956e-01
+  1.0000e+09]  INFACTIBLE  ·  TCP=546.865 mm  χ=0.514
+coste por evaluación: 0.79 s
+
+cota de perturbación:
+  fuerza de corte |Jᵀw| = [6.1267e-01 3.1084e+00 1.1523e+00 7.4728e-01 4.2218e-10 2.1108e-16]
+  friccion residual     = [0.     0.1629 0.3716 0.0272 0.     0.    ]
+  TOTAL                 = [6.1267e-01 3.2714e+00 1.5239e+00 7.7451e-01 4.2218e-10 2.1108e-16]
+población inicial: 10 semillas derivadas + LHS
+
+── NSGA-II (pop=60, gen=60, seed=42, jobs=12) ──
+==========================================================================================
+n_gen  |  n_eval  | n_nds  |     cv_min    |     cv_avg    |      eps      |   indicator  
+==========================================================================================
+     1 |       60 |      1 |  5.741914E+02 |  1.966667E+09 |             - |             -
+     2 |      120 |      1 |  5.268311E+02 |  8.833335E+08 |             - |             -
+     3 |      180 |      1 |  7.193830E+01 |  6.833335E+08 |             - |             -
+     4 |      240 |      1 |  7.193830E+01 |  2.333339E+08 |             - |             -
+     5 |      300 |      1 |  5.6227462805 |  5.056131E+02 |             - |             -
+     6 |      360 |      1 |  4.2302130317 |  4.287011E+02 |             - |             -
+     7 |      420 |      1 |  3.4632473021 |  3.620878E+02 |             - |             -
+     8 |      480 |      1 |  3.4632473021 |  2.723701E+02 |             - |             -
+     9 |      540 |      1 |  2.9174954945 |  1.323730E+02 |             - |             -
+    10 |      600 |      1 |  2.4789350456 |  2.497506E+01 |             - |             -
+    11 |      660 |      1 |  2.4483262367 |  6.5306765576 |             - |             -
+    12 |      720 |      1 |  2.4483262367 |  3.9111938259 |             - |             -
+    13 |      780 |      1 |  2.4483262367 |  3.2105979248 |             - |             -
+    14 |      840 |      1 |  1.5852624780 |  2.8007280363 |             - |             -
+    15 |      900 |      1 |  1.5789065725 |  2.4300805458 |             - |             -
+    16 |      960 |      1 |  1.5789065725 |  2.2811896174 |             - |             -
+    17 |     1020 |      1 |  1.5789065725 |  2.0877488222 |             - |             -
+    18 |     1080 |      1 |  1.5056869885 |  1.9117294361 |             - |             -
+    19 |     1140 |      1 |  1.3964128942 |  1.7663934089 |             - |             -
+    20 |     1200 |      1 |  1.2532537560 |  1.5956148922 |             - |             -
+    21 |     1260 |      1 |  1.2198970364 |  1.5283856068 |             - |             -
+    22 |     1320 |      1 |  0.9046352695 |  1.4204547485 |             - |             -
+    23 |     1380 |      1 |  0.9046352695 |  1.2729581820 |             - |             -
+    24 |     1440 |      1 |  0.8675856051 |  1.1254838287 |             - |             -
+    25 |     1500 |      1 |  0.7798370566 |  0.9455059650 |             - |             -
+    26 |     1560 |      1 |  0.6454804941 |  0.8661552513 |             - |             -
+    27 |     1620 |      1 |  0.5983175160 |  0.7853638528 |             - |             -
+    28 |     1680 |      1 |  0.5158452024 |  0.7075538458 |             - |             -
+    29 |     1740 |      1 |  0.4687295968 |  0.6394748853 |             - |             -
+    30 |     1800 |      1 |  0.4414836337 |  0.5821204216 |             - |             -
+    31 |     1860 |      1 |  0.4063570154 |  0.5297049821 |             - |             -
+    32 |     1920 |      1 |  0.3755716441 |  0.4800674294 |             - |             -
+    33 |     1980 |      1 |  0.3755716441 |  0.4466079046 |             - |             -
+    34 |     2040 |      1 |  0.3176241710 |  0.4160440143 |             - |             -
+    35 |     2100 |      1 |  0.3051540811 |  0.3808531944 |             - |             -
+    36 |     2160 |      1 |  0.2668845190 |  0.3553849495 |             - |             -
+    37 |     2220 |      1 |  0.2668845190 |  0.3306135784 |             - |             -
+    38 |     2280 |      1 |  0.2283159894 |  0.3093046545 |             - |             -
+    39 |     2340 |      1 |  0.2283159894 |  0.2905266556 |             - |             -
+    40 |     2400 |      1 |  0.2215392272 |  0.2627909911 |             - |             -
+    41 |     2460 |      1 |  0.1948626965 |  0.2406171276 |             - |             -
+    42 |     2520 |      1 |  0.1948626965 |  0.2280472138 |             - |             -
+    43 |     2580 |      1 |  0.1755922882 |  0.2210674118 |             - |             -
+    44 |     2640 |      1 |  0.1755922882 |  0.2182023107 |             - |             -
+    45 |     2700 |      1 |  0.1652677683 |  0.2129964055 |             - |             -
+    46 |     2760 |      1 |  0.1498122930 |  0.2022712454 |             - |             -
+    47 |     2820 |      1 |  0.1498122930 |  0.1838320574 |             - |             -
+    48 |     2880 |      1 |  0.1497411725 |  0.1677554696 |             - |             -
+    49 |     2940 |      1 |  0.1477952210 |  0.1539935284 |             - |             -
+    50 |     3000 |      1 |  0.1477952210 |  0.1500589042 |             - |             -
+    51 |     3060 |      1 |  0.1477845586 |  0.1491995191 |             - |             -
+    52 |     3120 |      1 |  0.1477746963 |  0.1485608418 |             - |             -
+    53 |     3180 |      1 |  0.1477746963 |  0.1478900849 |             - |             -
+    54 |     3240 |      1 |  0.1477746963 |  0.1478132134 |             - |             -
+    55 |     3300 |      1 |  0.1477746963 |  0.1477884954 |             - |             -
+    56 |     3360 |      1 |  0.1253949844 |  0.1474070290 |             - |             -
+    57 |     3420 |      1 |  0.1194367185 |  0.1467168760 |             - |             -
+    58 |     3480 |      1 |  0.1194367185 |  0.1454819770 |             - |             -
+    59 |     3540 |      1 |  0.1156917097 |  0.1435968828 |             - |             -
+    60 |     3600 |      1 |  0.1106907915 |  0.1363834972 |             - |             -
+  60 soluciones no dominadas · 3600 evaluaciones · 38.3 min (0.64 s/eval)
+  punto de referencia HV = [9.6915e-01 5.4309e+04 1.6758e+02]
+
+── ε-restricción + SLSQP (1 niveles sobre f1) ──
+  ε[01/1] = 0.613353  falló  (5 iter)  [Iteration limit reached]
+  0/1 convergieron · 12.8 min
+
+factibles: NSGA-II 0/60 · ε-restricción 0/1
+  ¡NINGUNA solución factible! Se selecciona sobre el frente completo y se marca como tal.
+
+── Métricas de frente ──
+  hv_nsga2                         89340.95202285566
+  hv_epsilon                       44673.68634706083
+  hv_combined                      90386.3577880608
+  igd_nsga2                        1.8242836531384186
+  igd_epsilon                      237.52080173016276
+  coverage_nsga2_over_epsilon      0.0
+  coverage_epsilon_over_nsga2      0.016666666666666666
+
+── Punto de rodilla ──
+  λ   = [30.2784  6.1879  6.9597  9.1492 38.2144 13.2918]
+  η   = [6.841020e+00 4.990273e+00 1.422388e+00 6.273931e-01 2.127301e-02
+ 6.733251e-03]
+  φ   = [0.9858 0.5168 0.4569 0.999  0.3383 0.5576]   ·  dist. utopía (norm.) = 0.5741
+  f   = [7.38926e-01 4.87241e+04 1.18430e+02]
+  TCP = 24.9174 mm · RMSE q = 3.595e-02 · max|s| = 0.80524 · χ = 0.064
+  g   = [-2.5377e+01 -2.4116e+00 -6.8486e-01 -5.0826e+00  1.4712e-01 -2.8093e-01
+ -1.9821e-02]  *** INFACTIBLE ***
+  [extremo min-f1 del frente: f1 = 0.61335, TCP = 23.0539 mm, χ = 0.105]
+
+── Certificación KKT (problema de ε-restricción resuelto por SLSQP) ──
+  eps_level                0.6133526746967721
+  slsqp_success            False
+  stationarity_residual    6.931494780745989
+  stationarity_relative    0.7163573738971839
+  max_violation            0.014499904607615122
+  complementarity          0.011569797158058597
+  active                   ['eps', 'g5']
+  multipliers              {'eps': 1.3156982386330085, 'g5': 0.24597514710099158}
+
+── Sensibilidad a α (ganancias fijas del knee) ──
+      α     TCP mm    max|s|       χ       TV(τ)    G max  factible
+    0.1    24.9393   0.80594   0.064       117.7     86.3  NO (g5)
+    0.3    24.9174   0.80524   0.064       118.4     86.3  NO (g5)
+    0.5    24.8955   0.80454   0.065       119.2     86.3  NO (g5)
+    1.0    24.8410   0.80277   0.066       121.4     86.3  NO (g5)
+
+── Salidas ──
+  guardado → /home/utec/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v6_d5_tcp_libre/pareto.csv  (60 filas, método=nsga2)
+  guardado → /home/utec/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v6_d5_tcp_libre/pareto.csv  (1 filas, método=epsilon)
+  guardado → /home/utec/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v6_d5_tcp_libre/convergence.csv
+
+  *** La seleccion viola g5_alcance: se guarda como selected_gains_INFACTIBLE.yaml y NO como selected_gains.yaml ***
+  guardado → /home/utec/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v6_d5_tcp_libre/selected_gains_INFACTIBLE.yaml
+  guardado → /home/utec/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v6_d5_tcp_libre/metrics.yaml
+
+Total: 53.9 min
+rc=0
