@@ -973,6 +973,37 @@ crea `~/wrench`, es decir `/force_torque_sensor_broadcaster/wrench`; el
    la meseta da la resolución efectiva de la media del F/T (decide qué materiales
    se pueden caracterizar con él, D4).
 
+**Resultado (2026-11-02), `pos_800`–`803`, PolyScope 5.25.2; 800 y 801 brida libre,
+802 gripper 0.9149 kg, 803 acople con hoja 0.179 kg (pesados):**
+
+| Medida, meseta del corte | Gripper (802−801) | Acople (803−801) | Esperado |
+|---|---|---|---|
+| `ΔF_z` por corriente [N] | **+9.04 ± 0.28** | **+1.76 ± 0.27** | +8.97 / +1.75 |
+| `ΔF_y` por corriente [N] | −0.25 | +0.09 | 0 |
+
+- **Vía de corriente: validada**, en escala y en signo (masa colgada → `F_z` > 0,
+  el convenio hoja sobre entorno). Confirma de paso el peso del acople medido.
+  **Solo sirve en diferencia:** en absoluto tiene un sesgo de −2.6 N en `F_z` y
+  +2.3 N en `F_y` (modelo de gravedad y fricción). Repetibilidad entre corridas:
+  0.3 N en `F_z`; en `F_y`, 0.35 N entre 801–803 pero 1.37 N con 800, por el codo
+  (0.76 N·m de residuo; compatible con robot más frío, sin comprobar). El corte hay
+  que restarlo de una pasada en aire con la misma herramienta y a la misma
+  temperatura.
+- **Vía F/T: NO validada.** El cero y el tópico funcionan (ruido 0.11 N a 500 Hz),
+  pero al montar 0.915 kg el wrench cambió menos de 1 N, y el signo sigue sin fijar:
+  la incisión lleva orientación constante (A4), así que el peso no cambia en ejes
+  del sensor. El offset se mueve además ~1–1.4 N entre corridas sin tocar nada. Ni el
+  driver ni el script del robot hacen un cero al montar; UR no documenta uno
+  automático. Resolución de la media en la meseta si se confirma la ganancia: 0.15 N
+  (dispersión entre corridas en `F_z`, rango 0.31 N; deriva tras el cero de hasta
+  0.21 N), dominada por la deriva: el error típico estadístico es ≤ 0.02 N.
+- **Pendiente para cerrar B1:** `run_ft_tilt_check.py --test-num N --masa-kg <m>`,
+  con payload 0: inclina la herramienta y mide ganancia y signo por diferencias
+  entre poses, sin que entren ningún cero anterior ni la deriva lenta.
+- **Seguimiento por posición en aire**, punta por FK de los encoders (no es la punta
+  real): 0.02 mm rms y 0.08 mm máx. en `z`, 0.01 mm de media en `x`. A lo largo del
+  corte hay 0.6 mm, que son 60 ms de retardo a feed constante, no error geométrico.
+
 Lo que pedía el plan:
 
 - Suscriptor `ft_data` con sello de tiempo, transformación `tool0_controller` →

@@ -16,7 +16,8 @@ scripts se niegan a sobrescribir un CSV.
    (checklist §7: «primer ensayo sin bisturí»). Mesa despejada: sin muestras ni
    fijación.
 2. **Pesar el acople** tal como va montado (con tornillos, sin hoja). El CAD dice
-   0.182 kg; se usa el peso medido.
+   0.182 kg; se usa el peso medido. Los 0.179 kg de B1 (2026-11-02) son **con** la
+   hoja: no valen aquí.
 3. **Pendant → Instalación → Carga útil:** masa = la pesada; centro de gravedad
    **(−2.2, 2.1, 29.4) mm** (CAD, desde la brida). **TCP en (0, 0, 0)**. En la
    instalación, no solo en el programa: el payload vuelve solo al recargar

@@ -46,8 +46,16 @@ def _seconds(duration) -> float:
 
 
 class FakeUr(Node):
-    def __init__(self, q0, scaling, log_path):
+    def __init__(self, q0, scaling, log_path, ft_gain_kg=None):
         super().__init__("fake_ur_driver")
+        # Con `ft_gain_kg` el wrench es de verdad el peso de esa masa en ejes de la
+        # herramienta, con ruido como el medido (0.11 N); el signo va en la masa.
+        self.ft_gain_kg = ft_gain_kg
+        self.plant = None
+        if ft_gain_kg is not None:
+            from ur5_trajectory_optimization.gain_tuning.closed_loop import (
+                Plant, default_urdf)
+            self.plant = Plant(default_urdf())
         self.q = np.asarray(q0, float)
         self.q_prev = self.q.copy()
         self.scaling = scaling
@@ -119,7 +127,15 @@ class FakeUr(Node):
         self.pub_js.publish(js)
         w = WrenchStamped()
         w.header.stamp = stamp
-        w.wrench.force.z = 5.0
+        if self.plant is None:
+            w.wrench.force.z = 5.0
+        else:
+            import pinocchio as pin
+            pin.framesForwardKinematics(self.plant.model, self.plant.data, self.q)
+            f = self.plant.data.oMf[self.plant.tcp].rotation.T @ np.array(
+                [0.0, 0.0, -self.ft_gain_kg * 9.8])
+            f = f + np.array([0.7, -0.4, 1.1]) + np.random.normal(0.0, 0.11, 3)
+            w.wrench.force.x, w.wrench.force.y, w.wrench.force.z = (float(v) for v in f)
         self.pub_ft.publish(w)
         self.pub_scaling.publish(Float64(data=float(self.scaling)))
 
@@ -131,11 +147,12 @@ def main():
     ap.add_argument("--q0", type=float, nargs=6, required=True)
     ap.add_argument("--scaling", type=float, default=1.0)
     ap.add_argument("--log", required=True)
+    ap.add_argument("--ft-gain-kg", type=float, default=None)
     args = ap.parse_args()
     if os.environ.get("ROS_DOMAIN_ID") != str(args.domain):
         sys.exit("ROS_DOMAIN_ID del entorno distinto de --domain: no arranco")
     rclpy.init()
-    node = FakeUr(args.q0, args.scaling, args.log)
+    node = FakeUr(args.q0, args.scaling, args.log, args.ft_gain_kg)
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException, RCLError):
