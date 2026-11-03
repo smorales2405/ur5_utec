@@ -1,6 +1,7 @@
 # Protocolo de sesión con par en el UR5e real — B7.0 (seguridad) y B4.4 (α_g)
 
-**Estado:** preparado el 2026-10-28, **sin ejecutar**. Plan: B4.4 y B7.0 de
+**Estado:** preparado el 2026-10-28, valores del acople medidos el 2026-11-02,
+**sin ejecutar**. Plan: B4.4 y B7.0 de
 `Journal_UR5eControl_plan.md`. B7.0 va **antes** de B4.4 en la misma sesión:
 B4.4 es el primer uso del par con el acople montado.
 
@@ -15,13 +16,17 @@ scripts se niegan a sobrescribir un CSV.
 1. **Acople montado SIN la hoja.** Es el primer ensayo con par y acople
    (checklist §7: «primer ensayo sin bisturí»). Mesa despejada: sin muestras ni
    fijación.
-2. **Pesar el acople** tal como va montado (con tornillos, sin hoja). El CAD dice
-   0.182 kg; se usa el peso medido. Los 0.179 kg de B1 (2026-11-02) son **con** la
-   hoja: no valen aquí.
-3. **Pendant → Instalación → Carga útil:** masa = la pesada; centro de gravedad
+2. **Masa del acople sin bisturí ni hoja: 0.155 kg** (0.179 kg con ellos, menos los
+   23.9 g del bisturí y la hoja, pesados el 2026-11-02). Para los cortes, con la hoja
+   puesta, el payload vuelve a ser 0.179 kg.
+3. **Pendant → Instalación → Carga útil:** masa **0.155 kg**; centro de gravedad
    **(−2.2, 2.1, 29.4) mm** (CAD, desde la brida). **TCP en (0, 0, 0)**. En la
    instalación, no solo en el programa: el payload vuelve solo al recargar
    (`02_friction_real.md` §8.7).
+
+   Ese CoG es **con** el bisturí (el CAD da 0.182 kg, como la pesada con él); sin él
+   `z` bajaría a ~14–25 mm, sin medir. No importa aquí: con la herramienta vertical el
+   error es ≤ 0.0011 N·m en todos los barridos.
 
    *Por qué no payload 0:* en el real la gravedad la compensa el ROBOT (G3). El
    nodo manda la ley menos su `ĝ` y el robot suma la suya con el payload
@@ -83,12 +88,12 @@ ros2 launch ur5_dyn_control ur5e_real.launch.py controller:=gravity_comp \
 Seguir con 2.2 **sin parar este sostén**. Al final de la sesión:
 
 ```bash
-ros2 run ur5_identification check_session_config.py --payload-kg <masa pesada> \
+ros2 run ur5_identification check_session_config.py --payload-kg 0.155 \
     ~/.ros/ur5_dyn_control/gravity_comp_1200.csv
 ```
 
-Esperado: `shoulder_lift` dentro de ±0.5 N·m de la referencia (sin carga +
-firma del acople). Con payload 0 saldría ~+0.9 fuera.
+Esperado: `shoulder_lift` dentro de ±0.5 N·m de la referencia (sin carga + firma
+del acople, −0.75 N·m). Con payload 0 saldría ~+0.75 fuera.
 
 ### 2.2 El nodo muere sin limpiar (`kill -9`) → vigilante
 
@@ -171,7 +176,7 @@ ros2 run ur5_identification run_gravity_sweeps_real.py --dry-run --test-base 110
 
 # La sesión (pide «ACEPTO», el payload tecleado y el nombre de cada junta):
 ros2 run ur5_identification run_gravity_sweeps_real.py --test-base 1100 \
-    --payload-kg <masa pesada>
+    --payload-kg 0.155
 ```
 
 - 4 posturas (inicio de la aproximación y tres sobre el trazo a 60 mm de la cota
@@ -193,7 +198,10 @@ ros2 run ur5_identification analyze_gravity_sweeps.py \
 ```
 
 Por corrida: `ĝ`, `g_real − ĝ` a cada velocidad (tienen que coincidir), `g_UR − ĝ`,
-`Δ = g_real − g_UR` y `α = |Δ|/|ĝ|`; al final `α_g` por junta. Verificado en
+`Δ = g_real − g_UR` y `α = |Δ|/|ĝ|`; al final `α_g` por junta. El modelo del nodo
+sigue con 0.182 kg y el acople real tiene 0.155: `g_real − ĝ` y `g_UR − ĝ` llevan por
+eso +0.13–0.19 N·m en hombro, +0.11–0.13 en codo y +0.03 en `wrist_1`, sin que sea un
+error. `Δ` no lo nota porque no usa `ĝ`, y `α` cambia un 0.4 %. Verificado en
 Gazebo con la fricción real inyectada (`fl_98831`–`98833`): `g_real − ĝ` =
 0.004 / 0.002 / 0.0002 N·m en hombro / codo / `wrist_1` (en Gazebo `g_UR = 0` y
 α = 1 por construcción: allí solo se prueba el método).
@@ -202,4 +210,4 @@ Gazebo con la fricción real inyectada (`fl_98831`–`98833`): `g_real − ĝ` =
 
 Los CSV (`gravity_comp_1200`–`1202`, `fl_1101`–`1133`) con sus `.params.yaml`,
 el registro de sesión (`~/.ros/gravity_sweeps/session_*.yaml`), lo observado en
-2.2–2.4 (¿se movió el brazo?, mensajes del pendant) y la masa pesada del acople.
+2.2–2.4 (¿se movió el brazo?, mensajes del pendant).

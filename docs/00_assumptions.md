@@ -35,7 +35,8 @@ de *Limitations* del paper**.
 > | | Valor | Fuente |
 > |---|---|---|
 > | Masa | **0.182 kg** | `physical_properites_toolscalpel.png` (Inventor) |
-> | CoG (desde `tool0`) | (−2.227, 2.134, 29.398) mm | ídem |
+> | Masa pesada (2026-11-02) | 0.179 kg con bisturí y hoja; 0.155 kg sin ellos | balanza. La vía de corriente da 0.180 kg. El modelo sigue con la de CAD (0.03 N de diferencia) |
+> | CoG (desde `tool0`) | (−2.227, 2.134, 29.398) mm | ídem; con el bisturí. El momento del F/T da 25–28 mm |
 > | Inercia en el CoG | Ixx 239.199, Iyy 254.858, Izz 119.620 kg·mm²<br>Ixy −0.880, Ixz −3.820, Iyz −7.570 | ídem |
 >
 > El `tool_com` del YAML va **en el frame TCP**, o sea el CoG anterior menos

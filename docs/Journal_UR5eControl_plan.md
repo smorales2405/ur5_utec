@@ -932,7 +932,7 @@ bloque (o sub-bloque si es grande).
 Gazebo = escena medida; `smc_v5_g6` re-evaluado sobre la referencia nueva
 (cifras de partida, no ganancias finales).
 
-### B1 — Medida de fuerza (resto de la FASE 3) — código hecho (2026-10-27); falta el cierre en el robot
+### B1 — Medida de fuerza (resto de la FASE 3) — CERRADO el 2026-11-02 (`F_x` del F/T descartada; pendiente en B2 comparar las dos vías en corte real)
 
 **Hecho:** el nodo (las tres leyes) se suscribe al wrench del driver, lo lleva a
 la punta y a `base_link` (`ft_wrench.hpp`, con tests) y lo escribe en
@@ -951,7 +951,7 @@ crea `~/wrench`, es decir `/force_torque_sensor_broadcaster/wrench`; el
 `topic_name: ft_data` del YAML de UR no aparece en su librería. Es el default de
 `ft.topic`; **confirmar en el robot** con `ros2 topic list | grep -i wrench`.
 
-**Cierre en el robot (pendiente; lo ejecuta el usuario):**
+**Cierre en el robot (hecho; resultado más abajo, y el método de leer antes y después de montar no funcionó: arrancar el programa tara el sensor):**
 
 1. Driver arriba, External Control en *play*, slider al 100 % (el script se
    niega si no), escalas G4 a 0.0 y robot en `q_init` o cerca: el script lo lleva
