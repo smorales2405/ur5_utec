@@ -159,6 +159,8 @@ if(BUILD_TESTING)
     TIMEOUT 120)
   ament_add_pytest_test(test_discrete_check test/test_discrete_check.py
     TIMEOUT 300)
+  ament_add_pytest_test(test_controller_switch_retry test/test_controller_switch_retry.py
+    TIMEOUT 300)
   # B0.4: dinamica del nodo (C++) frente a la del evaluador offline (Python).
   add_executable(dump_dynamics test/dump_dynamics.cpp)
   target_link_libraries(dump_dynamics ${PROJECT_NAME}_core)

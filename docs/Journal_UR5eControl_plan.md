@@ -1083,6 +1083,19 @@ más seguro y desacopla la medida de fuerza de cualquier ley propia.
 | B3.4 | `wrist_3` con solo Coulomb: su viscoso aporta ≤ 0.088 N·m en toda la incisión (≤ 0.006 en la meseta) frente a 2.35 de Coulomb, y es el término que congela el integrador (`b·dt/I` = 11). Declararlo. Validar la inyección en `wrist_1`/`wrist_2`. |
 | B3.5 | Validación sim↔real en aire con la escena nueva (B7.1) y criterio §5.3. |
 
+**Sesión con par del 2026-11-02 (B7.0 a medias, B4.4 3 de 12; detalle y estado por corrida
+en `09a_session_protocol.md`):**
+
+- **Sostén por par con el acople:** deriva ≤ 0.0001 rad en 221 s, `g_robot` a 0.07 N·m del
+  modelo más la firma de 0.155 kg. Payload activo leído por RTDE: 0.155 kg, TCP 0.
+- **Primeros `α_g`, solo postura `inicio`:** hombro 0.039, codo 0.053, `wrist_1` 0.041.
+- **Corrección del nodo:** una respuesta de servicio perdida en el arranque lo colgaba en
+  `PRE_HOLD` (2 de 7 arranques), y si era la del switch, la corrida iba entera con el JTC
+  mandando sin aviso. Ahora reintenta, y en el real confirma el switch antes de comandar.
+- **`gravity_comp_1200` perdida por un error del asistente:** una prueba del guardia lanzó con
+  ese número cuando el parche del guardia no se había aplicado. Es un sostén de comprobación
+  y se repite como `1203`; no afecta a ningún resultado.
+
 ### B4 — Leyes reformuladas (sin robot, en paralelo con B1–B3)
 
 | # | entregable |

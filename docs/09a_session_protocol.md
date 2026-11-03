@@ -5,9 +5,21 @@
 `Journal_UR5eControl_plan.md`. B7.0 va **antes** de B4.4 en la misma sesión:
 B4.4 es el primer uso del par con el acople montado.
 
-Números de corrida reservados: `gravity_comp_1200`–`1202` (B7.0) y
-`fl_1101`–`1133` (B4.4: `1100 + 10·postura + junta`). Ninguno existe hoy; los
-scripts se niegan a sobrescribir un CSV.
+Números de corrida: `gravity_comp_1203`–`1204` (lo que queda de B7.0) y `fl_1101`–`1133`
+(B4.4: `1100 + 10·postura + junta`). Los scripts y `ur5e_real.launch.py` se niegan a
+sobrescribir un CSV con datos.
+
+**Estado tras la sesión del 2026-11-02 (B7.0 a medias, B4.4 3 de 12):**
+
+| Corrida | Qué es | Estado |
+|---|---|---|
+| `gravity_comp_1200` | Sostén 221 s | **Perdida:** la sobrescribió una prueba del asistente, solo cabecera. Quedan los valores: `g_robot` −21.06 / −21.01 / −1.98 N·m y deriva ≤ 0.0001 rad |
+| `gravity_comp_1201` | Fin limpio, 2.3 | Válida |
+| `gravity_comp_1202` | Red, 2.4 | **Sin valor:** se quedó en `PRE_HOLD`, sin par; un relanzamiento pisó el primer intento |
+| `fl_1101`–`1103` | Postura `inicio` | Válidas |
+| `fl_1111` | Postura `corte_lejos` | Sin datos: cuelgue en `PRE_HOLD`, ya corregido; `--resume` la aparta y la repite |
+
+Sin probar todavía en el robot: **2.2 (vigilante)** y **2.4 (red)**.
 
 ---
 
@@ -77,31 +89,32 @@ ros2 action send_goal /scaled_joint_trajectory_controller/follow_joint_trajector
 
 ```bash
 ros2 launch ur5_dyn_control ur5e_real.launch.py controller:=gravity_comp \
-    tool_mounted:=true test_num:=1200
+    tool_mounted:=true test_num:=1203
 ```
 
 - El banner tiene que decir `herramienta: MONTADA`, `tau_max` al 30 % y
   `deadman: si el nodo calla 100 ms, par cero y vuelta al JTC`.
-- En el log: `command_deadman ... armado` al empezar el sostén.
+- **No seguir hasta ver en el log `command_deadman ... armado`.** Antes de esa línea no
+  hay par aplicado, y las pruebas de 2.2 y 2.4 no probarían nada.
 - El brazo se queda quieto en `q_init`. Dejarlo ~20 s.
 
 Seguir con 2.2 **sin parar este sostén**. Al final de la sesión:
 
 ```bash
 ros2 run ur5_identification check_session_config.py --payload-kg 0.155 \
-    ~/.ros/ur5_dyn_control/gravity_comp_1200.csv
+    ~/.ros/ur5_dyn_control/gravity_comp_1203.csv
 ```
 
-Esperado: `shoulder_lift` dentro de ±0.5 N·m de la referencia (sin carga + firma
-del acople, −0.75 N·m). Con payload 0 saldría ~+0.75 fuera.
+Esperado: `shoulder_lift` dentro de ±0.5 N·m de la referencia (modelo sin herramienta +
+firma del acople, −0.75 N·m). Con payload 0 saldría ~+0.75 fuera. Medido por RTDE el
+2026-11-02: 0.155 kg activos, TCP 0.
 
 ### 2.2 El nodo muere sin limpiar (`kill -9`) → vigilante
 
 Con el sostén de 2.1 en marcha, **terminal C**:
 
 ```bash
-pgrep -af lib/ur5_dyn_control/gz_gravity_comp_node     # anotar el PID del nodo
-kill -9 <PID>
+pkill -9 -f lib/ur5_dyn_control/gz_gravity_comp_node
 ```
 
 **Esperado** (medido en Gazebo: 100 ms tras el `kill -9`):
@@ -141,15 +154,16 @@ de la del nodo de control (eso es 2.2).
 
 ```bash
 ros2 launch ur5_dyn_control ur5e_real.launch.py controller:=gravity_comp \
-    tool_mounted:=true test_num:=1202
+    tool_mounted:=true test_num:=1204
 ```
 
-Con el sostén en marcha, **desenchufar el cable Ethernet del robot** (es el fallo
-real). Alternativa: `pgrep -af ur_ros2_control_node` y `kill -9 <PID>`.
+Con la línea `armado` ya en el log, **desenchufar el cable Ethernet del robot** (es el
+fallo real).
 
-**Esperado:** en ~20 ms el programa del robot sale con `stopj`; el log del pendant
-muestra «Socket timed out waiting for command on reverse_socket. The script will
-exit now.» y External Control se detiene; el brazo frena y queda quieto.
+**Esperado:** en ~20 ms el programa del robot sale con `stopj`; la pestaña **Registro**
+del pendant (no sale como aviso emergente) muestra «Socket timed out waiting for command
+on reverse_socket. The script will exit now.» y External Control se detiene; el brazo
+frena y queda quieto.
 
 Recuperación: reconectar, Ctrl-C en todos los terminales, relanzar el driver,
 *play* en External Control y **G4 a cero otra vez** (§1).
@@ -157,18 +171,16 @@ Recuperación: reconectar, Ctrl-C en todos los terminales, relanzar el driver,
 ### 2.5 Retardo de tubería
 
 Ya medido con datos existentes: **5 ciclos (10 ms)** (`analyze_pipeline_delay.py`
-sobre `fl_500`–`507`; plan V15). No hace falta un ensayo propio: los barridos de
-B4.4 tienen los mismos escalones de Coulomb y lo re-miden con el acople:
-
-```bash
-ros2 run ur5_identification analyze_pipeline_delay.py ~/.ros/ur5_dyn_control/fl_11??.csv
-```
-
-Si sale lejos de 5 ciclos (más de ±1), avisar: cambia el evaluador de B5.
+sobre `fl_500`–`507`; plan V15). Los barridos de B4.4 **no** sirven para volver a medirlo,
+como decía antes este protocolo: el limitador de tasa del feedforward deja saltos de
+0.3 N·m y el detector necesita 2 N·m (`fl_1101`–`1103`: 0 eventos, correlación 0.08). El
+retardo es de la tubería de comunicación, así que el acople no debería cambiarlo: se
+mantienen los 5 ciclos.
 
 ## 3. B4.4 — α_g
 
-Robot en `q_init` con el JTC activo (tras 2.4, después de recuperar).
+Con el JTC activo (tras 2.4, después de recuperar). El script fija G4 a cero y coloca el
+robot; `--resume` salta lo que ya tiene datos y aparta el CSV vacío de `fl_1111`.
 
 ```bash
 # Posturas, holguras y comandos, sin mover nada:
@@ -176,7 +188,7 @@ ros2 run ur5_identification run_gravity_sweeps_real.py --dry-run --test-base 110
 
 # La sesión (pide «ACEPTO», el payload tecleado y el nombre de cada junta):
 ros2 run ur5_identification run_gravity_sweeps_real.py --test-base 1100 \
-    --payload-kg 0.155
+    --payload-kg 0.155 --resume
 ```
 
 - 4 posturas (inicio de la aproximación y tres sobre el trazo a 60 mm de la cota
@@ -208,6 +220,6 @@ Gazebo con la fricción real inyectada (`fl_98831`–`98833`): `g_real − ĝ` =
 
 ## 4. Qué devolver
 
-Los CSV (`gravity_comp_1200`–`1202`, `fl_1101`–`1133`) con sus `.params.yaml`,
+Los CSV (`gravity_comp_1203`–`1204`, `fl_1101`–`1133`) con sus `.params.yaml`,
 el registro de sesión (`~/.ros/gravity_sweeps/session_*.yaml`), lo observado en
 2.2–2.4 (¿se movió el brazo?, mensajes del pendant).

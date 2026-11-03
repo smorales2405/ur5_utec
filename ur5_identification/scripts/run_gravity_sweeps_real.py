@@ -92,6 +92,23 @@ def plan(plant, names, joints, amplitude):
     return out, problems
 
 
+def is_stub(csv) -> bool:
+    """El CSV de una corrida que no llegó a comandar: cabecera y ninguna muestra."""
+    with open(csv, errors="replace") as fh:
+        rows = sum(1 for line in fh if not line.startswith("#"))
+    return rows <= 1
+
+
+def set_aside(csv) -> str:
+    """Aparta el CSV vacío y su sidecar: ni se borran ni los recoge `fl_11??.csv`."""
+    stem = os.path.splitext(csv)[0]
+    out = f"{stem}.stub.csv"
+    os.rename(csv, out)
+    if os.path.exists(f"{stem}.params.yaml"):
+        os.rename(f"{stem}.params.yaml", f"{stem}.stub.params.yaml")
+    return out
+
+
 def launch_args(q):
     txt = ",".join(f"{v:.6f}" for v in q)
     return [f"sweep_q_fixed:={txt}", f"q_init:={txt}"]
@@ -212,6 +229,8 @@ def main(argv=None):
                 n = args.test_base + 10 * ip + j
                 csv = os.path.expanduser(f"~/.ros/ur5_dyn_control/fl_{n}.csv")
                 print(f"\n  [{p['name']} · {JOINT_NAMES[j]} · test {n}]")
+                if os.path.exists(csv) and args.resume and is_stub(csv):
+                    print(f"    corrida anterior sin datos: apartada en {set_aside(csv)}")
                 if os.path.exists(csv):
                     if args.resume:
                         print("    ya existe el CSV — se salta (--resume)")
@@ -240,6 +259,11 @@ def main(argv=None):
                 res["settled"], res["drift_after"] = still, drift
                 session["runs"].append(res)
                 print(f"    CSV: {'OK' if res['csv_exists'] else 'NO SE CREÓ'} {res['csv']}")
+                if not res.get("completed"):
+                    print(f"\n  *** Corrida incompleta (estado {res['state_reached']}): se "
+                          "aborta la sesión. --resume la repite si quedó sin datos. ***")
+                    rc = 1
+                    raise SystemExit
                 if res.get("safe_hold") or not still:
                     print("\n  *** SAFE_HOLD o brazo sin detenerse: se aborta la sesión. ***")
                     rc = 1

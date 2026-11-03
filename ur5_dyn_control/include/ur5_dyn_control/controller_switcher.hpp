@@ -32,6 +32,9 @@ public:
 
   bool waitForService(std::chrono::seconds timeout);
 
+  /// Olvida las peticiones sin responder: su respuesta se perdio y no va a llegar.
+  void abandonPendingRequests();
+
   /**
    * Consulta list_controllers (async) y llama cb(ready, to_activate):
    *  - ready: todos los 'names' estan cargados (inactive o active);

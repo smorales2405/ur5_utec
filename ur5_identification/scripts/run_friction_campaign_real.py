@@ -50,9 +50,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import queue
 import signal
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 
@@ -427,6 +429,65 @@ def run_one_position(joint: int, test_num: int, params_file: str, level: str,
     return res
 
 
+#: Lo que el nodo puede tardar en dejar PRE_HOLD. Normal: 1 s; con reintentos del
+#: switch, unos 15. Sin esto una corrida colgada lo está para siempre, sin aviso.
+STARTUP_TIMEOUT_S = 30.0
+
+
+def follow_run(proc, log, settle_s=8.0, timeout_s=900.0, startup_s=STARTUP_TIMEOUT_S):
+    """
+    Sigue la salida del nodo hasta el fin de la corrida. (estado, completada).
+
+    Se lee en otro hilo: `for line in proc.stdout` se queda bloqueado si el nodo
+    calla, y ningún timeout comprobado dentro de ese bucle llega a ejecutarse.
+    """
+    lines = queue.Queue()
+
+    def reader():
+        for line in proc.stdout:
+            lines.put(line)
+        lines.put(None)
+
+    threading.Thread(target=reader, daemon=True).start()
+    state, t0 = "?", time.time()
+    while True:
+        elapsed = time.time() - t0
+        if elapsed > timeout_s:
+            print(f"    *** timeout de {timeout_s:.0f} s ***")
+            return state, False
+        if state == "?" and elapsed > startup_s:
+            print(f"    *** el nodo no arranco en {startup_s:.0f} s: sin comandar nada ***")
+            return state, False
+        try:
+            line = lines.get(timeout=0.5)
+        except queue.Empty:
+            continue
+        if line is None:
+            return state, False
+        log.write(line)
+        log.flush()
+        if "Estado ->" in line:
+            state = line.split("Estado ->")[1].split("(")[0].strip()
+            print(f"      [{time.time() - t0:6.1f}s] {state}")
+        if "SAFE_HOLD" in line:
+            print("    *** SAFE_HOLD: el nodo pidió parada segura ***")
+            return "SAFE_HOLD", False
+        if state == "DONE":
+            print("    *** el nodo termino sin completar la corrida ***")
+            return state, False
+        if "HOLD_END" in line:
+            # NO se mata el nodo aqui. En HOLD_END el controlador regula
+            # en el ultimo punto de la tabla (= q_center), y matarlo en
+            # ese instante deja el brazo con el error de seguimiento que
+            # tuviera: medido, el elbow quedo 0.215 rad fuera y la
+            # corrida siguiente no pudo arrancar. Se le da tiempo a
+            # converger, acotado, porque una junta que no puede vencer
+            # su friccion no convergeria nunca.
+            print(f"      trayectoria completada; asentando {settle_s:.0f} s")
+            time.sleep(settle_s)
+            return state, True
+
+
 def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
             log_dir: str, tool_mounted: bool = False, settle_s: float = 8.0,
             timeout_s: float = 900.0, extra_args=()):
@@ -436,7 +497,8 @@ def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
     Se detecta el final leyendo el log del nodo (`Estado -> HOLD_END`) en vez de
     esperar un tiempo fijo: la duración de la tabla depende de las velocidades
     del barrido, y un timeout a ojo o corta la corrida o alarga la sesión.
-    Si aparece SAFE_HOLD se corta de inmediato y se aborta la campaña.
+    Si aparece SAFE_HOLD, o el nodo no arranca, se corta de inmediato y se aborta
+    la campaña.
     `extra_args` (`clave:=valor`) se añaden al launch: los barridos de gravedad
     (B4.4, run_gravity_sweeps_real.py) pasan ahí su postura.
     """
@@ -454,31 +516,9 @@ def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True,
                                 preexec_fn=os.setsid)
-        state, t0 = "?", time.time()
+        state, completed = "?", False
         try:
-            for line in proc.stdout:
-                log.write(line)
-                log.flush()
-                if "Estado ->" in line:
-                    state = line.split("Estado ->")[1].split("(")[0].strip()
-                    print(f"      [{time.time() - t0:6.1f}s] {state}")
-                if "SAFE_HOLD" in line:
-                    print("    *** SAFE_HOLD: el nodo pidió parada segura ***")
-                    break
-                if "HOLD_END" in line:
-                    # NO se mata el nodo aqui. En HOLD_END el controlador regula
-                    # en el ultimo punto de la tabla (= q_center), y matarlo en
-                    # ese instante deja el brazo con el error de seguimiento que
-                    # tuviera: medido, el elbow quedo 0.215 rad fuera y la
-                    # corrida siguiente no pudo arrancar. Se le da tiempo a
-                    # converger, acotado, porque una junta que no puede vencer
-                    # su friccion no convergeria nunca.
-                    print(f"      trayectoria completada; asentando {settle_s:.0f} s")
-                    time.sleep(settle_s)
-                    break
-                if time.time() - t0 > timeout_s:
-                    print(f"    *** timeout de {timeout_s:.0f} s ***")
-                    break
+            state, completed = follow_run(proc, log, settle_s, timeout_s)
         finally:
             try:
                 os.killpg(os.getpgid(proc.pid), signal.SIGINT)
@@ -492,6 +532,7 @@ def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
     csv = os.path.expanduser(f"~/.ros/ur5_dyn_control/fl_{test_num}.csv")
     return {"test_num": test_num, "joint": joint,
             "joint_name": JOINT_NAMES[joint], "state_reached": state,
+            "completed": completed,
             "csv": csv, "csv_exists": os.path.exists(csv),
             "node_log": log_path, "safe_hold": state == "SAFE_HOLD"}
 
@@ -681,7 +722,7 @@ def main():
                 session["runs"].append(res)
                 print(f"    CSV: {'OK' if res['csv_exists'] else 'NO SE CREÓ'} "
                       f"{res['csv']}")
-                if res.get("safe_hold"):
+                if res.get("safe_hold") or not res.get("completed"):
                     print("\n  *** El nodo entró en SAFE_HOLD. Se aborta la campaña. ***")
                     print("  Revise el robot antes de continuar.")
                     rc = 1

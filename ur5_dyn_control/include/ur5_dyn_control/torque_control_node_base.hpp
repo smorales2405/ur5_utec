@@ -382,6 +382,9 @@ private:
   State state_ = State::PRE_HOLD;
   bool switch_requested_ = false;
   bool check_pending_ = false;
+  bool switch_confirmed_ = false;
+  int check_tick_ = 0;
+  int switch_attempts_ = 0;
   bool unpause_done_ = false;
   int pre_hold_ticks_ = 0;
   int request_tick_ = 0;

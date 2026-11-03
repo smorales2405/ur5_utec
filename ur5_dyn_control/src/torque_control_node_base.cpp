@@ -1337,12 +1337,46 @@ void TorqueControlNodeBase::tick()
         publishTau(tau_hold_blind_, q_init_, Vector6d::Zero());
         ++pre_hold_ticks_;
 
+        // Una respuesta de servicio puede perderse sin dejar rastro:
+        // wait_for_service solo mira el grafo, y el servidor puede responder antes
+        // de emparejar al cliente ("failed to send response", en el robot 2 de 7
+        // arranques el 2026-11-02). Sin esto check_pending_ se queda en true y el
+        // nodo espera para siempre en PRE_HOLD. Volver a mirar la lista lo resuelve
+        // todo: dice si el switch se aplico, y si no, se vuelve a pedir.
+        //
+        // En el real el switch se CONFIRMA antes de seguir: si se perdiera, la
+        // corrida entera iria con el JTC mandando y nadie aplicando el par. En
+        // Gazebo no se puede: con el mundo en pausa no responde hasta que corre.
+        const bool confirm_switch = !perform_unpause_;
+        const int response_ticks = static_cast<int>(control_rate_ * 2.0);
+        const bool check_lost =
+          check_pending_ && pre_hold_ticks_ - check_tick_ > response_ticks;
+        const bool switch_lost = confirm_switch && switch_requested_ && !switch_confirmed_ &&
+          pre_hold_ticks_ - request_tick_ > response_ticks;
+        if (check_lost || switch_lost) {
+          switcher_->abandonPendingRequests();
+          check_pending_ = false;
+          switch_requested_ = false;
+          ++switch_attempts_;
+          RCLCPP_WARN(get_logger(), "%s sin respuesta en 2 s (intento %d): se reintenta",
+                      check_lost ? "list_controllers" : "switch_controller",
+                      switch_attempts_);
+          if (confirm_switch && switch_attempts_ >= 5) {
+            RCLCPP_FATAL(get_logger(),
+                         "controller_manager sin responder tras %d intentos: no se comanda",
+                         switch_attempts_);
+            enterState(State::DONE);
+            break;
+          }
+        }
+
         // 1) Esperar a que los controladores esten CARGADOS (los spawners
         //    --inactive corren en paralelo); 2) pedir el switch STRICT solo
         //    con los que falte activar.
         if (perform_switch_ && !switch_requested_ && !check_pending_) {
           if (pre_hold_ticks_ % static_cast<int>(control_rate_ * 1.0) == 1) {
             check_pending_ = true;
+            check_tick_ = pre_hold_ticks_;
             switcher_->checkControllersLoaded(
               activate_controllers_, deactivate_controllers_,
               [this](bool ready, std::vector<std::string> to_activate,
@@ -1352,6 +1386,7 @@ void TorqueControlNodeBase::tick()
                 switch_requested_ = true;
                 request_tick_ = pre_hold_ticks_;
                 if (to_activate.empty() && to_deactivate.empty()) {
+                  switch_confirmed_ = true;
                   RCLCPP_INFO(get_logger(), "Controladores ya en el estado pedido.");
                   return;
                 }
@@ -1366,6 +1401,7 @@ void TorqueControlNodeBase::tick()
                       enterState(State::DONE);
                       return;
                     }
+                    switch_confirmed_ = true;
                     RCLCPP_INFO(get_logger(), "Controladores activados.");
                   });
               });
@@ -1374,7 +1410,7 @@ void TorqueControlNodeBase::tick()
 
         // Con la peticion de switch armada, despausar el mundo: la activacion
         // se consuma en el primer paso y nuestro torque llega de inmediato.
-        if (switch_requested_ && !unpause_done_) {
+        if (switch_requested_ && !unpause_done_ && (!confirm_switch || switch_confirmed_)) {
           // pequeno margen para que la peticion llegue al controller_manager
           if (pre_hold_ticks_ - request_tick_ > static_cast<int>(control_rate_ * 0.5)) {
             if (perform_unpause_) {

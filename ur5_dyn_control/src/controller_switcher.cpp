@@ -82,6 +82,12 @@ void ControllerSwitcher::checkControllersLoaded(
     });
 }
 
+void ControllerSwitcher::abandonPendingRequests()
+{
+  client_->prune_pending_requests();
+  list_client_->prune_pending_requests();
+}
+
 bool ControllerSwitcher::waitForService(std::chrono::seconds timeout)
 {
   return client_->wait_for_service(timeout);

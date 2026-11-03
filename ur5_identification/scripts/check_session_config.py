@@ -50,13 +50,16 @@ from ur5_identification.force_estimator import K_CURRENT as K  # noqa: E402
 Q_INIT = np.array([1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416])
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow", "wrist_1", "wrist_2", "wrist_3"]
 
-#: g_robot sin carga en q_init, MEDIDO (2026-09-10, brida desnuda, payload 0).
-REF_SIN_CARGA = {1: -19.02, 3: -1.70}
-#: Aviso de payload [N.m]. En shoulder_lift la dispersion entre dias es 0.18
-#: (-19.02 el 09-10, -18.84 el 09-12) y la firma del acople en q_init -0.88,
-#: asi que 0.5 separa "acople configurado" de "payload 0" (la de 1.068 kg, el
-#: payload fantasma, es ~5-6). En wrist_1 la del acople es -0.18: ahi solo se
-#: ve un payload grande.
+#: Aviso de payload [N.m]. La referencia es el MODELO sin herramienta mas la firma
+#: del payload declarado: el robot compensa con ese modelo, y `g_robot` lo sigue a
+#: 0.06 N.m con brida desnuda (smc_712-718, -20.30 frente a -20.24; hasta 0.23 entre
+#: dias) y a 0.07 con el acople (gravity_comp_1200). 0.5 separa "payload bien" de
+#: "payload 0 con el acople" (firma de 0.155 kg: 0.75) y del fantasma de 1.068 kg (5.2).
+#: En wrist_1 la firma del acople es 0.15: ahi solo se ve un payload grande.
+#:
+#: Antes era una constante, -19.02: con el filtro de entonces (solo esa junta cerca de
+#: q_init) la mediana mezclaba el corte, con el codo en otro sitio, y dio una falsa
+#: CARGA FANTASMA de 1.29 N.m el 2026-11-02 con el payload bien puesto.
 UMBRAL_PAYLOAD = {1: 0.5, 3: 0.5}
 #: CoG del acople desde tool0 [mm] (CAD, docs/00_assumptions.md A1).
 COG_ACOPLE_MM = (-2.227, 2.134, 29.398)
@@ -119,27 +122,37 @@ def payload_signature(mass_kg, cog_mm, q=Q_INIT, gravity=9.8):
     return Jp.T @ np.array([0.0, 0.0, mass_kg * gravity])
 
 
-def check_payload(d, i, payload_kg=0.0, cog_mm=COG_ACOPLE_MM):
+def expected_gravity(q, payload_kg, cog_mm):
+    """g(q) con la que compensa el robot: el modelo sin herramienta + el payload."""
+    import pinocchio as pin
+    from ur5_trajectory_optimization.gain_tuning.closed_loop import default_urdf
+    model = pin.buildModelFromUrdf(default_urdf())
+    bare = pin.computeGeneralizedGravity(model, model.createData(), np.asarray(q, float))
+    return bare + payload_signature(payload_kg, cog_mm, q=q)
+
+
+def check_payload(d, i, payload_kg=0.0, cog_mm=COG_ACOPLE_MM, max_samples=100):
     q = d[:, [i[f"q{j}"] for j in range(1, 7)]]
     dq = d[:, [i[f"dq{j}"] for j in range(1, 7)]]
     ok = True
-    sig = payload_signature(payload_kg, cog_mm)
-    ref = {j: REF_SIN_CARGA[j] + sig[j] for j in REF_SIN_CARGA}
     if payload_kg:
         print(f"  PAYLOAD  declarado {payload_kg:.3f} kg en {cog_mm} mm: "
               f"referencia = sin carga + firma")
     print("  PAYLOAD  junta          g_robot   esperado   diferencia")
+    # TODO el brazo quieto: en movimiento `cur` y `tau` no van alineados (retardo).
+    quieta = np.flatnonzero(np.all(np.abs(dq) < 1e-3, axis=1))
+    if len(quieta) < 100:
+        print("           (el brazo no estuvo quieto: no se evalua)")
+        return ok
+    muestra = quieta[:: max(len(quieta) // max_samples, 1)]
+    esperado = np.array([expected_gravity(q[k], payload_kg, cog_mm) for k in muestra])
     for j in (1, 3):
-        quieta = (np.abs(q[:, j] - Q_INIT[j]) < 0.05) & (np.abs(dq[:, j]) < 1e-3)
-        if quieta.sum() < 100:
-            print(f"           {JOINTS[j]:<14} (se movia: no se evalua)")
-            continue
-        g = float(np.nanmedian(d[quieta, i[f"cur{j + 1}"]] * K[j]
-                               - d[quieta, i[f"tau{j + 1}"]]))
-        delta = g - ref[j]
+        medido = d[muestra, i[f"cur{j + 1}"]] * K[j] - d[muestra, i[f"tau{j + 1}"]]
+        g, ref = float(np.nanmedian(medido)), float(np.nanmedian(esperado[:, j]))
+        delta = float(np.nanmedian(medido - esperado[:, j]))
         mal = abs(delta) > UMBRAL_PAYLOAD[j]
         ok &= not mal
-        print(f"           {JOINTS[j]:<14} {g:+8.2f}   {ref[j]:+8.2f}   "
+        print(f"           {JOINTS[j]:<14} {g:+8.2f}   {ref:+8.2f}   "
               f"{delta:+7.2f}{'  <-- CARGA FANTASMA?' if mal else ''}")
     if not ok:
         print("           -> pendant: Instalacion > Payload. Vuelve solo al "

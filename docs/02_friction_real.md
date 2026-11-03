@@ -610,6 +610,12 @@ el modelo predice −5.2 y −1.05 N·m más.
 
 † sin columna `cur` (anteriores a G5); se lee sólo `tau_cmd`.
 
+*Corrección (2026-11-02):* el **−19.02 / −1.70** de `smc_712`–`718` no es `q_init`. El filtro
+solo exigía que ESA junta estuviera cerca de `q_init`, así que la mediana mezclaba el corte,
+con el codo en otro sitio. Con todo el brazo en `q_init` da **−20.30 / −1.82**, a 0.06 N·m
+del modelo (−20.24 / −1.82). `check_session_config.py` compara ahora con el modelo más la
+firma del payload, muestra a muestra. Las filas del payload fantasma no cambian.
+
 El cambio ocurrió el 3 de agosto entre las 13:21 y las 14:07 —`run_903.log`
 está justo ahí— y coincide con recargar el programa del robot: el payload de la
 instalación se reimpone.

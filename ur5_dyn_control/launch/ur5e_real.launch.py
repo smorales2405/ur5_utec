@@ -78,6 +78,14 @@ PARAMS = {
 }
 
 
+def csv_has_data(path):
+    """¿Tiene muestras? Con solo la cabecera no hay nada que perder al repetirla."""
+    if not os.path.exists(path):
+        return False
+    with open(path, errors="replace") as fh:
+        return sum(1 for line in fh if not line.startswith("#")) > 1
+
+
 def launch_setup(context, *args, **kwargs):
     dyn_pkg = get_package_share_directory("ur5_dyn_control")
 
@@ -86,6 +94,15 @@ def launch_setup(context, *args, **kwargs):
         raise RuntimeError(
             f"controller desconocido: {controller!r} "
             f"(validos: {', '.join(sorted(EXECUTABLES))})")
+
+    # El nodo trunca su CSV al arrancar: relanzar con el mismo número pisa la corrida
+    # (gravity_comp_1202 y gravity_comp_1200, 2026-11-02). Es una regla del proyecto,
+    # no se puede saltar. Con solo la cabecera no hay nada que perder.
+    test_num = LaunchConfiguration("test_num").perform(context).strip()
+    csv = os.path.expanduser(f"~/.ros/ur5_dyn_control/{controller}_{test_num}.csv")
+    if test_num and csv_has_data(csv):
+        raise RuntimeError(f"{csv} ya tiene datos: no se sobrescriben corridas. "
+                           "Usar otro test_num.")
 
     scale = float(LaunchConfiguration("tau_scale").perform(context))
     if not (0.0 < scale <= 1.0):
