@@ -574,6 +574,18 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
     static_cast<int>(declare_parameter<int>("pipeline_delay_steps", 1));
   allow_unstable_discrete_ =
     declare_parameter<bool>("discrete_check.allow_unstable", false);
+  // B4.6 (plan V16, D25): inercia de los rotores MEDIDA, que el URDF no trae. Va en
+  // la planta del chequeo y no en la ley: K_P y K_D siguen saliendo de la M del
+  // URDF. Por defecto 0 y x1, lo que corresponde a Gazebo, cuya planta no la lleva.
+  {
+    const auto rotor = declare_parameter<std::vector<double>>(
+      "discrete_check.rotor_inertia", std::vector<double>(6, 0.0));
+    if (rotor.size() != 6) {
+      throw std::runtime_error("discrete_check.rotor_inertia debe tener 6 valores");
+    }
+    for (int i = 0; i < 6; ++i) {discrete_rotor_inertia_[i] = rotor[i];}
+  }
+  discrete_margin_min_ = declare_parameter<double>("discrete_check.margin_min", 1.0);
 
   // B0.5: datos de la SESION que el CSV no puede deducir y que el analisis de
   // la campana necesita (plan 3.5 y B7.4). Van a la cabecera del CSV y al
@@ -911,7 +923,8 @@ void TorqueControlNodeBase::reportDiscreteMargin(
     const Vector6d q = tab ? tab->at(k).q : q_init_;
     const Vector6d dq = tab ? tab->at(k).dq : Vector6d::Zero();
     const Vector6d ddq = tab ? tab->at(k).ddq : Vector6d::Zero();
-    const LoopGains g = gains(q, dq, ddq);
+    LoopGains g = gains(q, dq, ddq);
+    g.M.diagonal() += discrete_rotor_inertia_;      // la planta, no la ley
     const double r = mimoDiscreteMode(g, dt, d).rho;
     if (r > rho_max) {
       rho_max = r;
@@ -934,16 +947,33 @@ void TorqueControlNodeBase::reportDiscreteMargin(
               "  lazo discreto (MIMO) con %d ciclo(s) de retardo, %s: rho max %.4f; "
               "margen de ganancia x%.2f (peor punto: t = %.2f s)",
               d, formula.c_str(), rho_max, margin, t_max);
-  if (margin >= 1.0) {return;}
-  // Inestable: se informa el modo del punto MAS inestable.
-  const DiscreteMode mode = mimoDiscreteMode(at_rho_max, dt, d);
-  const double t_rho = tab ? k_rho * tab->dt() : 0.0;
+  if (discrete_rotor_inertia_.cwiseAbs().maxCoeff() > 0.0) {
+    RCLCPP_INFO(get_logger(), "  planta del chequeo: M del URDF + rotor medido (B4.6), "
+                "[%.4f %.4f %.4f %.4f %.4f %.4f] kg m^2; margen minimo x%.2f",
+                discrete_rotor_inertia_[0], discrete_rotor_inertia_[1],
+                discrete_rotor_inertia_[2], discrete_rotor_inertia_[3],
+                discrete_rotor_inertia_[4], discrete_rotor_inertia_[5],
+                discrete_margin_min_);
+  }
+  if (margin >= discrete_margin_min_) {return;}
   char b[256];
-  std::snprintf(b, sizeof(b),
-                "INESTABLE con %d ciclos de retardo (t = %.2f s): modo de %.0f Hz "
-                "dominado por %s (analisis lineal; plan V15 y R10). Re-sintonizar con "
-                "ese retardo.", d, t_rho, mode.freq_hz,
-                kJointNames[static_cast<std::size_t>(std::max(mode.joint, 0))].c_str());
+  if (margin >= 1.0) {
+    // Estable, pero con menos margen del exigido: el ciclo de smc_712 salio con x1.38
+    // en este modelo rigido (plan V16).
+    std::snprintf(b, sizeof(b),
+                  "MARGEN INSUFICIENTE con %d ciclos de retardo: x%.2f, minimo x%.2f "
+                  "(peor punto: t = %.2f s; plan V16 y D25). Re-sintonizar.",
+                  d, margin, discrete_margin_min_, t_max);
+  } else {
+    // Inestable: se informa el modo del punto MAS inestable.
+    const DiscreteMode mode = mimoDiscreteMode(at_rho_max, dt, d);
+    const double t_rho = tab ? k_rho * tab->dt() : 0.0;
+    std::snprintf(b, sizeof(b),
+                  "INESTABLE con %d ciclos de retardo (t = %.2f s): modo de %.0f Hz "
+                  "dominado por %s (analisis lineal; plan V15 y R10). Re-sintonizar con "
+                  "ese retardo.", d, t_rho, mode.freq_hz,
+                  kJointNames[static_cast<std::size_t>(std::max(mode.joint, 0))].c_str());
+  }
   if (!gravity_in_command_ && !allow_unstable_discrete_ && !dry_run_) {
     RCLCPP_FATAL(get_logger(), "%s El nodo NO arranca en el robot real "
                  "(discrete_check.allow_unstable: true para forzarlo).", b);

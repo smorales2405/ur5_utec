@@ -663,8 +663,9 @@ alcanzan en `shoulder_pan`, `wrist_1` ni `wrist_2`, pero `shoulder_pan`, `wrist_
   predicción.
 - La planta sigue sin modo flexible ni fricción. `g7` deja la `712` en ×1.38 y las limpias en ≥ ×2.25,
   pero no explica el ciclo de 35 Hz, y `G ≤ 120` sigue siendo necesaria.
-- El chequeo de arranque del nodo usa la M del URDF y rechaza cualquiera de estos puntos (margen 0).
-  Protocolo de la rampa y estado de esa decisión: `09c_gain_ramp_protocol.md`.
+- Con la M del URDF, el chequeo de arranque rechazaría cualquiera de estos puntos (margen 0). En el
+  real suma el rotor medido y exige ×2 (plan D25). Antes de cortar, la rampa de
+  `09c_gain_ramp_protocol.md`.
 
 **Certificación KKT: no la hay.** ε-restricción no convergió en ningún nivel (0 de 12, límite de 15
 iteraciones) y solo dejó 2 puntos factibles, uno de ellos la rodilla. En `smc_v5_g6` tampoco

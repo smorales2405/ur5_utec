@@ -21,6 +21,7 @@
 #  hasta ahora, las de sweep_params.yaml para las munecas (wrist_2 7500/173)
 #  son estables, con 5 NO. Margen de ganancia discreto a D = 5:
 #      100 / 20  -> x6.95      900 / 60 -> x2.19      7500 / 173 -> inestable
+#  (con la M del URDF. Con el rotor de B4.6, esta configuracion da x8.94: plan D25.)
 # ============================================================================
 
 /**:

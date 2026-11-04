@@ -575,8 +575,8 @@ def smc_discrete_margin(law, plant, ref, delay_steps=PIPELINE_DELAY_STEPS,
     hallado hasta ahí. Devuelve `(margen, t_del_peor_punto)`.
 
     `rotor_inertia` (B4.6) va solo en la planta: `K_P` y `K_D` salen de la ley, con su
-    `M` del URDF, y actúan sobre `M + diag(rotor)`. El nodo aún no lo hace: su chequeo de
-    arranque usa la `M` del URDF para las dos cosas.
+    `M` del URDF, y actúan sobre `M + diag(rotor)`. Lo mismo hace el chequeo de arranque del
+    nodo en el real (`discrete_check.rotor_inertia`, en `ur5e_real.launch.py`).
     """
     rotor = 0.0 if rotor_inertia is None else np.diag(rotor_inertia)
     if not law.use_sat:

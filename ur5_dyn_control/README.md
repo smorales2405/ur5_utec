@@ -217,10 +217,13 @@ La segunda vía, por corriente, es offline: `ur5_identification/force_estimator.
   (`mimoDiscreteMode`, ZOH de la cadena de integradores + `pipeline_delay_steps`
   ciclos de retardo), el mínimo sobre la referencia. `pipeline_delay_steps` vale
   1 por defecto (Gazebo) y 5 en `ur5e_real.launch.py`. **En el real, una ley con
-  margen < ×1 no arranca** (sale con código 1 diciendo junta y frecuencia del modo
-  inestable), salvo `discrete_check.allow_unstable: true`; en Gazebo solo avisa.
-  Hoy: CT nominal ×6.95, barridos de B4.4 ×2.19, LQI semilla ×1.32, `smc_v5_g6`
-  rechazado (modo de 25 Hz en `wrist_1`).
+  margen < ×2 no arranca** (sale con código 1), salvo
+  `discrete_check.allow_unstable: true`; en Gazebo solo avisa, y solo por debajo de
+  ×1. En el real el margen se calcula con la ley del URDF sobre la planta medida:
+  `discrete_check.rotor_inertia` suma a la M la inercia de los rotores (B4.6, plan
+  D25), y `discrete_check.margin_min` fija el ×2. Hoy: CT nominal ×9.31, barridos de
+  B4.4 ×8.94, `smc_v5_g6` ×3.02, ley de `smc_712` rechazada (×1.19), fila 46 de
+  `smc_v7_rotor` ×3.54. LQI sin recalcular: aún no está en el launch real.
 - **`scripts/command_deadman.py`**, lanzado por `ur5e_real.launch.py` en su
   propio proceso (`deadman:=true`, `deadman_timeout:=0.10`). Si el nodo de
   control deja de publicar 100 ms —muere sin destructor o se queda en DONE—
@@ -377,17 +380,18 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   (B4.2) — polos y K del LQI, mismo par C++↔Python del SMC, CARE contra scipy.
 - `test_command_deadman.py` (B7.0) — el vigilante corta y devuelve el mando al
   JTC cuando el nodo calla; los ceros del arranque no lo arman; se rearma.
-- `test_discrete_check.py` (R10) — con la configuración del real y 5 ciclos,
-  `smc_v5_g6` no arranca (y el override lo fuerza), el CT nominal sí (×6.95), y
-  el retardo del launch real es el del evaluador. Los números del chequeo los
+- `test_discrete_check.py` (R10, D25) — con la configuración del real, la ley de
+  `smc_712` no arranca (y el override la fuerza), la candidata sí y sin el rotor no,
+  los escalones de la rampa pasan, por defecto el chequeo es el de Gazebo, y el
+  retardo, el rotor y el ×2 del launch real son los del evaluador. Los números del chequeo los
   fijan también los gtest `PidDiscrete`/`MimoDiscrete` y su espejo en Python.
 
 - `test_gain_ramp.py` (`ur5_identification`) — escalones, geometría y criterios de
   parada de la rampa (`docs/09c_gain_ramp_protocol.md`), también sobre `smc_712`–`717`
   si están los CSV. La sesión nunca fuerza el chequeo de arranque.
 
-Total en `colcon test-result` (2026-11-04): **154** en `ur5_dyn_control`,
-153 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **362**, todos
+Total en `colcon test-result` (2026-11-04): **159** en `ur5_dyn_control`,
+153 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **367**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)

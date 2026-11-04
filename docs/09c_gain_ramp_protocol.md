@@ -1,8 +1,7 @@
 # Protocolo — rampa de ganancias del SMC en el UR5e real
 
-**Estado:** preparado, sin ejecutar. **Hoy no se puede ejecutar:** el chequeo de arranque del
-nodo usa la M del URDF, con la que todos los escalones dan margen 0, así que el nodo se niega a
-arrancar. Cambiarlo está pendiente de una decisión aparte (plan D25). La sesión nunca pasa
+**Estado:** preparado, sin ejecutar. El chequeo de arranque del nodo suma el rotor medido y exige
+×2 (plan D25); si rechaza un escalón, ese escalón no se corre: la sesión nunca pasa
 `discrete_check.allow_unstable`. Plan: V16 y D25 de `Journal_UR5eControl_plan.md`. Código:
 `ur5_identification/gain_ramp.py` y `scripts/run_gain_ramp_real.py`.
 
@@ -90,6 +89,10 @@ pasado por `smc_713`–`717` (no paran) y por `smc_712` (para).
 En el gemelo, a r = 1, con la fricción real en la planta (`smc_98911`–`98913`: `wrist_1`, codo,
 `shoulder_pan`): las tres acaban sin disparar ninguna guarda, sin saturación, con `G` de hasta 118.9
 y un rizado de hasta el 0.9 % del tope al 30 %.
+
+Sin robot, en otro dominio y con la configuración del real, el nodo acepta las 20 corridas (margen
+de ×3.52 a ×7.96, `G` hasta 118.9) y `ur5e_real.launch.py` le entrega el rotor y el ×2: con esos
+parámetros, la ley de `smc_712` no arranca (×1.19).
 
 Solo prueba que la configuración y las tablas funcionan de principio a fin. **No prueba la
 estabilidad:** el gemelo tiene 1 ciclo de retardo, no tiene rotor ni modo flexible, y su `q̇` apenas

@@ -90,8 +90,8 @@ def launch_args(q, gains_file: str, lam, phi) -> list:
 def step_table(plant, q, g: dict, rotor) -> list:
     """Por escalón: K_P en la postura, y G y margen en los extremos de los barridos.
 
-    `margin` lleva el rotor en la planta, como `g7`; `margin_urdf` no, como el chequeo de
-    arranque del nodo mientras no se le añada.
+    `margin` lleva el rotor en la planta, como `g7` y el chequeo de arranque en el real;
+    `margin_urdf` no: es lo que daría sin él.
     """
     from ur5_trajectory_optimization.gain_tuning.closed_loop import (SmcLaw, mimo_gain_margin,
                                                                      smc_loop_gains)

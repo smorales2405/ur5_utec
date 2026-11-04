@@ -916,7 +916,7 @@ _V7_ROTOR = os.path.join(os.path.dirname(_V4_G5), "..", "smc_v7_rotor", "selecte
 @pytest.mark.skipif(not (os.path.exists(URDF) and os.path.exists(_V7_ROTOR)),
                     reason="URDF o smc_v7_rotor no disponibles")
 def test_las_ganancias_de_v7_solo_son_estables_con_el_rotor():
-    """Por eso el chequeo de arranque del nodo, con la M del URDF, las rechazará."""
+    """Por eso el chequeo de arranque del nodo necesita el rotor en la planta."""
     import yaml
     from ur5_trajectory_optimization.gain_tuning.closed_loop import smc_discrete_margin
     g = next(iter(yaml.safe_load(open(_V7_ROTOR)).values()))["ros__parameters"]

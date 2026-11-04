@@ -627,8 +627,8 @@ def main(argv=None):
                   f"5, Gazebo 1) y sin el modo estructural de 25-35 Hz: re-verificar "
                   f"en Gazebo y en aire antes de la campana"
                   + ("" if rotor_inertia is None else
-                     ". El chequeo de arranque del nodo usa la M del URDF y sin el rotor "
-                     "las rechazara")})
+                     ". El chequeo de arranque del nodo solo las acepta con el rotor en "
+                     "la planta, como lo fija ur5e_real.launch.py")})
 
     report = {
         "run": {"controller": args.controller, "mode": args.mode, "seed": args.seed,

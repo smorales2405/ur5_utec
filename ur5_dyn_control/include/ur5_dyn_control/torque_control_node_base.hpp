@@ -173,6 +173,10 @@ protected:
   /// ddq)` devuelve las K de par de la ley en ese punto, con error nulo. Si sale
   /// INESTABLE, en el robot real (gravity_in_command = false) el nodo NO
   /// arranca salvo `discrete_check.allow_unstable: true`; en Gazebo avisa.
+  /// `discrete_check.rotor_inertia` (B4.6) se suma a la M de la PLANTA, no a la de
+  /// la ley; `discrete_check.margin_min` es el margen por debajo del cual se
+  /// bloquea. Los dos son neutros por defecto (0 y x1, Gazebo) y los fija
+  /// ur5e_real.launch.py.
   void reportDiscreteMargin(
     const std::string & formula,
     const std::function<LoopGains(const Vector6d &, const Vector6d &, const Vector6d &)> &
@@ -355,6 +359,8 @@ private:
   double g_loop_max_ = 120.0;         // B4.1: cota de G comun a las tres leyes
   int pipeline_delay_steps_ = 1;      // R10: 1 en Gazebo, 5 en el real (V15)
   bool allow_unstable_discrete_ = false;
+  Vector6d discrete_rotor_inertia_ = Vector6d::Zero();   // B4.6: solo en la planta
+  double discrete_margin_min_ = 1.0;
   int csv_hold_decimation_ = 10;
   int hold_log_counter_ = 0;
 

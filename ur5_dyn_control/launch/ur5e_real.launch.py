@@ -36,6 +36,9 @@ Lo que fija por ti (y por qué)
   argumento, para que no pueda quedarse a `true` por descuido.
 - ``use_sim_time:=false`` y ``perform_unpause:=false`` — no hay `/clock` ni
   mundo que despausar.
+- Chequeo discreto de arranque: 5 ciclos de retardo, rotor medido en la planta y
+  margen mínimo ×2 (plan D25). El rotor es el que hace estables en el modelo las
+  ganancias de `smc_v7_rotor`, y no se expone como argumento.
 - Listas de switch del driver: `scaled_joint_trajectory_controller` y
   `forward_effort_controller` son **mutuamente excluyentes** (tabla de
   compatibilidad del hardware, ver G2), así que hay que desactivar el primero.
@@ -156,8 +159,14 @@ def launch_setup(context, *args, **kwargs):
         # R10: retardo de tuberia del UR5e MEDIDO (plan V15: el par mandado
         # aparece en la corriente 5 ciclos despues). Con el, el banner evalua la
         # estabilidad discreta de cada junta y el nodo NO arranca si alguna sale
-        # inestable (smc_v5_g6 en las munecas, por ejemplo).
+        # inestable.
         "pipeline_delay_steps": 5,
+        # B4.6 (plan V16, D25): el chequeo evalua la planta medida, con la ley del
+        # URDF. Es el extremo bajo de lo medido, el del evaluador: menos inercia da
+        # menos margen. Y exige el mismo x2 que g7: en este modelo rigido smc_712
+        # sale x1.38 en q_init, y las corridas limpias, >= x2.25.
+        "discrete_check.rotor_inertia": [1.0324, 1.2466, 1.0545, 0.1247, 0.1386, 0.0719],
+        "discrete_check.margin_min": 2.0,
     }
     if not tool_mounted:
         real["tool_mass"] = 0.0
@@ -212,6 +221,8 @@ def launch_setup(context, *args, **kwargs):
           f"({100 * scale:.0f} % del nominal)")
     print("  gravity_in_command = FALSE  (G3: el robot compensa g(q) dentro)")
     print(f"  herramienta: {'MONTADA (0.182 kg en el modelo)' if tool_mounted else 'NO montada -> tool_mass = 0'}")
+    print(f"  chequeo discreto: {real['pipeline_delay_steps']} ciclos, rotor medido en la "
+          f"planta, no arranca por debajo de x{real['discrete_check.margin_min']:g}")
     print("  switch: +forward_effort_controller  "
           "-scaled_joint_trajectory_controller")
     fc_mode = optional.get("friction_compensation", "none")
