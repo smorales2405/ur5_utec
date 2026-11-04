@@ -282,6 +282,17 @@ def test_rotor_es_lo_que_el_modelo_no_explica(tmp_path):
     assert rows[0]["dI"] == pytest.approx(0.19, abs=0.01)
 
 
+@needs_plant
+def test_la_planta_del_evaluador_lleva_el_extremo_bajo_medido():
+    """Si se repite la medida, el YAML y la constante tienen que seguir juntos."""
+    import yaml
+    from ur5_trajectory_optimization.gain_tuning.problem import ROTOR_INERTIA_REAL
+    path = os.path.join(_TEST, "..", "config", "rotor_inertia_b46.yaml")
+    with open(path) as fh:
+        low = yaml.safe_load(fh)["rotor_bajo_kg_m2"]
+    np.testing.assert_allclose(ROTOR_INERTIA_REAL, [low[j] for j in range(6)], atol=1e-9)
+
+
 # --- Plan --------------------------------------------------------------------------
 
 @needs_plant

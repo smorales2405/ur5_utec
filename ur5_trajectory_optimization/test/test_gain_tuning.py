@@ -25,7 +25,7 @@ from ur5_trajectory_optimization.gain_tuning.optimize import (  # noqa: E402
     _cubic_features, _pool_recipe, _worker_init, alpha_sensitivity, seed_points)
 from ur5_trajectory_optimization.gain_tuning.problem import (  # noqa: E402
     ALPHA_G_REAL, CHI_THRESHOLD, FRICTION_DQ_EPS, G_LOOP_MAX, GRAVITY_ERROR_REAL,
-    GainEvaluator,
+    ROTOR_INERTIA_REAL, GainEvaluator,
     SmcParameterization, disturbance_bound, friction_residual_bound)
 
 URDF = "/home/utec/ur5_ws/install/ur5_kinematics/share/ur5_kinematics/ur5e.urdf"
@@ -771,6 +771,179 @@ def test_receta_de_los_hijos_lleva_alpha_g_y_el_error():
     por_nombre = dict(zip(nombres, receta))
     assert por_nombre["alpha_g"] == ALPHA_G_REAL
     np.testing.assert_allclose(por_nombre["gravity_error"], GRAVITY_ERROR_REAL)
+
+
+# --- B4.6: la inercia de los rotores, en la planta y en g7 ---------------------------
+
+_V4_G5 = os.path.join(os.path.dirname(__file__), "..", "results", "gain_tuning",
+                      "smc_v4_g5", "selected_gains.yaml")
+
+
+def _ley_v4_g5(lam=None):
+    """Las ganancias de `smc_712`; con `lam`, las de las corridas de 713 a 722."""
+    import yaml
+    g = next(iter(yaml.safe_load(open(_V4_G5)).values()))["ros__parameters"]
+    return SmcLaw(lam=g["lambda"] if lam is None else lam, eta=g["eta"],
+                  phi=g["phi_joint"], alpha=g["alpha"], alpha_g=g["alpha"])
+
+
+def _ref_quieta(plant, n=100):
+    q = np.tile(Q_INIT, (n, 1))
+    z = np.zeros((n, 6))
+    return Reference(dt=0.002, q=q, dq=z, ddq=z, phase=np.array(["cut"] * n),
+                     plateau=np.ones(n, dtype=bool))
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_rotor_cero_es_la_planta_de_siempre():
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant)
+    param = SmcParameterization(inertia=INERTIA, mode="full")
+    x = param.encode(np.full(6, 20.0), INERTIA * 2.0, 0.25)
+    sin = GainEvaluator(param, ref, plant, force=None).result(x)
+    cero = GainEvaluator(param, ref, plant, force=None,
+                         rotor_inertia=np.zeros(6)).result(x)
+    assert cero.rmse_q == pytest.approx(sin.rmse_q, rel=1e-9)
+    assert cero.f2_effort == pytest.approx(sin.f2_effort, rel=1e-9)
+    assert cero.margin_discrete == pytest.approx(sin.margin_discrete, rel=1e-6)
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_la_planta_acelera_con_el_rotor_dentro():
+    """A par fijo, q = (M + diag(a))⁻¹ τ t²/2, sin depender de lo que use la ley."""
+    import pinocchio as pin
+    plant = Plant(URDF)
+    ref = _ref_quieta(plant)
+    # Par pequeño: sin rotor, wrist_1 tiene que moverse poco para que M no cambie.
+    extra = np.array([0.0, 0.0, 0.0, 0.02, 0.0, 0.0])
+
+    def ley(model, data, q_, dq_, *_):
+        return pin.computeGeneralizedGravity(model, data, q_) + extra, np.zeros(6), {}
+
+    M = pin.crba(plant.model, plant.data, np.array(Q_INIT))
+    M = np.triu(M) + np.triu(M, 1).T
+    ratio = (np.linalg.norm(np.linalg.solve(M, extra))
+             / np.linalg.norm(np.linalg.solve(M + np.diag(ROTOR_INERTIA_REAL), extra)))
+    sin = simulate(ley, ref, plant, dq_noise_std=0.0, delay_steps=0).rmse_q
+    con = simulate(ley, ref, plant, dq_noise_std=0.0, delay_steps=0,
+                   rotor_inertia=ROTOR_INERTIA_REAL).rmse_q
+    assert sin / con == pytest.approx(ratio, rel=0.02)
+    assert ratio > 3.0
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_la_ley_no_ve_el_rotor():
+    """Si la ley usara la M con rotor, cambiarian K_D y G: otra ley, no otra planta."""
+    import pinocchio as pin
+    plant = Plant(URDF)
+    ref = _ref_quieta(plant)
+    vistas = []
+
+    def ley(model, data, q_, dq_, *_):
+        M = pin.crba(model, data, q_)
+        vistas.append(np.diag(M).copy())
+        return pin.computeGeneralizedGravity(model, data, q_), np.zeros(6), {}
+
+    simulate(ley, ref, plant, dq_noise_std=0.0, delay_steps=0,
+             rotor_inertia=ROTOR_INERTIA_REAL)
+    np.testing.assert_allclose(vistas[-1], plant.inertia_diag(Q_INIT), atol=1e-6)
+    assert plant.model.armature.max() == 0.0
+
+
+@pytest.mark.skipif(not (os.path.exists(URDF) and os.path.exists(_V4_G5)),
+                    reason="URDF o smc_v4_g5 no disponibles")
+def test_g7_con_rotor_es_la_ley_del_urdf_sobre_la_planta_medida():
+    from ur5_trajectory_optimization.gain_tuning.closed_loop import (
+        mimo_gain_margin, smc_discrete_margin, smc_loop_gains)
+    plant = Plant(URDF)
+    law, ref = _ley_v4_g5(), _ref_quieta(plant)
+    M, KP, KD = smc_loop_gains(law, plant.model, plant.data, ref.q[0], ref.dq[0], ref.ddq[0])
+    esperado = mimo_gain_margin(M + np.diag(ROTOR_INERTIA_REAL), KP, KD, ref.dt, 5)
+    m, _ = smc_discrete_margin(law, plant, ref, rotor_inertia=ROTOR_INERTIA_REAL)
+    assert m == pytest.approx(esperado, rel=1e-3)
+
+
+@pytest.mark.skipif(not (os.path.exists(URDF) and os.path.exists(_V4_G5)),
+                    reason="URDF o smc_v4_g5 no disponibles")
+@pytest.mark.parametrize("corrida, lam, lo, hi", [
+    ("712, ciclo limite", None, 1.0, 2.0),
+    ("713, limpia", [20, 20, 20, 20, 20, 20], 2.0, np.inf),
+    ("717, limpia", [20, 20, 110, 20, 20, 20], 2.0, np.inf),
+    ("718, limpia", [20, 20, 130.7, 20, 20, 20], 2.0, np.inf),
+    ("722, limpia", [20, 60, 55, 20, 20, 20], 2.0, np.inf)])
+def test_x2_con_el_rotor_separa_lo_que_paso_en_el_robot(corrida, lam, lo, hi):
+    """Con la M del URDF todas salen inestables, y las limpias no lo fueron (V16)."""
+    from ur5_trajectory_optimization.gain_tuning.closed_loop import smc_discrete_margin
+    plant = Plant(URDF)
+    law, ref = _ley_v4_g5(lam), _ref_quieta(plant)
+    assert smc_discrete_margin(law, plant, ref)[0] == 0.0, corrida
+    m, _ = smc_discrete_margin(law, plant, ref, rotor_inertia=ROTOR_INERTIA_REAL)
+    assert lo < m < hi, corrida
+
+
+@pytest.mark.skipif(not (os.path.exists(URDF) and os.path.exists(_V4_G5)),
+                    reason="URDF o smc_v4_g5 no disponibles")
+def test_el_evaluador_pasa_el_rotor_a_la_simulacion_y_a_g7():
+    import yaml
+    g = next(iter(yaml.safe_load(open(_V4_G5)).values()))["ros__parameters"]
+    plant = Plant(URDF)
+    ref = _ref_sintetica(plant)
+    param = SmcParameterization(inertia=INERTIA, mode="full_phi")
+    x = param.encode(g["lambda"], g["eta"], g["phi_joint"])
+    kw = dict(force=None, alpha=g["alpha"], alpha_g=g["alpha"])
+    assert GainEvaluator(param, ref, plant, **kw).result(x).margin_discrete == 0.0
+    con = GainEvaluator(param, ref, plant, rotor_inertia=ROTOR_INERTIA_REAL, **kw).result(x)
+    assert con.margin_discrete > 1.0
+
+
+@pytest.mark.skipif(not os.path.exists(URDF), reason="URDF no instalado")
+def test_receta_de_los_hijos_lleva_el_rotor():
+    import inspect
+    plant = Plant(URDF)
+    param = SmcParameterization(inertia=INERTIA, mode="full")
+    ev = GainEvaluator(param, _ref_sintetica(plant), plant, force=None,
+                       rotor_inertia=ROTOR_INERTIA_REAL)
+    receta = _pool_recipe(ev, URDF, "/no/existe.csv")
+    nombres = list(inspect.signature(_worker_init).parameters)
+    assert len(receta) == len(nombres)
+    np.testing.assert_allclose(dict(zip(nombres, receta))["rotor_inertia"],
+                               ROTOR_INERTIA_REAL)
+
+
+_V7_ROTOR = os.path.join(os.path.dirname(_V4_G5), "..", "smc_v7_rotor", "selected_gains.yaml")
+
+
+@pytest.mark.skipif(not (os.path.exists(URDF) and os.path.exists(_V7_ROTOR)),
+                    reason="URDF o smc_v7_rotor no disponibles")
+def test_las_ganancias_de_v7_solo_son_estables_con_el_rotor():
+    """Por eso el chequeo de arranque del nodo, con la M del URDF, las rechazará."""
+    import yaml
+    from ur5_trajectory_optimization.gain_tuning.closed_loop import smc_discrete_margin
+    g = next(iter(yaml.safe_load(open(_V7_ROTOR)).values()))["ros__parameters"]
+    law = SmcLaw(lam=g["lambda"], eta=g["eta"], phi=g["phi_joint"], alpha=g["alpha"],
+                 alpha_g=g["alpha_g"])
+    plant = Plant(URDF)
+    ref = _ref_quieta(plant)
+    assert smc_discrete_margin(law, plant, ref)[0] == 0.0
+    assert smc_discrete_margin(law, plant, ref, rotor_inertia=ROTOR_INERTIA_REAL)[0] >= 2.0
+
+
+def test_semillas_de_un_yaml_vuelven_a_las_mismas_ganancias(tmp_path):
+    import yaml
+    from ur5_trajectory_optimization.gain_tuning.run_gain_tuning import _load_seed_gains
+    param = SmcParameterization(inertia=INERTIA, mode="full_phi")
+    g = {"lambda": [24.0, 19.9, 30.0, 40.0, 20.0, 15.0],
+         "eta": [0.65, 3.4, 1.6, 0.82, 0.05, 0.003],
+         "phi_joint": [0.03, 0.11, 0.07, 0.25, 0.05, 0.05]}
+    uno, varias = tmp_path / "a.yaml", tmp_path / "b.yaml"
+    uno.write_text(yaml.safe_dump(g))
+    varias.write_text(yaml.safe_dump({"semillas": [g, g]}))
+    X = _load_seed_gains([str(uno), str(varias)], param)
+    assert X.shape == (3, param.n_var)
+    lam, eta, phi = param.gains(X[2])
+    np.testing.assert_allclose(lam, g["lambda"])
+    np.testing.assert_allclose(eta, g["eta"])
+    np.testing.assert_allclose(phi, g["phi_joint"])
 
 
 def test_el_yaml_lleva_alpha_g(tmp_path):

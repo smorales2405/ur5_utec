@@ -40,7 +40,7 @@ _WORKER: dict = {}
 
 def _worker_init(urdf, ref_path, mode, alpha, f_cut, chi_safety, tcp_tol_mm,
                  d_bound, g_max, friction, delay_steps, margin_min,
-                 alpha_g=None, gravity_error=None):
+                 alpha_g=None, gravity_error=None, rotor_inertia=None):
     """
     Reconstruye el evaluador en cada proceso hijo.
 
@@ -51,8 +51,8 @@ def _worker_init(urdf, ref_path, mode, alpha, f_cut, chi_safety, tcp_tol_mm,
     `g_max` (g6) y `friction` tienen el mismo riesgo: `friction` faltaba desde
     que existe, y con `--friction -j N` los hijos habrian simulado planta ideal.
     `delay_steps` y `margin_min` (R10, g7) igual: sin ellos los hijos
-    simularian con el retardo por defecto. Y `alpha_g` y `gravity_error` (B4.4): sin
-    ellos los hijos optimizarian otra ley sobre otra planta.
+    simularian con el retardo por defecto. Y `alpha_g`, `gravity_error` (B4.4) y
+    `rotor_inertia` (B4.6): sin ellos los hijos optimizarian otra ley sobre otra planta.
     """
     _WORKER["ev"] = make_evaluator(
         load_reference(ref_path), Plant(urdf), mode=mode, alpha=alpha,
@@ -60,7 +60,7 @@ def _worker_init(urdf, ref_path, mode, alpha, f_cut, chi_safety, tcp_tol_mm,
         d_bound=np.asarray(d_bound, dtype=float), g_max=float(g_max),
         friction=friction, delay_steps=int(delay_steps),
         margin_min=float(margin_min), alpha_g=alpha_g,
-        gravity_error=gravity_error)
+        gravity_error=gravity_error, rotor_inertia=rotor_inertia)
 
 
 def _worker_eval(x):
@@ -80,7 +80,7 @@ def _pool_recipe(evaluator: GainEvaluator, urdf: str, ref_path: str) -> tuple:
             tuple(np.asarray(evaluator.d_bound, dtype=float)),
             evaluator.g_max, evaluator.friction,
             evaluator.delay_steps, evaluator.margin_min,
-            evaluator.alpha_g, evaluator.gravity_error)
+            evaluator.alpha_g, evaluator.gravity_error, evaluator.rotor_inertia)
 
 
 class _PooledProblem(Problem):

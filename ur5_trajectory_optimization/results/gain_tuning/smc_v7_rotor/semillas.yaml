@@ -1,0 +1,17 @@
+# Semillas de smc_v7_rotor. Halladas a mano a partir del calculo estatico por junta, con la
+# planta de B4.6: lambda y K/phi repartiendo G <= 120, y phi corregida con la K de la ley
+# (eta + alpha_g |g| + ...). Solo siembran la busqueda: NO son ganancias para el robot.
+# Con el evaluador: TCP 1.93, 1.83, 1.85 y 1.82 mm; margen x3.55, x3.25, x2.58 y x2.23.
+semillas:
+- lambda: [24.0, 19.9, 30.0, 40.0, 20.0, 15.0]
+  eta: [0.65, 3.4, 1.6, 0.82, 0.05, 0.003]
+  phi_joint: [0.03, 0.105, 0.07, 0.25, 0.05, 0.05]
+- lambda: [24.0, 19.9, 30.0, 40.0, 20.0, 15.0]
+  eta: [0.65, 3.4, 1.6, 0.82, 0.05, 0.003]
+  phi_joint: [0.03, 0.10, 0.06, 0.25, 0.05, 0.05]
+- lambda: [24.0, 20.0, 40.0, 50.0, 25.0, 15.0]
+  eta: [0.65, 3.4, 1.6, 0.82, 0.05, 0.003]
+  phi_joint: [0.03, 0.10, 0.06, 0.2, 0.03, 0.03]
+- lambda: [26.0, 20.0, 40.0, 60.0, 25.0, 15.0]
+  eta: [0.65, 3.4, 1.6, 0.82, 0.05, 0.003]
+  phi_joint: [0.025, 0.10, 0.05, 0.2, 0.03, 0.03]

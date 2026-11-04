@@ -597,6 +597,86 @@ rad/s y es lo ensayado en el robot. Un test ata `FRICTION_DQ_EPS` al YAML.
 > mide otra cosa. Para el corte real la predicción relevante es la del
 > evaluador.
 
+## 5.9 `smc_v7_rotor`: re-sintonía con el rotor medido (2026-11-04)
+
+Con la planta del URDF, D = 5 y margen ×2, ningún punto era factible (`smc_v6_d5`, plan V16). Aquí
+la inercia de B4.6 (extremo bajo) entra en la planta y en `g7`. La ley, `g3` y `g5` no cambian.
+
+Corrida: NSGA-II, pop 80, gen 100, semilla 42, con 14 semillas, 4 de ellas halladas a mano
+(`results/gain_tuning/smc_v7_rotor/semillas.yaml`). Con esas semillas la población ya tiene puntos
+factibles desde la generación 1, así que no se puede decir si la búsqueda los habría encontrado
+sola.
+
+**Resultado: 80 de 80 factibles**, con TCP de 1.61 a 2.00 mm, margen de ×2.00 a ×4.71 y `G` máximo
+de 109 a 120. En `pareto.csv`, `g4_tcp` es el TCP menos 2, en mm; no está normalizado.
+
+| punto | TCP [mm] | margen | `G` máx. | TCP a 0 N | TCP a 6 N | margen D=6 / D=7 |
+|---|---|---|---|---|---|---|
+| rodilla (`selected_gains.yaml`) | 1.97 | ×2.21 | 114.0 | 1.31 | 2.19 | ×1.75 / ×1.39 |
+| fila 42 de `nsga2` | 1.77 | ×2.72 | 117.1 | 1.26 | 1.98 | ×2.20 / ×1.81 |
+| fila 46 de `nsga2` | 1.80 | ×3.54 | 119.8 | 1.45 | 2.03 | ×2.90 / ×2.43 |
+| fila 17 de `nsga2` | 1.87 | ×3.70 | 116.7 | 1.51 | 2.15 | ×3.02 / ×2.52 |
+| fila 9 de `nsga2` | 1.95 | ×4.18 | 116.4 | 1.73 | 2.23 | ×3.45 / ×2.91 |
+
+Las filas cuentan desde 0 entre las de método `nsga2`.
+
+**La rodilla no sirve como candidata para el robot.** Se elige con `f1`, `f2` y `f3`, y el margen no
+es un objetivo. La fila 46 le gana en TCP y margen, y además en `f3` (143 frente a 151). Pierde en
+`G` (119.8 frente a 114), en `f1` (0.8 %) y en `f2` (0.06 %). `selected_gains.yaml` se deja como lo
+generó la corrida. Qué punto se lleva al robot, y con qué criterio se presenta en el artículo, queda
+por decidir.
+
+Ganancias de los dos puntos con mejor compromiso:
+
+| fila | λ | η | φ |
+|---|---|---|---|
+| 46 | 17.73, 20.27, 52.22, 51.73, 20.69, 13.78 | 1.1705, 3.4052, 1.5958, 0.7964, 0.0505, 0.003 | 0.0393, 0.0988, 0.1235, 0.4512, 0.0471, 0.0283 |
+| 17 | 19.29, 19.90, 41.94, 39.63, 51.11, 15.06 | 0.9553, 3.3648, 1.7511, 0.8238, 0.0498, 0.003 | 0.0276, 0.1018, 0.1007, 0.4377, 0.0500, 0.0404 |
+
+**Rigidez frente a lo que ya corrió limpio en el robot** (`K_P` en `Q_INIT`, N·m/rad):
+
+| junta | máximo limpio (`713`, `717`, `718`, `722`) | fila 46 | fila 17 | rodilla |
+|---|---|---|---|---|
+| `shoulder_pan` | 163 | 528 | 669 | 775 |
+| `shoulder_lift` | 1987 | 933 | 883 | 770 |
+| `elbow` | 1704 | 1160 | 1208 | 2912 |
+| `wrist_1` | 50 | 104 | 84 | 113 |
+| `wrist_2` | 19 | 22 | 51 | 43 |
+| `wrist_3` | 0.9 | 1.5 | 1.1 | 2.0 |
+
+`smc_712`, con el ciclo límite, tenía 1317, 2583, 1704, 349, 161 y 1.8. Estos tres puntos no lo
+alcanzan en `shoulder_pan`, `wrist_1` ni `wrist_2`, pero `shoulder_pan`, `wrist_1`, `wrist_2` y
+`wrist_3` quedan por encima de lo probado: la rampa por escalones tiene que cubrirlas, no solo
+`wrist_1`. Además, en esas corridas `wrist_1` estaba quieta (V16), así que su «limpio» dice poco.
+
+**Sensibilidad en el evaluador:**
+- El rotor en el extremo alto no cambia el TCP (±0.001 mm) y sube el margen. Sin rotor, el margen
+  cae a 0 y el TCP sube a 3.4–5.2 mm: el rotor decide la factibilidad.
+- El error de gravedad pesa más que el corte: a 0 N la fila 46 ya da 1.45 de sus 1.80 mm.
+- El TCP sube de 0.2 a 0.3 mm por newton hasta 8 N, y con la fila 46 pasa de 2 mm a 6 N. **Por
+  encima, el fallo es brusco:** la fila 46 da 2.57 mm a 8 N y 337 mm a 8.5 N; la fila 17, 2.95 mm a
+  8.5 N y 470 mm a 9 N. Parte de la escapada viene de modelar una fuerza constante, que no cede
+  cuando el brazo se aparta, pero el límite existe: B2 tiene que medir la fuerza antes de cortar.
+
+**Lo que no se sabe:**
+- El TCP en el robot: ninguna corrida compara todavía estos mm con el robot, así que no son una
+  predicción.
+- La planta sigue sin modo flexible ni fricción. `g7` deja la `712` en ×1.38 y las limpias en ≥ ×2.25,
+  pero no explica el ciclo de 35 Hz, y `G ≤ 120` sigue siendo necesaria.
+- El chequeo de arranque del nodo usa la M del URDF y rechazará cualquiera de estos puntos (margen 0).
+
+**Certificación KKT: no la hay.** ε-restricción no convergió en ningún nivel (0 de 12, límite de 15
+iteraciones) y solo dejó 2 puntos factibles, uno de ellos la rodilla. En `smc_v5_g6` tampoco
+convergió. El residuo de estacionariedad es del 1 % y la complementariedad de 0.0013, pero eso no
+es un certificado.
+
+**Coste:** 530 min, de ellos 425 en ε-restricción, que esta vez recorrió los 12 niveles (en
+`smc_v6_d5`, sin puntos factibles, solo uno). La simulación con rotor cuesta 1.3 veces más (`crba` +
+`solve`, 0.98 s frente a 0.74 s con `aba`).
+
+**`convergence.csv` no sirve para una figura:** su columna de hipervolumen es 0 en todas las
+generaciones, también en `smc_v5_g6`. El resto de métricas del frente sí tienen valor.
+
 ## 6. Límites de validez del evaluador
 
 Declarados en el encabezado de `closed_loop.py` y verificados contra Gazebo:

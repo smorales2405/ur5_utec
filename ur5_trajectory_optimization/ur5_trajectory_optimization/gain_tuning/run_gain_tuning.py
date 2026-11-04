@@ -36,7 +36,7 @@ from .optimize import (alpha_sensitivity, certify_kkt, hv_reference_point,
                        run_weighted_sum_baseline, seed_points)
 from .problem import (ALPHA_G_REAL, CHI_SAFETY_DEFAULT, CHI_THRESHOLD,
                       FRICTION_REAL_G4_0, G_LOOP_MAX, GRAVITY_ERROR_REAL,
-                      MARGIN_MIN_DEFAULT, PENALTY,
+                      MARGIN_MIN_DEFAULT, PENALTY, ROTOR_INERTIA_REAL,
                       TCP_TOL_MM_DEFAULT, GainEvaluator, disturbance_bound,
                       friction_residual_bound, make_evaluator)
 from .problem import SmcParameterization  # noqa: E402
@@ -157,6 +157,22 @@ def _save_selected_yaml(path, lam, eta, phi, alpha, meta: dict, alpha_g=None):
     print(f"  guardado → {path}")
 
 
+def _load_seed_gains(paths, param) -> np.ndarray:
+    """Vectores de decisión de YAML con ganancias, para añadirlos a las semillas.
+
+    Cada fichero lleva la forma del nodo (`lambda`, `eta`, `phi_joint`) o una lista de
+    ellas bajo `semillas`. Cuando la zona factible es pequeña, un punto hallado a mano
+    con el cálculo por junta ahorra generaciones. Solo siembra: el evaluador decide.
+    """
+    out = []
+    for path in paths:
+        with open(path) as fh:
+            doc = yaml.safe_load(fh)
+        for g in doc.get("semillas", [doc]):
+            out.append(param.encode(g["lambda"], g["eta"], g["phi_joint"]))
+    return np.array(out).reshape(-1, param.n_var)
+
+
 def _py(obj):
     """numpy → tipos nativos; yaml.safe_dump no representa np.float64."""
     if isinstance(obj, dict):
@@ -198,6 +214,9 @@ def main(argv=None):
     ap.add_argument("--no-gravity-error", action="store_true",
                     help="planta con gravedad exacta. Por defecto lleva el error medido "
                          "en B4.4: sin el, bajar alpha_g no tiene coste aparente")
+    ap.add_argument("--no-rotor-inertia", action="store_true",
+                    help="planta y g7 con la M del URDF. Por defecto llevan la inercia de "
+                         "los rotores medida en B4.6, que el URDF no trae")
     ap.add_argument("--f-cut", type=float, default=5.0,
                     help="meseta de la fuerza de corte [N]; 0 = planta sin fuerza")
     ap.add_argument("--chi-safety", type=float, default=CHI_SAFETY_DEFAULT,
@@ -217,6 +236,8 @@ def main(argv=None):
     ap.add_argument("--margin-min", type=float, default=MARGIN_MIN_DEFAULT,
                     help="g7: margen de ganancia minimo del lazo discreto MIMO "
                          "con ese retardo (eleccion de diseno: x2 = 6 dB)")
+    ap.add_argument("--seed-gains", nargs="+", default=[],
+                    help="YAML con ganancias que anadir a la poblacion inicial")
     ap.add_argument("-j", "--jobs", type=int, default=1)
     ap.add_argument("--test", type=int, default=None)
     ap.add_argument("--no-baseline", action="store_true")
@@ -262,6 +283,7 @@ def main(argv=None):
     # Ver el docstring de closed_loop.JointFriction.
     friction = FRICTION_REAL_G4_0 if args.friction else None
     gravity_error = None if args.no_gravity_error else GRAVITY_ERROR_REAL
+    rotor_inertia = None if args.no_rotor_inertia else ROTOR_INERTIA_REAL
     # La cota se calcula ANTES del evaluador: g5 la necesita. Antes se calculaba
     # despues y solo servia para sembrar, que es lo que invalido las dos
     # primeras corridas.
@@ -276,7 +298,8 @@ def main(argv=None):
                         tcp_tol_mm=args.tcp_tol_mm, friction=friction,
                         d_bound=d_bound, g_max=args.g_max,
                         delay_steps=args.delay_steps, margin_min=args.margin_min,
-                        alpha_g=args.alpha_g, gravity_error=gravity_error)
+                        alpha_g=args.alpha_g, gravity_error=gravity_error,
+                        rotor_inertia=rotor_inertia)
     param = ev.param
 
     print(f"referencia : {ref.n} muestras · dt={ref.dt:.4f} s · {ref.n * ref.dt:.1f} s")
@@ -294,6 +317,9 @@ def main(argv=None):
     print("gravedad   : " + ("exacta en la planta" if gravity_error is None else
                              "planta con el error medido en B4.4, ε = "
                              + np.array2string(gravity_error, precision=4)))
+    print("rotores    : " + ("ninguno: planta y g7 con la M del URDF" if rotor_inertia is None
+                             else "en planta y g7, medidos en B4.6 (la ley, sin ellos): "
+                             + np.array2string(rotor_inertia, precision=4)))
     if friction is None:
         print("fricción   : NINGUNA — planta ideal, NO predice el robot real")
     elif True:
@@ -330,6 +356,9 @@ def main(argv=None):
     # friccion del evaluador no valida contra Gazebo (ver JointFriction), y una
     # perturbacion acotada es lo que pide la teoria de SMC de todos modos.
     seeds = seed_points(ev, d_bound)
+    if args.seed_gains:
+        xl, xu = param.bounds()
+        seeds = np.vstack([seeds, np.clip(_load_seed_gains(args.seed_gains, param), xl, xu)])
     print(f"\ncota de perturbación:")
     print(f"  fuerza de corte |Jᵀw| = {np.array2string(d_force, precision=4)}")
     print(f"  friccion residual     = {np.array2string(d_fric, precision=4)}")
@@ -591,16 +620,22 @@ def main(argv=None):
          "alpha_g": f"{args.alpha_g:g} (B4.4)",
          "error_gravedad_planta": ("ninguno" if gravity_error is None
                                    else " ".join(f"{v:g}" for v in gravity_error)),
+         "rotor_planta_kg_m2": ("ninguno" if rotor_inertia is None
+                                else " ".join(f"{v:g}" for v in rotor_inertia)),
          "referencia": args.ref,
          "AVISO": f"evaluador con {args.delay_steps} ciclo(s) de retardo (el real tiene "
                   f"5, Gazebo 1) y sin el modo estructural de 25-35 Hz: re-verificar "
-                  f"en Gazebo y en aire antes de la campana"})
+                  f"en Gazebo y en aire antes de la campana"
+                  + ("" if rotor_inertia is None else
+                     ". El chequeo de arranque del nodo usa la M del URDF y sin el rotor "
+                     "las rechazara")})
 
     report = {
         "run": {"controller": args.controller, "mode": args.mode, "seed": args.seed,
                 "pop_size": args.pop, "n_gen": args.gen, "alpha": args.alpha,
                 "alpha_g": args.alpha_g,
                 "gravity_error": None if gravity_error is None else gravity_error.tolist(),
+                "rotor_inertia": None if rotor_inertia is None else rotor_inertia.tolist(),
                 "f_cut_N": args.f_cut, "chi_safety": args.chi_safety,
                 "chi_threshold": CHI_THRESHOLD.tolist(), "g_max": args.g_max,
                 "delay_steps": args.delay_steps, "margin_min": args.margin_min,

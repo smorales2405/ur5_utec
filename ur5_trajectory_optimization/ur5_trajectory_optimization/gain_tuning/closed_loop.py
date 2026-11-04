@@ -567,13 +567,18 @@ def smc_loop_gains(law, model, data, q, dq, ddq):
 
 
 def smc_discrete_margin(law, plant, ref, delay_steps=PIPELINE_DELAY_STEPS,
-                        n_points=400):
+                        n_points=400, rotor_inertia=None):
     """Margen de ganancia discreto MIMO del SMC, el mínimo sobre la referencia.
 
     El mismo algoritmo que `reportDiscreteMargin` del nodo: todos los puntos
     muestreados, y solo se biseca un punto si es inestable con el mínimo
     hallado hasta ahí. Devuelve `(margen, t_del_peor_punto)`.
+
+    `rotor_inertia` (B4.6) va solo en la planta: `K_P` y `K_D` salen de la ley, con su
+    `M` del URDF, y actúan sobre `M + diag(rotor)`. El nodo aún no lo hace: su chequeo de
+    arranque usa la `M` del URDF para las dos cosas.
     """
+    rotor = 0.0 if rotor_inertia is None else np.diag(rotor_inertia)
     if not law.use_sat:
         return float("inf"), 0.0
     paso = max(1, ref.n // n_points)
@@ -581,6 +586,7 @@ def smc_discrete_margin(law, plant, ref, delay_steps=PIPELINE_DELAY_STEPS,
     for k in range(0, ref.n, paso):
         M, KP, KD = smc_loop_gains(law, plant.model, plant.data,
                                    ref.q[k], ref.dq[k], ref.ddq[k])
+        M = M + rotor
         if margin == 0.0:
             break
         if np.isfinite(margin) and \
@@ -599,11 +605,15 @@ def simulate(law, ref: Reference, plant: Plant,
              dq_noise_std: float = DQ_NOISE_STD_GAZEBO,
              delay_steps: int = PIPELINE_DELAY_STEPS,
              seed: int = 0,
-             gravity_error: "np.ndarray | None" = None) -> EvalResult:
+             gravity_error: "np.ndarray | None" = None,
+             rotor_inertia: "np.ndarray | None" = None) -> EvalResult:
     """
     `gravity_error` (ε por junta) emula el error de gravedad del robot real: la
     planta tiene `g_real = (1 − ε) g` y el robot compensa `g`. Sin él la gravedad
     es exacta y bajar `α_g` no tiene coste aparente (problem.GRAVITY_ERROR_REAL).
+
+    `rotor_inertia` (a por junta, B4.6) es la inercia que el URDF no trae: la planta tiene
+    `M + diag(a)` y la ley sigue con su `M` (problem.ROTOR_INERTIA_REAL).
     """
     model, data, tcp = plant.model, plant.data, plant.tcp
     rng = np.random.default_rng(seed)
@@ -668,7 +678,16 @@ def simulate(law, ref: Reference, plant: Plant,
         # M q̈ + C q̇ + (1 − ε) g = τ   ⇔   M q̈ + C q̇ + g = τ + ε g
         tau_grav = (gravity_error * pin.computeGeneralizedGravity(model, data, q)
                     if gravity_error is not None else 0.0)
-        ddq = pin.aba(model, data, q, dq, tau - tau_ext + tau_grav)
+        tau_net = tau - tau_ext + tau_grav
+        if rotor_inertia is None:
+            ddq = pin.aba(model, data, q, dq, tau_net)
+        else:
+            # (M + diag(a)) q̈ + C q̇ + g = τ. No se usa `model.armature`: `crba` también
+            # lo lee, y entonces la ley calcularía su M con el rotor dentro.
+            M_rotor = pin.crba(model, data, q)
+            M_rotor = np.triu(M_rotor) + np.triu(M_rotor, 1).T + np.diag(rotor_inertia)
+            ddq = np.linalg.solve(M_rotor,
+                                  tau_net - pin.nonLinearEffects(model, data, q, dq))
         if not np.all(np.isfinite(ddq)) or np.abs(dq).max() > 1e3:
             return EvalResult(np.inf, np.inf, np.inf, np.inf, np.inf,
                               np.inf, np.inf, np.inf, True, n_sat, chi_max,
@@ -681,6 +700,8 @@ def simulate(law, ref: Reference, plant: Plant,
             if M_pl is None:
                 M_pl = pin.crba(model, data, q)
                 M_pl = np.triu(M_pl) + np.triu(M_pl, 1).T
+            if rotor_inertia is not None:
+                M_pl = M_pl + np.diag(rotor_inertia)
             dq = friction.apply(dq, M_pl, dt)
         q = q + dq * dt
 

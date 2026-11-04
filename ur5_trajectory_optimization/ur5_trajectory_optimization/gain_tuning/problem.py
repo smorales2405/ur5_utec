@@ -184,6 +184,22 @@ GRAVITY_ERROR_REAL = np.array([0.0, 0.0356, 0.0536, 0.0386, 0.0, 0.0])
 #: peor junta y postura (codo, `fl_1132`). Sobrecubre el hombro (2.39 frente a 1.49 N·m).
 ALPHA_G_REAL = 0.0543
 
+#: B4.6 (2026-11-03, `iner_1301`, `1302`; `docs/09b_inertia_protocol.md` §8): inercia por
+#: junta que el URDF no trae [kg·m²]. Es el EXTREMO BAJO de lo medido con dos estimadores y
+#: en las posturas medidas (D25): menos inercia da menos margen, así que `g7` queda del
+#: lado seguro. En `wrist_3` está mal identificada (0.072–0.113), pero no limita.
+#: `ur5_identification/config/rotor_inertia_b46.yaml` lo guarda, y un test comprueba que
+#: coinciden.
+#:
+#: Va SOLO en la planta. La ley sigue con la `M` del URDF: con el rotor también en ella,
+#: `G ≤ 120` obligaría a bajar λ. No hace falta sumarlo a `d_bound` (g5): `a |q̈|` es de
+#: hasta 0.32 N·m, pero en la retirada; donde actúa la fuerza de corte añade menos de
+#: 0.04 N·m y el máximo apenas cambia (0.75 frente a 0.747 en `wrist_1`).
+#:
+#: g3 sigue calculando χ con la `M` del URDF, como en Gazebo, donde se midieron sus umbrales.
+#: En el robot χ es menor, de modo que g3 queda del lado seguro en las muñecas.
+ROTOR_INERTIA_REAL = np.array([1.0324, 1.2466, 1.0545, 0.1247, 0.1386, 0.0719])
+
 #: Penalización devuelta cuando la simulación diverge.
 PENALTY = 1e9
 
@@ -316,7 +332,8 @@ class GainEvaluator:
                  delay_steps: int = PIPELINE_DELAY_STEPS,
                  margin_min: float = MARGIN_MIN_DEFAULT,
                  alpha_g: float | None = None,
-                 gravity_error: np.ndarray | None = None):
+                 gravity_error: np.ndarray | None = None,
+                 rotor_inertia: np.ndarray | None = None):
         self.param = param
         self.ref = ref
         self.plant = plant
@@ -339,6 +356,10 @@ class GainEvaluator:
         #: y se paga en el robot, la misma trampa que `d_bound` en g5.
         self.gravity_error = (None if gravity_error is None
                               else np.asarray(gravity_error, dtype=float))
+        #: B4.6: inercia que el URDF no trae, en la PLANTA de la simulación y de g7. Sin
+        #: ella `wrist_1` (0.028 kg·m²) no admite rigidez con 5 ciclos de retardo (V16).
+        self.rotor_inertia = (None if rotor_inertia is None
+                              else np.asarray(rotor_inertia, dtype=float))
         self.chi_safety = float(chi_safety)
         self.tcp_tol_mm = float(tcp_tol_mm)
         #: Cota de G (g6). Viaja en `_pool_recipe`: si no, los hijos la
@@ -373,10 +394,12 @@ class GainEvaluator:
         try:
             res = simulate(law, self.ref, self.plant, force=self.force,
                            friction=self.friction, delay_steps=self.delay_steps,
-                           gravity_error=self.gravity_error)
+                           gravity_error=self.gravity_error,
+                           rotor_inertia=self.rotor_inertia)
             if not res.diverged:
                 res.margin_discrete = smc_discrete_margin(
-                    law, self.plant, self.ref, self.delay_steps)[0]
+                    law, self.plant, self.ref, self.delay_steps,
+                    rotor_inertia=self.rotor_inertia)[0]
         except Exception:
             # Una ley absurda puede reventar la dinámica; para el optimizador
             # eso es simplemente un punto infactible, no un fallo de la corrida.
@@ -490,7 +513,8 @@ def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
                    delay_steps: int = PIPELINE_DELAY_STEPS,
                    margin_min: float = MARGIN_MIN_DEFAULT,
                    alpha_g: float | None = None,
-                   gravity_error: np.ndarray | None = None) -> GainEvaluator:
+                   gravity_error: np.ndarray | None = None,
+                   rotor_inertia: np.ndarray | None = None) -> GainEvaluator:
     """Atajo: construye parametrización + evaluador con los valores del plan."""
     inertia = plant.inertia_diag(Q_INIT if q_ref is None else q_ref)
     param = SmcParameterization(inertia=inertia, mode=mode)
@@ -499,7 +523,8 @@ def make_evaluator(ref: Reference, plant: Plant, mode: str = "scalar",
                          chi_safety=chi_safety, tcp_tol_mm=tcp_tol_mm,
                          friction=friction, d_bound=d_bound, g_max=g_max,
                          delay_steps=delay_steps, margin_min=margin_min,
-                         alpha_g=alpha_g, gravity_error=gravity_error)
+                         alpha_g=alpha_g, gravity_error=gravity_error,
+                         rotor_inertia=rotor_inertia)
 
 
 #: Dispersión relativa de la identificación entre las TRES campañas reales
