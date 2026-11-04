@@ -1,0 +1,98 @@
+# ============================================================================
+#  RAMPA DE GANANCIAS del SMC en el UR5e REAL (plan V16 y D25)
+#
+#  Lo lanza, escalon por escalon, ur5_identification/scripts/run_gain_ramp_real.py;
+#  protocolo en docs/09c_gain_ramp_protocol.md. Las ganancias NO salen de aqui: las
+#  dan el gains_file y lambda_joint/phi_joint de cada escalon.
+#
+#  Es sweep_smc_params.yaml (ahi estan los porques de cada valor) salvo el barrido,
+#  y lo comprueba test_gain_ramp.py:
+#
+#  - +-0.20 rad, no +-30 grados. La postura de la rampa esta en el alcance del corte,
+#    donde el tablero queda cerca: con +-0.20 rad la punta no baja de 112 mm sobre el.
+#  - hasta 0.20 rad/s, no 0.50. K lleva alpha_M|M*ddq_r|: en la base, una rampa de
+#    velocidad brusca sube K/phi y con ella G y K_P por encima de los de la incision.
+#    La incision no pasa de 0.19 rad/s en ninguna junta.
+# ============================================================================
+
+gz_smc_control_node:
+  ros__parameters:
+    use_sim_time: true
+    control_rate: 500.0
+    urdf_path: ""
+    gravity: 9.8
+    q_init: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
+    gravity_in_command: true
+    tcp_offset_z: 0.162686
+    tool_mass: 0.182
+    tool_com: [-0.002227, 0.002134, -0.133288]
+    tool_inertia: [2.39199e-4, 2.54858e-4, 1.19620e-4,
+                   -8.80e-7, -3.820e-6, -7.570e-6]
+    command_topic: "/forward_effort_controller/commands"
+    controller_manager: "/controller_manager"
+    activate_controllers: ["joint_state_broadcaster", "forward_effort_controller"]
+    perform_switch: true
+    perform_unpause: true
+    world_name: "default"
+    hold_start_duration: 1.0
+    transition_duration: 3.0
+    t_sim: 2.0
+    skip_trajectory: false
+    lambda: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
+    eta: [1.05823, 2.59146, 0.88146, 0.02324, 0.00535, 0.00026]
+    phi: 0.05
+    phi_joint: [0.05, 0.07, 0.07, 0.07, 0.05, 0.20]
+    alpha: 0.3
+    g_loop_max: 120.0
+    switching_function: "sat"
+    friction:
+      f_v: [13.64, 11.55, 13.74, 1.28, 1.35, 2.12]
+      f_c: [6.85, 6.76, 7.46, 1.78, 1.96, 2.35]
+      dq_source: "desired"
+      dq_eps: 1.0e-2
+      ff_dv_max: 0.01
+    tau_max: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
+    sweep:
+      q_fixed: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
+      joint: 0
+      amplitude: 0.20
+      velocities: [0.05, 0.20]
+      ramp_fraction: 0.15
+      max_sweep_duration: 40.0
+      dwell: 1.0
+      approach_duration: 3.0
+      ddq_max: 5.0
+    trajectory_type: "joint_sweep"
+    tcp_orientation_rpy: [3.14159265, 0.0, 3.14159265]
+    incision:
+      start_pose: [-0.1333, 0.4919, 0.3469]
+      surface_z: 0.03
+      cut_x: 0.0
+      cut_center_y: 0.75
+      cut_axis: "y"
+      cut_direction: -1
+      cut_length: 0.08
+      cut_lead: 0.010
+      cut_depth: 0.005
+      approach_height: 0.03
+      v_approach: 0.10
+      v_contact: 0.015
+      v_penetration: 0.005
+      v_cut: 0.010
+      v_withdraw: 0.05
+      ramp_fraction_move: 0.5
+      dwell: 0.3
+    ik_seed: [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 3.1416]
+    ik_max_iterations: 450
+    ik_alpha: 0.5
+    ik_weight_pos: 1.0
+    ik_weight_orient: 1.0
+    ik_fk_tol: 0.005
+    q_jump_tol: 0.15
+    dq_max:  [3.14159, 3.14159, 3.14159, 3.14159, 3.14159, 3.14159]
+    ddq_max: [5.0, 5.0, 5.0, 5.0, 5.0, 5.0]
+    sigma_min_threshold: 0.05
+    manipulability_threshold: 0.0
+    csv_output_dir: ""
+    test_num: 1
+    csv_hold_decimation: 10

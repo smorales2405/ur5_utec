@@ -1,0 +1,36 @@
+# FASE 7 — ganancias seleccionadas por sintonía multiobjetivo.
+# Generado por run_gain_tuning.py; NO editar a mano.
+#   metodo: fila 46 de nsga2 en pareto.csv (desde 0), elegida a mano; no es la rodilla (docs/07_gain_tuning.md 5.9)
+#   TCP_RMSE_mm: 1.798 en el evaluador, no es una prediccion del robot
+#   margen_discreto: x3.54 (minimo x2, g7), con el rotor medido en la planta
+#   G: max 119.8 N.m/(rad/s), limite 120 (g6)
+#   AVISO: por encima de lo probado limpio en shoulder_pan, wrist_1, wrist_2 y wrist_3: antes de cualquier incision, la rampa de docs/09c_gain_ramp_protocol.md
+#
+# Se fusiona sobre config/smc_params.yaml (solo ganancias).
+gz_smc_control_node:
+  ros__parameters:
+    lambda:
+    - 17.72683032
+    - 20.2659133
+    - 52.21641028
+    - 51.72943222
+    - 20.6890901
+    - 13.7768828
+    eta:
+    - 1.17046643
+    - 3.4051683
+    - 1.59579408
+    - 0.79635603
+    - 0.05050027
+    - 0.00301853
+    phi_joint:
+    - 0.03928045
+    - 0.09884949
+    - 0.1234773
+    - 0.45123889
+    - 0.04708864
+    - 0.02827872
+    phi: 0.03928045
+    alpha: 0.3
+    alpha_g: 0.0543
+    switching_function: sat

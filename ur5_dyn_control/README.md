@@ -382,8 +382,12 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   el retardo del launch real es el del evaluador. Los números del chequeo los
   fijan también los gtest `PidDiscrete`/`MimoDiscrete` y su espejo en Python.
 
+- `test_gain_ramp.py` (`ur5_identification`) — escalones, geometría y criterios de
+  parada de la rampa (`docs/09c_gain_ramp_protocol.md`), también sobre `smc_712`–`717`
+  si están los CSV. La sesión nunca fuerza el chequeo de arranque.
+
 Total en `colcon test-result` (2026-11-04): **154** en `ur5_dyn_control`,
-124 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **333**, todos
+153 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **362**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)

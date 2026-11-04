@@ -490,7 +490,7 @@ def follow_run(proc, log, settle_s=8.0, timeout_s=900.0, startup_s=STARTUP_TIMEO
 
 def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
             log_dir: str, tool_mounted: bool = False, settle_s: float = 8.0,
-            timeout_s: float = 900.0, extra_args=()):
+            timeout_s: float = 900.0, extra_args=(), controller: str = "fl"):
     """
     Lanza UNA corrida y espera a que la trayectoria acabe.
 
@@ -503,7 +503,7 @@ def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
     (B4.4, run_gravity_sweeps_real.py) pasan ahí su postura.
     """
     cmd = ["ros2", "launch", "ur5_dyn_control", "ur5e_real.launch.py",
-           "controller:=fl", f"params_file:={params_file}",
+           f"controller:={controller}", f"params_file:={params_file}",
            "trajectory_type:=joint_sweep", f"sweep_joint:={joint}",
            # La campaña se corre con el efector DESCARGADO (§7). Declararlo
            # aquí evita la herramienta fantasma en el modelo del nodo.
@@ -529,7 +529,7 @@ def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
                 except Exception:
                     pass
 
-    csv = os.path.expanduser(f"~/.ros/ur5_dyn_control/fl_{test_num}.csv")
+    csv = os.path.expanduser(f"~/.ros/ur5_dyn_control/{controller}_{test_num}.csv")
     return {"test_num": test_num, "joint": joint,
             "joint_name": JOINT_NAMES[joint], "state_reached": state,
             "completed": completed,

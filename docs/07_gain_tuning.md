@@ -623,8 +623,8 @@ Las filas cuentan desde 0 entre las de método `nsga2`.
 **La rodilla no sirve como candidata para el robot.** Se elige con `f1`, `f2` y `f3`, y el margen no
 es un objetivo. La fila 46 le gana en TCP y margen, y además en `f3` (143 frente a 151). Pierde en
 `G` (119.8 frente a 114), en `f1` (0.8 %) y en `f2` (0.06 %). `selected_gains.yaml` se deja como lo
-generó la corrida. Qué punto se lleva al robot, y con qué criterio se presenta en el artículo, queda
-por decidir.
+generó la corrida. El usuario eligió la fila 46 para el robot (2026-11-04,
+`candidata_fila46.yaml`); con qué criterio se presenta en el artículo queda por decidir.
 
 Ganancias de los dos puntos con mejor compromiso:
 
@@ -663,7 +663,8 @@ alcanzan en `shoulder_pan`, `wrist_1` ni `wrist_2`, pero `shoulder_pan`, `wrist_
   predicción.
 - La planta sigue sin modo flexible ni fricción. `g7` deja la `712` en ×1.38 y las limpias en ≥ ×2.25,
   pero no explica el ciclo de 35 Hz, y `G ≤ 120` sigue siendo necesaria.
-- El chequeo de arranque del nodo usa la M del URDF y rechazará cualquiera de estos puntos (margen 0).
+- El chequeo de arranque del nodo usa la M del URDF y rechaza cualquiera de estos puntos (margen 0).
+  Protocolo de la rampa y estado de esa decisión: `09c_gain_ramp_protocol.md`.
 
 **Certificación KKT: no la hay.** ε-restricción no convergió en ningún nivel (0 de 12, límite de 15
 iteraciones) y solo dejó 2 puntos factibles, uno de ellos la rodilla. En `smc_v5_g6` tampoco
