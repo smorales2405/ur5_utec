@@ -292,6 +292,7 @@ def test_ensayo_en_seco_no_pide_nada(capsys):
     assert main(["--gains-file", _CANDIDATA, "--params-file", params, "--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "20 corridas" in out and "r = 1.00" in out and "allow_unstable" not in out
+    assert "ros2 launch" not in out, "lanzarlo a mano fue el paro de smc_1405"
 
 
 def test_sin_base_ni_payload_no_ejecuta(capsys):

@@ -633,6 +633,15 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
   if (ft_zero_at_contact_) {
     ft_zero_client_ = create_client<std_srvs::srv::Trigger>(ft_zero_srv);
   }
+  // Servicio de las escalas de G4 del driver. Solo se usa con la compensacion de
+  // friccion activa y lo fija ur5e_real.launch.py. En un ensayo en seco no se toca el robot.
+  friction_model_service_ = declare_parameter<std::string>("friction.robot_model_service", "");
+  if (!friction_model_service_.empty() && friction_mode_ != FrictionCompensation::NONE &&
+    !dry_run_)
+  {
+    friction_model_client_ = create_client<ur_msgs::srv::SetFrictionModelParameters>(
+      friction_model_service_);
+  }
   switcher_ = std::make_unique<ControllerSwitcher>(this, controller_manager_ns_);
 }
 
@@ -1253,32 +1262,43 @@ Vector6d TorqueControlNodeBase::commandFromLaw(const Vector6d & tau_law,
   // estado real, asi que si el seguimiento es malo compensa una friccion que no
   // se corresponde con el movimiento en curso. Por eso el default sigue siendo
   // "measured" y esto se elige a proposito.
-  const Vector6d & dq_fric =
-    (friction_use_ref_dq_ && dq_ref != nullptr) ? *dq_ref : dq;
-  Vector6d ff = frictionFeedforward(
-    dq_fric, friction_f_v_, friction_f_c_, friction_mode_, friction_dq_eps_);
-
-  // LIMITE DE TASA del feedforward. Ver la declaracion en el header: sin el,
-  // `f_c·tanh(q̇_d/eps)` es un escalon que en una junta ligera inyecta cientos
-  // de rad/s2 y desestabiliza. El limite va en incremento de VELOCIDAD, que es
-  // lo que significa lo mismo en juntas cuya inercia recorre 4 ordenes.
   //
-  // OJO: se limita el feedforward y NO el mando total. El limitador de tasa de
-  // la FASE 3 actua sobre el comando ya saturado, demasiado tarde: para
-  // entonces el escalon ya se ha sumado al par de la ley y recortarlo entero
-  // tambien recortaria la correccion del controlador.
-  if (friction_ff_dv_max_ > 0.0 && friction_mode_ != FrictionCompensation::NONE) {
-    if (!friction_ff_prev_valid_) {
-      friction_ff_prev_ = ff;
-      friction_ff_prev_valid_ = true;
-    } else {
-      const double dt = 1.0 / control_rate_;
-      for (int i = 0; i < 6; ++i) {
-        const double paso = friction_ff_dv_max_ * friction_ff_inertia_[i] / dt;
-        const double d = ff[i] - friction_ff_prev_[i];
-        ff[i] = friction_ff_prev_[i] + std::clamp(d, -paso, paso);
+  // Sin velocidad deseada (dq_ref nulo), la deseada es CERO: nunca la medida. Y en
+  // SAFE_HOLD no se compensa nada, de golpe y sin pasar por el limitador: la
+  // friccion es lo que ayuda a frenar. Alimentado con la velocidad medida, el
+  // feedforward empuja a favor del movimiento: en smc_1405 (2026-11-05), con G4
+  // activa, el robot compensaba dos veces y el amortiguamiento neto de las seis
+  // juntas salia negativo; se pulso el paro de emergencia a los 2.68 s. Gazebo sin
+  // friccion en la planta lo reproduce: las seis juntas, 25-54 grados en 1 s.
+  Vector6d ff = Vector6d::Zero();
+  if (state_ != State::SAFE_HOLD) {
+    const Vector6d dq_fric = !friction_use_ref_dq_ ? dq :
+      (dq_ref != nullptr ? *dq_ref : Vector6d::Zero().eval());
+    ff = frictionFeedforward(
+      dq_fric, friction_f_v_, friction_f_c_, friction_mode_, friction_dq_eps_);
+
+    // LIMITE DE TASA del feedforward. Ver la declaracion en el header: sin el,
+    // `f_c·tanh(q̇_d/eps)` es un escalon que en una junta ligera inyecta cientos
+    // de rad/s2 y desestabiliza. El limite va en incremento de VELOCIDAD, que es
+    // lo que significa lo mismo en juntas cuya inercia recorre 4 ordenes.
+    //
+    // OJO: se limita el feedforward y NO el mando total. El limitador de tasa de
+    // la FASE 3 actua sobre el comando ya saturado, demasiado tarde: para
+    // entonces el escalon ya se ha sumado al par de la ley y recortarlo entero
+    // tambien recortaria la correccion del controlador.
+    if (friction_ff_dv_max_ > 0.0 && friction_mode_ != FrictionCompensation::NONE) {
+      if (!friction_ff_prev_valid_) {
+        friction_ff_prev_ = ff;
+        friction_ff_prev_valid_ = true;
+      } else {
+        const double dt = 1.0 / control_rate_;
+        for (int i = 0; i < 6; ++i) {
+          const double paso = friction_ff_dv_max_ * friction_ff_inertia_[i] / dt;
+          const double d = ff[i] - friction_ff_prev_[i];
+          ff[i] = friction_ff_prev_[i] + std::clamp(d, -paso, paso);
+        }
+        friction_ff_prev_ = ff;
       }
-      friction_ff_prev_ = ff;
     }
   }
   const Vector6d tau_total = tau_law + ff;
@@ -1318,6 +1338,76 @@ Vector6d TorqueControlNodeBase::publishTau(const Vector6d & tau_law,
     tau_pub_->publish(cmd);
   }
   return tau_cmd;
+}
+
+void TorqueControlNodeBase::refuseToStart(const std::string & reason)
+{
+  RCLCPP_FATAL(get_logger(), "NO ARRANCA: %s. No se ha comandado par: el controlador de "
+               "trayectoria sigue sosteniendo el robot.", reason.c_str());
+  enterState(State::DONE);
+  timer_->cancel();
+  csv_.close();
+}
+
+bool TorqueControlNodeBase::torqueGatesPassed(bool have_state, const Vector6d & q)
+{
+  // Mirar la postura DESPUES de pasar a par convierte una guarda en un arranque: en
+  // smc_1405 (2026-11-05) el nodo desactivo el JTC, vio que estaba a 0.38 rad y entro en
+  // SAFE_HOLD, ya sin nada que sostuviera el brazo en posicion.
+  if (!posture_checked_) {
+    if (!have_state) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                           "Esperando /joint_states: sin ellos no se pasa a par.");
+      return false;
+    }
+    const double err = (q - q_init_).cwiseAbs().maxCoeff();
+    if (q_init_check_strict_ && err > q_init_check_tol_) {
+      char b[320];
+      std::snprintf(b, sizeof(b),
+                    "q = [%.3f %.3f %.3f %.3f %.3f %.3f] difiere de q_init en %.3f rad "
+                    "(tolerancia %.3f). Lleve el robot a q_init con el JTC o el pendant",
+                    q[0], q[1], q[2], q[3], q[4], q[5], err, q_init_check_tol_);
+      refuseToStart(b);
+      return false;
+    }
+    posture_checked_ = true;
+  }
+
+  // Con la compensacion activa, G4 tiene que estar a cero: si no, el robot compensa
+  // tambien y la friccion se compensa dos veces. El driver no deja leer las escalas, asi
+  // que se fijan aqui y se espera su confirmacion. Se repite la peticion porque una
+  // respuesta puede perderse sin dejar rastro (ver PRE_HOLD).
+  if (!friction_model_client_ || g4_confirmed_) {return true;}
+  const int rate = static_cast<int>(control_rate_);
+  if (g4_first_tick_ < 0) {g4_first_tick_ = pre_hold_ticks_;}
+  if (g4_rejected_) {
+    refuseToStart("el driver rechazo poner G4 a cero. ¿Esta External Control en play?");
+    return false;
+  }
+  if (pre_hold_ticks_ - g4_first_tick_ > 10 * rate) {
+    refuseToStart("sin confirmacion de G4 a cero en 10 s (" + friction_model_service_ + ")");
+    return false;
+  }
+  const bool due = !g4_pending_ || pre_hold_ticks_ - g4_tick_ > 2 * rate;
+  if (due && friction_model_client_->service_is_ready()) {
+    friction_model_client_->prune_pending_requests();
+    auto req = std::make_shared<ur_msgs::srv::SetFrictionModelParameters::Request>();
+    req->parameters.viscous_scale.assign(6, 0.0);
+    req->parameters.coulomb_scale.assign(6, 0.0);
+    friction_model_client_->async_send_request(
+      req,
+      [this](rclcpp::Client<ur_msgs::srv::SetFrictionModelParameters>::SharedFuture fut) {
+        if (fut.get()->success) {
+          g4_confirmed_ = true;
+          RCLCPP_INFO(get_logger(), "G4 a cero, confirmado por el driver.");
+        } else {
+          g4_rejected_ = true;
+        }
+      });
+    g4_pending_ = true;
+    g4_tick_ = pre_hold_ticks_;
+  }
+  return false;
 }
 
 void TorqueControlNodeBase::enterState(State s)
@@ -1378,6 +1468,9 @@ void TorqueControlNodeBase::tick()
         // corrida entera iria con el JTC mandando y nadie aplicando el par. En
         // Gazebo no se puede: con el mundo en pausa no responde hasta que corre.
         const bool confirm_switch = !perform_unpause_;
+        // En el real, nada pasa a par sin antes comprobar la postura y G4, con el
+        // JTC todavia sosteniendo el robot (smc_1405, ver torqueGatesPassed).
+        if (confirm_switch && perform_switch_ && !torqueGatesPassed(have_state, q)) {break;}
         const int response_ticks = static_cast<int>(control_rate_ * 2.0);
         const bool check_lost =
           check_pending_ && pre_hold_ticks_ - check_tick_ > response_ticks;
@@ -1483,6 +1576,9 @@ void TorqueControlNodeBase::tick()
           // Estricto por defecto cuando gravity_in_command=false, que es la
           // marca de "robot real" en este paquete (G3). En Gazebo se conserva
           // el aviso, para no cambiar el comportamiento de las campañas.
+          //
+          // En el real ya se comprobo antes de pasar a par (torqueGatesPassed):
+          // aqui solo se llega si el brazo se ha movido desde entonces.
           if (q_init_check_strict_) {
             q_last_ = q0_;
             requestSafeHold(
@@ -1603,9 +1699,18 @@ void TorqueControlNodeBase::tick()
         const Vector6d tau_hold = dyn_->gravity(q_now) +
           kSafeHoldKp.asDiagonal() * (q_safe_ - q_now) -
           kSafeHoldKd.asDiagonal() * dq_now;
-        publishTau(tau_hold, q_now, dq_now);
+        const Vector6d tau = publishTau(tau_hold, q_now, dq_now);
         RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 2000,
                               "SAFE_HOLD: sosteniendo la ultima pose conocida.");
+        // Se registra: del paro de smc_1405 no quedo ni una muestra. Los primeros
+        // 10 s, enteros; despues, como los demas sostenes, que pueden durar mucho.
+        // Y al disco cada 0.1 s, porque de este estado se puede salir a la fuerza.
+        if (t_sim - t_state_start_ < 10.0 || ++hold_log_counter_ % csv_hold_decimation_ == 0) {
+          JointRef ref;
+          ref.q = q_safe_;
+          logRow(t_sim, q_now, dq_now, ref, tau, "SAFE_HOLD");
+          if (++safe_hold_rows_ % 50 == 0) {csv_.flush();}
+        }
         break;
       }
 

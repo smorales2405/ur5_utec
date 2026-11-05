@@ -194,13 +194,9 @@ def main(argv=None):
     print(f"\n  {len(runs)} corridas (test = base + 10·escalón + junta):")
     for run in runs:
         print(f"    smc_{run['test_num']}: r = {run['r']:.2f} · {JOINT_NAMES[run['joint']]}")
-    s0 = table[0]
-    print("\n  Comando de la primera corrida (el resto lo lanza la sesión):\n"
-          f"    ros2 launch ur5_dyn_control ur5e_real.launch.py controller:=smc "
-          f"params_file:={args.params_file} trajectory_type:=joint_sweep "
-          f"sweep_joint:={runs[0]['joint']} tool_mounted:=true tau_scale:={args.tau_scale} "
-          f"test_num:={runs[0]['test_num']} "
-          f"{' '.join(launch_args(q, args.gains_file, s0['lam'], s0['phi']))}")
+    # Aquí se imprimía el comando de la primera corrida, y lanzarlo a mano acabó en un
+    # paro de emergencia (smc_1405): solo la sesión lleva el robot a la postura.
+    print("\n  Las corridas las lanza la sesión, una a una. No se lanzan a mano.")
     if args.dry_run:
         return 0
     if args.test_base is None or args.payload_kg is None:

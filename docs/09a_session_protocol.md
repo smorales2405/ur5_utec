@@ -61,6 +61,7 @@ ros2 launch ur_robot_driver ur_control.launch.py \
 source ~/ur5_ws/install/setup.bash
 
 # G4 a cero. NO persiste: repetir cada vez que se relance el driver.
+# Sin compensación de fricción, como en §2, el nodo no lo hace (09_real_bringup.md §5.1).
 ros2 service call /friction_model_controller/set_friction_model_parameters \
   ur_msgs/srv/SetFrictionModelParameters \
   "{parameters: {viscous_scale: [0.0,0.0,0.0,0.0,0.0,0.0],

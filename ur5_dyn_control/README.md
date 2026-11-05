@@ -386,12 +386,16 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   retardo, el rotor y el ×2 del launch real son los del evaluador. Los números del chequeo los
   fijan también los gtest `PidDiscrete`/`MimoDiscrete` y su espejo en Python.
 
+- `test_torque_gates.py` — el paro de `smc_1405` (`docs/09_real_bringup.md` §5.1), contra un
+  driver falso: fuera de postura no se pasa a par, con compensación G4 se pone a cero y se
+  confirma antes del cambio, y `SAFE_HOLD` no compensa fricción y queda en el CSV.
+
 - `test_gain_ramp.py` (`ur5_identification`) — escalones, geometría y criterios de
   parada de la rampa (`docs/09c_gain_ramp_protocol.md`), también sobre `smc_712`–`717`
   si están los CSV. La sesión nunca fuerza el chequeo de arranque.
 
-Total en `colcon test-result` (2026-11-04): **159** en `ur5_dyn_control`,
-153 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **367**, todos
+Total en `colcon test-result` (2026-11-05): **174** en `ur5_dyn_control`,
+153 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **382**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)

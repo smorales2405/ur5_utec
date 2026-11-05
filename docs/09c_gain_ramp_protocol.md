@@ -1,9 +1,12 @@
 # Protocolo — rampa de ganancias del SMC en el UR5e real
 
-**Estado:** preparado, sin ejecutar. El chequeo de arranque del nodo suma el rotor medido y exige
-×2 (plan D25); si rechaza un escalón, ese escalón no se corre: la sesión nunca pasa
-`discrete_check.allow_unstable`. Plan: V16 y D25 de `Journal_UR5eControl_plan.md`. Código:
-`ur5_identification/gain_ramp.py` y `scripts/run_gain_ramp_real.py`.
+**Estado:** preparado, sin ejecutar: ninguna corrida ha llegado a barrer. El comando de la primera
+corrida, lanzado a mano el 2026-11-05 (`smc_1405`), acabó en paro de emergencia antes de ejecutar
+la ley (`09_real_bringup.md` §5.1). **Las corridas se lanzan solo con la sesión.** El chequeo de
+arranque del nodo suma el rotor medido y exige ×2 (plan D25); si rechaza un escalón, ese escalón no
+se corre: la sesión nunca pasa `discrete_check.allow_unstable`. Plan: V16, D25 y D26 de
+`Journal_UR5eControl_plan.md`. Código: `ur5_identification/gain_ramp.py` y
+`scripts/run_gain_ramp_real.py`.
 
 **Por qué.** La candidata (`results/gain_tuning/smc_v7_rotor/candidata_fila46.yaml`, fila 46 del
 frente) supera lo probado limpio en cuatro juntas, y el evaluador con el que se eligió no tiene
@@ -43,9 +46,11 @@ Como `09a_session_protocol.md` §0 y §1:
    punta recorre unos ±13 cm en horizontal.
 2. **Pendant:** payload **0.155 kg**, CoG **(−2.2, 2.1, 29.4) mm**, TCP en (0, 0, 0).
 3. Velocidad reducida activa, paro de emergencia a mano, nadie dentro.
-4. **Driver** con External Control en *play*. La sesión fija G4 a cero y lo verifica: con G4 activa
-   el robot suma su fricción a la del nodo.
-5. **Seguridad de B7.0 en la misma sesión, y sostén con payload** (`09a` §2.1).
+4. **Driver** con External Control en *play*, y **G4 a cero** (`09a` §1): el sostén del punto 5 no
+   usa compensación, así que el nodo no lo hace por ti. Después, la sesión y el nodo la vuelven a
+   poner a cero y esperan a que el driver lo acepte; ninguno vuelve a leer los valores.
+5. **Seguridad de B7.0 en la misma sesión, y sostén con payload** (`09a` §2), con `test_num` nuevos:
+   `1200`–`1204` ya existen.
 
 ## 3. Ejecución
 
@@ -53,16 +58,17 @@ Como `09a_session_protocol.md` §0 y §1:
 source ~/ur5_ws/install/setup.bash
 G=~/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v7_rotor/candidata_fila46.yaml
 
-# Escalones, holguras y comandos, sin mover nada:
-ros2 run ur5_identification run_gain_ramp_real.py --gains-file $G --test-base 1400 --dry-run
+# Escalones y holguras, sin mover nada:
+ros2 run ur5_identification run_gain_ramp_real.py --gains-file $G --test-base 1500 --dry-run
 
 # La sesión:
-ros2 run ur5_identification run_gain_ramp_real.py --gains-file $G --test-base 1400 --payload-kg 0.155
+ros2 run ur5_identification run_gain_ramp_real.py --gains-file $G --test-base 1500 --payload-kg 0.155
 ```
 
 Pide «ACEPTO» y la masa tecleada al empezar, «SUBIR» en cada escalón y el nombre de la junta en cada
 corrida. Lleva el robot a la postura con el JTC a 0.1 rad/s, y recoloca entre corridas. Números:
-`smc_1400 + 10·escalón + junta`. Calculo unos 30 min en total, sin haberlo medido en el robot.
+`smc_1500 + 10·escalón + junta` (`smc_1405` es el paro, solo con cabecera, y no se borra). Calculo
+unos 30 min en total, sin haberlo medido en el robot.
 
 Se puede parar al acabar cualquier escalón. `--resume` continúa: salta los CSV con datos y aparta
 los vacíos. Nunca sobrescribe uno con datos.
@@ -103,10 +109,14 @@ escapó y la guarda de error la cortó a los 0.66 s. Fue un error de configuraci
 muestra qué pasa si la compensación es mayor que la fricción real: `K` ≈ 0.9 N·m no basta para
 frenarla. Con una fuerza externa ocurre lo mismo (`07_gain_tuning.md` §5.9).
 
+Tras el paro de `smc_1405`, el mismo caso en el gemelo, sin fricción en la planta: en 1 s, las seis
+juntas se desvían de 25° a 54° con el binario anterior, y 1.32° como mucho con el corregido
+(`09_real_bringup.md` §5.1).
+
 ## 6. Qué devolver
 
 La salida de `--dry-run` y de la sesión, el registro (`~/.ros/gain_ramp/session_*.yaml`), los CSV
-`smc_14??` con sus `.params.yaml`, y lo observado en cada escalón.
+`smc_15??` con sus `.params.yaml`, y lo observado en cada escalón.
 
 ## 7. Lo que esto no prueba
 

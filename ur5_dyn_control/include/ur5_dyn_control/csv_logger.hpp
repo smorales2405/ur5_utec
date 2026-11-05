@@ -141,6 +141,8 @@ public:
 
   void log(const LogSample & sample);
 
+  /// Vuelca a disco lo escrito hasta ahora, sin cerrar el fichero.
+  void flush();
   void close();
   bool isOpen() const { return csv_.is_open(); }
   const std::string & path() const { return path_; }

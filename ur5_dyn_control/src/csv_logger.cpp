@@ -113,6 +113,11 @@ void CsvLogger::log(const LogSample & d)
   csv_ << ',' << d.state << '\n';
 }
 
+void CsvLogger::flush()
+{
+  if (csv_.is_open()) {csv_.flush();}
+}
+
 void CsvLogger::close()
 {
   if (csv_.is_open()) {

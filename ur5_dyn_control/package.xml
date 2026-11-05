@@ -21,6 +21,7 @@
   <depend>geometry_msgs</depend>   <!-- B1: wrench del F/T integrado -->
   <depend>std_srvs</depend>        <!-- B1: zero_ftsensor (Trigger) -->
   <depend>controller_manager_msgs</depend>
+  <depend>ur_msgs</depend>         <!-- escalas de G4 del driver -->
   <depend>ament_index_cpp</depend>
   <depend>ur5_kinematics</depend>
   <depend>pinocchio</depend>

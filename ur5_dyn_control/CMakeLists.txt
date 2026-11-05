@@ -40,6 +40,7 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(controller_manager_msgs REQUIRED)
+find_package(ur_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(pinocchio REQUIRED)
@@ -78,7 +79,7 @@ target_link_libraries(${PROJECT_NAME}_core PUBLIC
   pinocchio::pinocchio
 )
 ament_target_dependencies(${PROJECT_NAME}_core PUBLIC
-  rclcpp sensor_msgs std_msgs geometry_msgs std_srvs controller_manager_msgs
+  rclcpp sensor_msgs std_msgs geometry_msgs std_srvs controller_manager_msgs ur_msgs
   ament_index_cpp)
 
 # ── Nodos de control ──────────────────────────────────────────────────────────
@@ -160,6 +161,9 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_discrete_check test/test_discrete_check.py
     TIMEOUT 300)
   ament_add_pytest_test(test_controller_switch_retry test/test_controller_switch_retry.py
+    TIMEOUT 300)
+  # smc_1405: lo que se comprueba antes de pasar a par, y SAFE_HOLD.
+  ament_add_pytest_test(test_torque_gates test/test_torque_gates.py
     TIMEOUT 300)
   # B0.4: dinamica del nodo (C++) frente a la del evaluador offline (Python).
   add_executable(dump_dynamics test/dump_dynamics.cpp)

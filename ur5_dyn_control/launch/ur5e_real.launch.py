@@ -39,6 +39,9 @@ Lo que fija por ti (y por qué)
 - Chequeo discreto de arranque: 5 ciclos de retardo, rotor medido en la planta y
   margen mínimo ×2 (plan D25). El rotor es el que hace estables en el modelo las
   ganancias de `smc_v7_rotor`, y no se expone como argumento.
+- Antes de pasar a par, con el JTC aún sosteniendo el robot, el nodo comprueba la
+  postura y, si hay compensación de fricción, pone G4 a cero y espera la confirmación.
+  Si algo falla, sale sin comandar par (paro de `smc_1405`, 2026-11-05).
 - Listas de switch del driver: `scaled_joint_trajectory_controller` y
   `forward_effort_controller` son **mutuamente excluyentes** (tabla de
   compatibilidad del hardware, ver G2), así que hay que desactivar el primero.
@@ -167,6 +170,9 @@ def launch_setup(context, *args, **kwargs):
         # sale x1.38 en q_init, y las corridas limpias, >= x2.25.
         "discrete_check.rotor_inertia": [1.0324, 1.2466, 1.0545, 0.1247, 0.1386, 0.0719],
         "discrete_check.margin_min": 2.0,
+        # smc_1405: con la compensacion de friccion activa, el nodo pone G4 a cero y
+        # espera la confirmacion antes de pasar a par. Sin ella no arranca.
+        "friction.robot_model_service": "/friction_model_controller/set_friction_model_parameters",
     }
     if not tool_mounted:
         real["tool_mass"] = 0.0
@@ -229,8 +235,7 @@ def launch_setup(context, *args, **kwargs):
     if fc_mode and fc_mode != "none":
         print(f"  friccion: compensacion '{fc_mode}' con la velocidad "
               f"{optional.get('friction.dq_source', 'MEDIDA (default)')}")
-        print("  OJO: sin poner las escalas G4 a 0.0 por servicio, el robot")
-        print("       compensa TAMBIEN por dentro y se compensa dos veces.")
+        print("  G4: el nodo la pone a cero y lo confirma antes de pasar a par")
     # B7.0: vigilante de comandos en su PROPIO proceso (scripts/command_deadman.py).
     # forward_effort_controller retiene el ultimo par y el driver lo reenvia en
     # cada ciclo: si el nodo muere sin pasar por su destructor, o se queda en

@@ -1,8 +1,9 @@
 # FASE 9 — Puesta a punto del SMC en el UR5e real
 
 Registro de lo que ha pasado al llevar el SMC de Gazebo al robot físico, qué lo
-explica y qué queda por medir. Dos incidentes hasta ahora, **con causas
-opuestas**, y los dos con las mismas ganancias.
+explica y qué queda por medir. Dos incidentes con el SMC, **con causas
+opuestas**, y los dos con las mismas ganancias. Un tercero no tuvo que ver con
+las ganancias, sino con el arranque y con `SAFE_HOLD`: `smc_1405`, §5.1.
 
 ---
 
@@ -211,6 +212,63 @@ pulsador.
 - `smc_731` — el mismo barrido con `tau_scale = 0.23`, que estrangula el par del
   codo por debajo de su pico de 37.6 N·m: **dispara**, nombra la junta y entra
   en `SAFE_HOLD`.
+
+### 5.1 `smc_1405` (2026-11-05): la guarda de la postura movió el robot
+
+El operador lanzó a mano el comando que imprimía `run_gain_ramp_real.py --dry-run`, sin
+ningún aviso de que esas corridas son solo para la sesión. Así se saltaba los dos pasos que
+da la sesión: G4 seguía activa, porque no se había fijado tras relanzar el driver, y el robot
+seguía en `q_init`, a 0.38 rad de la postura de la rampa. Payload 0.155 kg y TCP 0, correctos.
+
+| tiempo | evento |
+|---|---|
+| 0 | el nodo activa `forward_effort_controller` y desactiva el JTC |
+| +0.50 s | comprueba la postura, ve 0.38 rad y entra en `SAFE_HOLD` |
+| +3.18 s | paro de emergencia del operador: movimiento de velocidad media en todas las juntas, sin vibración ni golpe |
+| +3.23 s | el robot pasa a `VIOLATION` y `FAULT`: `C283A1` *Robot is not braking when in Stop Mode*, `C306A1` *Joint: Not stopping fast enough*, `C281A4` y `C281A3` *Wrist 1 joint entered the Violation / Fault State* |
+
+No llegó a ejecutar la ley SMC, ni el barrido. El CSV solo tiene cabecera (`SAFE_HOLD` no
+escribía), así que **no hay medida** de cuánto se movió cada junta, y el robot se devolvió a
+`q_init` antes de poder leer dónde quedó.
+
+**Dos defectos del nodo:**
+
+1. La guarda de la postura estaba después del cambio a par: una guarda pensada para no
+   arrancar arrancaba, ya sin el JTC sosteniendo el brazo.
+2. `SAFE_HOLD` compensaba la fricción con la velocidad **medida**, aunque
+   `friction.dq_source` fuera `desired`: sin velocidad deseada caía en la medida, en contra de
+   lo que decía su comentario. Con G4 activa, el robot suma la suya, y el amortiguamiento
+   neto queda en `K_d − 0.9 F_v` (`0.8 F_v` en el codo). Calculado, es negativo en las seis
+   juntas: −2.28, −0.40, −0.99, −0.15, −0.72 y −1.71 N·m·s/rad.
+
+**La causa es probable, no está medida.** Con la compensación del nodo sobrando, y solo con eso,
+el arranque se reproduce:
+
+| dónde | configuración | desvío a 1 s tras `SAFE_HOLD` [°] |
+|---|---|---|
+| Gazebo `smc_98921`, binario anterior | planta sin fricción: la compensación sobra entera | 49.3, 32.0, 30.5, 25.4, 54.0, 24.6 |
+| Gazebo `smc_98922`, binario anterior | fricción en la planta, como con G4 = 0 | 0.00 en las seis |
+| Gazebo `smc_98923`, binario corregido | planta sin fricción | 0.29, 0.93, 0.60, 1.32, 0.16, 0.02, y no aumenta en 10 s |
+
+Gazebo sobreactúa: toda la compensación sobra, frente al 80–90 % del robot, y su fricción no es
+la real. En el modelo rígido con la fricción identificada, desde el reposo no arranca (< 0.3° en
+2.68 s), con un empujón de 0.03 rad/s se escapa en 5 de 6 juntas, y sin una de las dos
+compensaciones se queda bajo 1°. No se sabe qué sacó al robot del reposo, y los códigos del
+pendant solo dicen que `wrist_1` no frenó a tiempo tras el paro.
+
+**Qué se cambió:**
+
+- El nodo comprueba la postura **antes** de pedir el cambio a par. Fuera de tolerancia sale con
+  `NO ARRANCA` y el JTC sigue sosteniendo el robot.
+- Con la compensación activa, el nodo pone G4 a cero y espera la confirmación del driver antes del
+  cambio (`friction.robot_model_service`, lo fija `ur5e_real.launch.py`). Sin ella, en 10 s, no
+  arranca. Sin compensación no toca G4: las campañas de fricción fijan otros niveles a propósito.
+- `SAFE_HOLD` no compensa fricción, y sin velocidad deseada se usa cero, nunca la medida.
+- `SAFE_HOLD` escribe en el CSV: a tasa completa los primeros 10 s, y a disco cada 0.1 s.
+- `--dry-run` ya no imprime un comando lanzable.
+
+Tests: `test_torque_gates.py`. Con el launch real, sin robot y contra un driver falso, el comando
+del paro sale con `NO ARRANCA` y el driver falso no recibe ninguna orden.
 
 ---
 
@@ -616,6 +674,8 @@ referidas a la pose de `q_init`.
     "{parameters: {viscous_scale: [0.0,0.0,0.0,0.0,0.0,0.0],
                    coulomb_scale: [0.0,0.0,0.0,0.0,0.0,0.0]}}"
   ```
+  Con la compensación de fricción activa lo hace también el nodo (§5.1); sin ella, como en
+  el sostén de B7.0, solo este comando.
 - Tras la primera corrida, `check_session_config.py` sobre su CSV: comprueba
   las dos cosas y sale con código 1 si alguna no cuadra.
 - Calentamiento: `F_v` cae un 9.3 % de frío a rodado (`02` §8.5).

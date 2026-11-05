@@ -14,6 +14,7 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_srvs/srv/trigger.hpp>
+#include <ur_msgs/srv/set_friction_model_parameters.hpp>
 
 #include "ur5_dyn_control/cartesian_spline_trajectory.hpp"
 #include "ur5_dyn_control/cartesian_trajectory.hpp"
@@ -54,7 +55,9 @@ namespace ur5_dyn_control
  * RTF < 1); las fases y la tabla usan tiempo de SIMULACION (use_sim_time).
  * En el robot real: use_sim_time=false y perform_unpause=false; el mismo
  * codigo corre con tiempo de pared y el switch activa/desactiva los
- * controladores del driver UR (forward_effort_controller vs JTC).
+ * controladores del driver UR (forward_effort_controller vs JTC). Antes del
+ * switch, con el JTC aun sosteniendo el robot, se comprueban la postura y G4
+ * (torqueGatesPassed).
  *
  * Gravedad (compuerta G3): computeTau() devuelve SIEMPRE el torque fisico
  * completo (con gravedad). El parametro `gravity_in_command` decide que se
@@ -92,9 +95,9 @@ protected:
    * y es la que ejercita el test unitario de la compuerta G3.
    *
    * `dq_ref` es la velocidad DESEADA, y solo se usa si
-   * `friction.dq_source` = "desired". Es opcional para no romper a ningun
-   * llamante: donde no se pasa (los holds a ciegas) la velocidad deseada es
-   * cero de todos modos, que es lo mismo que ve la ruta por velocidad medida.
+   * `friction.dq_source` = "desired". Donde no se pasa (los holds a ciegas) la
+   * velocidad deseada es cero. En SAFE_HOLD no se compensa friccion, sea cual
+   * sea la fuente (smc_1405).
    */
   Vector6d commandFromLaw(const Vector6d & tau_law, const Vector6d & q,
                           const Vector6d & dq,
@@ -225,6 +228,12 @@ private:
                       const Vector6d * dq_ref = nullptr);
   void enterState(State s);
   const char * stateName(State s) const;
+  /// En el real, antes de pedir el cambio a par: comprueba la postura y, con la
+  /// compensacion de friccion activa, fija G4 a cero y espera la confirmacion.
+  /// false = todavia no, o no arranca.
+  bool torqueGatesPassed(bool have_state, const Vector6d & q);
+  /// Termina sin haber pasado a par: el JTC sigue sosteniendo el robot.
+  void refuseToStart(const std::string & reason);
 
   // -- parametros --
   double control_rate_ = 500.0;
@@ -394,6 +403,15 @@ private:
   bool unpause_done_ = false;
   int pre_hold_ticks_ = 0;
   int request_tick_ = 0;
+  bool posture_checked_ = false;            // postura vista antes de pasar a par
+  std::string friction_model_service_;      // "" = no se toca G4 (Gazebo)
+  rclcpp::Client<ur_msgs::srv::SetFrictionModelParameters>::SharedPtr friction_model_client_;
+  bool g4_pending_ = false;
+  bool g4_confirmed_ = false;
+  bool g4_rejected_ = false;
+  int g4_first_tick_ = -1;
+  int g4_tick_ = 0;
+  int safe_hold_rows_ = 0;                  // filas de SAFE_HOLD, para volcarlas a disco
   Vector6d q0_ = Vector6d::Zero();          // pose medida al iniciar HOLD_START
   Vector6d tau_hold_blind_ = Vector6d::Zero();
   double t_state_start_ = 0.0;              // tiempo sim al entrar al estado
