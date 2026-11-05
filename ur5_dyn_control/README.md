@@ -395,9 +395,12 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   si están los CSV. La sesión nunca fuerza el chequeo de arranque. `r` por junta (D28):
   los escalones ya corridos no cambian, `shoulder_pan` acaba en 0.71 y el crecimiento se
   compara junta a junta.
+- `test_air_bringup.py` (`ur5_identification`) — B7.1 (`docs/09d_air_bringup_protocol.md`):
+  la postura de la base tiene la inercia del corte y cumple g6, g7 y la holgura; la guarda
+  de la incisión salta antes de llegar al tablero; la confirmación va antes de lanzar.
 
 Total en `colcon test-result` (2026-11-05): **174** en `ur5_dyn_control`,
-160 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **389**, todos
+179 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **408**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)

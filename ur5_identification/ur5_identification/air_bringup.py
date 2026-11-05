@@ -1,0 +1,115 @@
+"""B7.1 — el SMC en aire con las ganancias finales, antes del primer corte (plan B7.1, D29).
+
+Ganancias: las de la candidata de la fila 46, con `shoulder_pan` más baja (D28). Dos pasos, una
+sesión cada uno (`scripts/run_air_bringup_real.py`, `docs/09d_air_bringup_protocol.md`):
+
+1. **La base, con la inercia de la incisión.** En la pose donde empieza el corte, `M₁₁` vale 2.61,
+   frente a 1.86 en la postura de la rampa, y la `G` de `shoulder_pan` con r = 0.71 sube de 44.6 a
+   54.0: la de r = 0.85 en la rampa, donde su modo de 33 Hz cayó a ζ ≈ 0.014
+   (`09c_gain_ramp_protocol.md` §8.2). Se barre `shoulder_pan` en una postura con esa inercia y la
+   punta lejos del tablero, primero con su r en 0.50 y después en 0.71, y las demás juntas a r = 1.
+2. **La incisión en aire**, a la altura real y con el acople sin hoja: la trayectoria del corte, con
+   la mesa despejada. La punta baja a 37 mm del tablero.
+
+Aquí solo está lo que no necesita ni ROS ni el robot.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+
+from .gain_ramp import JOINTS
+
+#: Punta (y, z) de la postura del paso 1 [m], en base_link y con x la del corte. Tiene casi la
+#: inercia de la base de la incisión (`M₁₁` = 2.47, frente a 2.61 al empezar el corte), y barriendo
+#: la base la punta no baja de 96 mm sobre el tablero. Con r = 0.71 en `shoulder_pan`, su `G` en
+#: reposo es 52.2, frente a 54.0 en la incisión. En y = 0.70, la `G` de `shoulder_lift` llega a
+#: 120.5 en el barrido y la sesión no lo lanza (g6); aquí, a 118.7.
+BASE_TIP = (0.69, 0.05)
+
+#: `r` de `shoulder_pan` en las dos corridas del paso 1, en orden. Las demás juntas, a r = 1.
+PAN_STEPS = (0.50, 0.71)
+
+#: La junta barrida en el paso 1.
+BASE_JOINT = 0
+
+#: `test_num` de la incisión: base + 10. Las del paso 1 son base + 0 y base + 1.
+INCISION_OFFSET = 10
+
+#: Guarda de seguimiento de la incisión [rad]: 21 mm a 0.7 m de alcance, por debajo de los 37 mm que
+#: quedan entre la punta y el tablero. Es una cota declarada. El mayor error de la rampa fue 0.022 rad,
+#: en `shoulder_pan` a 0.2 rad/s; en la incisión esa junta no se mueve.
+INCISION_Q_ERR = 0.03
+
+#: Por debajo de esto [m] sobre el tablero, la punta medida en la corrida es un motivo para parar. El
+#: diseño deja 37 mm.
+INCISION_MIN_CLEARANCE = 0.030
+
+#: Error de TCP máximo en la incisión [m], para darla por buena: la profundidad del corte. Cota
+#: declarada; el evaluador da 1.8–2.1 mm de RMS en la meseta.
+INCISION_TCP_MAX = 0.005
+
+#: Ancho de la meseta del corte en `z_des` [m]: las filas a menos de esto del mínimo.
+CUT_Z_TOL = 1e-4
+
+
+def r_vector(pan_r: float) -> np.ndarray:
+    """`r` por junta: `pan_r` en `shoulder_pan` y 1 en las demás."""
+    if not 0.0 < pan_r <= 1.0:
+        raise ValueError(f"r de shoulder_pan debe estar en (0, 1], se dio {pan_r}")
+    r = np.ones(6)
+    r[BASE_JOINT] = pan_r
+    return r
+
+
+def base_runs(test_base: int, steps=PAN_STEPS) -> list:
+    """Corridas del paso 1, en orden. `ratio` es el cociente de `r` con la anterior, por junta."""
+    runs = []
+    for i, pan_r in enumerate(steps):
+        r = r_vector(pan_r)
+        runs.append({"test_num": test_base + i, "joint": BASE_JOINT, "pan_r": float(pan_r),
+                     "r_joint": r, "previous": test_base + i - 1 if i else None,
+                     "ratio": r / r_vector(steps[i - 1]) if i else None})
+    return runs
+
+
+def incision_test_num(test_base: int) -> int:
+    return test_base + INCISION_OFFSET
+
+
+def incision_indicators(d: np.ndarray, i: dict) -> dict:
+    """Error de TCP y altura de la punta, sobre las columnas del CSV del nodo.
+
+    `d` e `i` son los de `analyze_vibration.load`. La meseta del corte son las filas con `z_des` a
+    menos de `CUT_Z_TOL` de su mínimo: el fondo de la penetración y el corte.
+    """
+    p = d[:, [i["x"], i["y"], i["z"]]]
+    p_des = d[:, [i["x_des"], i["y_des"], i["z_des"]]]
+    err = np.linalg.norm(p - p_des, axis=1)
+    cut = p_des[:, 2] <= p_des[:, 2].min() + CUT_Z_TOL
+    return {"tcp_max": float(err.max()),
+            "tcp_rms_cut": float(np.sqrt(np.mean(err[cut] ** 2))),
+            "cut_rows": int(cut.sum()),
+            "z_min": float(p[:, 2].min()), "z_des_min": float(p_des[:, 2].min())}
+
+
+def check_incision(ind: dict, table_z: float) -> list:
+    """Motivos para no dar por buena la incisión en aire; vacío si está limpia."""
+    reasons = []
+    clearance = ind["z_min"] - table_z
+    if clearance < INCISION_MIN_CLEARANCE:
+        reasons.append(f"la punta bajó a {1e3 * clearance:.0f} mm del tablero (mínimo "
+                       f"{1e3 * INCISION_MIN_CLEARANCE:.0f} mm)")
+    if ind["tcp_max"] > INCISION_TCP_MAX:
+        reasons.append(f"error de TCP de {1e3 * ind['tcp_max']:.1f} mm (máximo "
+                       f"{1e3 * INCISION_TCP_MAX:.0f} mm, la profundidad del corte)")
+    if ind["cut_rows"] == 0:
+        reasons.append("el CSV no tiene meseta del corte")
+    return reasons
+
+
+def label(r) -> str:
+    """`r` por junta para imprimir: las que no están en 1."""
+    r = np.asarray(r, float)
+    low = [f"{JOINTS[j]} {r[j]:.2f}" for j in range(6) if r[j] < 1.0]
+    return "1.00" + (f" ({', '.join(low)})" if low else "")

@@ -488,9 +488,10 @@ def follow_run(proc, log, settle_s=8.0, timeout_s=900.0, startup_s=STARTUP_TIMEO
             return state, True
 
 
-def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
+def run_one(joint, test_num: int, params_file: str, tau_scale: float,
             log_dir: str, tool_mounted: bool = False, settle_s: float = 8.0,
-            timeout_s: float = 900.0, extra_args=(), controller: str = "fl"):
+            timeout_s: float = 900.0, extra_args=(), controller: str = "fl",
+            trajectory_type: str = "joint_sweep"):
     """
     Lanza UNA corrida y espera a que la trayectoria acabe.
 
@@ -501,10 +502,16 @@ def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
     la campaña.
     `extra_args` (`clave:=valor`) se añaden al launch: los barridos de gravedad
     (B4.4, run_gravity_sweeps_real.py) pasan ahí su postura.
+    Con `trajectory_type="incision"` (B7.1) no hay junta barrida: `joint` es None.
     """
+    if trajectory_type == "joint_sweep":
+        trajectory = ["trajectory_type:=joint_sweep", f"sweep_joint:={joint}"]
+    elif trajectory_type == "incision" and joint is None:
+        trajectory = ["trajectory_type:=incision"]
+    else:
+        raise ValueError(f"trayectoria {trajectory_type!r} con junta {joint!r}")
     cmd = ["ros2", "launch", "ur5_dyn_control", "ur5e_real.launch.py",
-           f"controller:={controller}", f"params_file:={params_file}",
-           "trajectory_type:=joint_sweep", f"sweep_joint:={joint}",
+           f"controller:={controller}", f"params_file:={params_file}", *trajectory,
            # La campaña se corre con el efector DESCARGADO (§7). Declararlo
            # aquí evita la herramienta fantasma en el modelo del nodo.
            f"tool_mounted:={'true' if tool_mounted else 'false'}",
@@ -531,7 +538,8 @@ def run_one(joint: int, test_num: int, params_file: str, tau_scale: float,
 
     csv = os.path.expanduser(f"~/.ros/ur5_dyn_control/{controller}_{test_num}.csv")
     return {"test_num": test_num, "joint": joint,
-            "joint_name": JOINT_NAMES[joint], "state_reached": state,
+            "joint_name": JOINT_NAMES[joint] if joint is not None else trajectory_type,
+            "state_reached": state,
             "completed": completed,
             "csv": csv, "csv_exists": os.path.exists(csv),
             "node_log": log_path, "safe_hold": state == "SAFE_HOLD"}
