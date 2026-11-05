@@ -654,6 +654,8 @@ en esas corridas `wrist_1` estaba quieta (V16), así que su «limpio» dice poco
 - El rotor en el extremo alto no cambia el TCP (±0.001 mm) y sube el margen. Sin rotor, el margen
   cae a 0 y el TCP sube a 3.4–5.2 mm: el rotor decide la factibilidad.
 - El error de gravedad pesa más que el corte: a 0 N la fila 46 ya da 1.45 de sus 1.80 mm.
+- Con `shoulder_pan` en r = 0.71 (D28, `09c_gain_ramp_protocol.md` §8.3): 2.12 mm sin fricción, porque
+  esa junta cede ante el corte, y 1.47 mm con su fricción medida. El fallo sigue entre 8 y 8.5 N.
 - El TCP sube de 0.2 a 0.3 mm por newton hasta 8 N, y con la fila 46 pasa de 2 mm a 6 N. **Por
   encima, el fallo es brusco:** la fila 46 da 2.57 mm a 8 N y 337 mm a 8.5 N; la fila 17, 2.95 mm a
   8.5 N y 470 mm a 9 N. Parte de la escapada viene de modelar una fuerza constante, que no cede

@@ -286,8 +286,25 @@ si su modo sigue como en `smc_1510`.
   cada junta. Los tres primeros escalones no cambian. Corridas: `smc_1533`, `1532` y `1530`, con
   `--resume`.
 - **Descartado:** parar en r = 0.85, que deja `shoulder_pan` con ζ ≈ 0.01–0.02.
-- **Pendiente:** recalcular en el evaluador el error de TCP de la candidata con `shoulder_pan` en 0.71.
-  El del artículo se calculó con r = 1.
+- **Error de TCP en el evaluador.** Con la configuración de `smc_v7_rotor`, que reproduce exactamente
+  la fila 46 (1.798 mm y ×3.54):
+
+  | ganancias y planta | TCP en la meseta del corte [mm] | aporte de `shoulder_pan` solo [mm] |
+  |---|---|---|
+  | fila 46 (r = 1), sin fricción | 1.798 | 0.59 |
+  | D28, sin fricción | **2.116** | 1.18 |
+  | D28, con la fricción medida solo en `shoulder_pan` (`F_c` 6.85, `F_v` 13.64) | 1.472 | 0 |
+
+  - **Sin fricción**, `shoulder_pan` cede ante el par del corte, 0.47 N·m de media en la meseta, y su
+    error se duplica, porque `K_P` va con r². Así, D28 supera la tolerancia de 2 mm de g4, una cota
+    declarada: el 40 % de la profundidad de corte.
+  - **Con su fricción**, 15 veces ese par, `shoulder_pan` no se mueve, y el TCP sale igual con r = 1,
+    0.71 o 0.50.
+  - **Con fricción en las seis juntas**, el evaluador da 126 mm por `shoulder_lift`: es el modelo sin
+    validar (`closed_loop.JointFriction`) y no sirve.
+  - **En el robot**, quieta durante los barridos de las otras juntas, `shoulder_pan` no pasó de 6e-5
+    rad, aunque sin fuerza de corte.
+  - **El límite de fuerza no cambia:** el TCP se dispara entre 8 y 8.5 N, con r = 1 y con D28.
 - **Resultado:** `smc_1533`, `1532` y `1530` limpias, y el modo de `shoulder_pan` como en `smc_1510`
   (§8.2).
 
