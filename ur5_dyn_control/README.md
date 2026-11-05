@@ -395,7 +395,7 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   si están los CSV. La sesión nunca fuerza el chequeo de arranque.
 
 Total en `colcon test-result` (2026-11-05): **174** en `ur5_dyn_control`,
-153 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **382**, todos
+154 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **383**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)

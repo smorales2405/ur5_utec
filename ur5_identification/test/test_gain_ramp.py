@@ -132,8 +132,34 @@ def test_numeros_unicos_y_comparan_con_la_misma_junta():
             assert r["ratio"] == pytest.approx(r["r"] / prev["r"])
 
 
-def test_las_cuatro_juntas_por_encima_de_lo_probado_y_el_codo_se_barren():
-    assert set(RAMP_JOINTS) == {0, 2, 3, 4, 5}
+def test_se_barren_wrist_1_el_codo_y_shoulder_pan():
+    assert set(RAMP_JOINTS) == {0, 2, 3}
+
+
+def test_solo_se_barre_lo_que_la_ley_puede_mover():
+    """`smc_1505`: `wrist_3` casi no siguió la referencia y disparó la guarda de seguimiento.
+
+    Hace falta que la ley pueda corregir a la compensación de fricción (`K` frente a `F_c`), y
+    que esa compensación llegue a invertirse dentro de un barrido a `RAMP_SPEED`, que dura 2.6 s.
+    """
+    import pinocchio as pin
+    from ur5_identification.gravity_sweeps import incision_posture
+    from ur5_trajectory_optimization.gain_tuning.closed_loop import smc_loop_gains
+    plant, g, z = _plant(), _gains(), np.zeros(6)
+    params = next(iter(yaml.safe_load(open(os.path.join(_CONFIG, "gain_ramp_params.yaml")))
+                       .values()))["ros__parameters"]["friction"]
+    f_c, f_v, dv = np.array(params["f_c"]), np.array(params["f_v"]), params["ff_dv_max"]
+    q = incision_posture(plant, *RAMP_TIP)
+    M = np.asarray(pin.crba(plant.model, plant.data, q))
+    M = np.triu(M) + np.triu(M, 1).T
+    _, KP, _ = smc_loop_gains(_law(g, np.array(g["lambda"]), np.array(g["phi_joint"])),
+                              plant.model, plant.data, q, z, z)
+    authority = np.diag(KP) / np.array(g["lambda"]) * np.array(g["phi_joint"]) / f_c
+    reversal = 2.0 * (f_c + f_v * RAMP_SPEED) / (dv * np.diag(M) / 0.002 ** 2)
+    for j in RAMP_JOINTS:
+        assert authority[j] > 0.15 and reversal[j] < 0.2, j
+    assert authority[4] < 0.05 and authority[5] < 0.05
+    assert reversal[5] > 2.6
 
 
 def test_un_escalon_no_empieza_sin_acabar_el_anterior():
@@ -291,7 +317,7 @@ def test_ensayo_en_seco_no_pide_nada(capsys):
     params = os.path.join(_CONFIG, "gain_ramp_params.yaml")
     assert main(["--gains-file", _CANDIDATA, "--params-file", params, "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "20 corridas" in out and "r = 1.00" in out and "allow_unstable" not in out
+    assert "12 corridas" in out and "r = 1.00" in out and "allow_unstable" not in out
     assert "ros2 launch" not in out, "lanzarlo a mano fue el paro de smc_1405"
 
 

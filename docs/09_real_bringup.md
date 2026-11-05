@@ -656,6 +656,14 @@ referidas a la pose de `q_init`.
 
 ## 8. Antes de cada sesión
 
+- **Con el driver arriba, ningún otro proyecto ROS 2 abierto en ese dominio.** El 2026-11-05, con el
+  driver en el dominio 10, se abrió el Gazebo de otro proyecto en el mismo dominio y con los mismos
+  nombres (`/joint_states`, `/controller_manager/*`, `/forward_effort_controller/commands`). Sus
+  `spawner` llegaron al `controller_manager` del robot real, y solo fallaron porque el robot no tiene
+  esos controladores (`The 'type' param was not defined for 'arm_effort_controller'`). Su limpieza,
+  además, mató con `-9` el `robot_state_publisher` del driver. No se activó nada en el robot, porque
+  los nombres no coincidían. Si se abre otro proyecto, antes se apaga el driver, o se usa otro
+  `ROS_DOMAIN_ID`, y al volver se relanza el driver.
 - **Payload del pendant = 0 con la brida desnuda**, y borrado de la instalación,
   no sólo del programa: vuelve solo al recargar (§1.1).
 - **Con el acople montado, payload = el acople** (masa pesada, CoG del CAD

@@ -22,12 +22,18 @@ import numpy as np
 RAMP_STEPS = (0.50, 0.71, 0.85, 1.00)
 
 #: Orden dentro de un escalón: de la junta que menos par mueve a la que más.
-#: `wrist_3`, `wrist_2` y `shoulder_pan` no se mueven en la incisión, y `wrist_1` sí, pero
-#: las cuatro superan lo probado. El codo sí lo tiene probado: se barre porque fue quien
-#: arrancó el ciclo de `smc_712`, y es el que domina el modo que limita el margen de la
-#: candidata en el modelo rígido (unos 19 Hz). `shoulder_lift` queda por debajo de lo
-#: probado, y barrerla es lo que más acerca la punta al tablero.
-RAMP_JOINTS = (5, 4, 3, 2, 0)
+#: `wrist_1` y `shoulder_pan` superan lo probado, y `wrist_1` se mueve en la incisión. El codo
+#: sí lo tiene probado: se barre porque fue quien arrancó el ciclo de `smc_712`, y es el que
+#: domina el modo que limita el margen de la candidata en el modelo rígido (unos 19 Hz).
+#: `shoulder_lift` queda por debajo de lo probado, y barrerla es lo que más acerca la punta
+#: al tablero.
+#:
+#: `wrist_2` y `wrist_3` no se barren, aunque a r = 1 superan lo probado: la ley casi no puede
+#: con ellas (K = 0.06 y 0.003 N·m, frente a F_c = 1.96 y 2.35 N·m), así que barrerlas prueba
+#: la compensación de fricción, no la ley. En `smc_1505`, `wrist_3` casi no siguió la
+#: referencia y disparó la guarda de seguimiento, sin rastro de vibración. Quietas, siguen
+#: vigiladas en todas las corridas, y la incisión no las mueve.
+RAMP_JOINTS = (3, 2, 0)
 
 #: Punta (y, z) de la postura [m] en base_link, con x la del corte. Está en el alcance del
 #: trazo, donde `G` de la base es alta (72 frente al máximo de 76 en la incisión), pero 150 mm

@@ -647,7 +647,8 @@ Ganancias de los dos puntos con mejor compromiso:
 `smc_712`, con el ciclo límite, tenía 1317, 2583, 1704, 349, 161 y 1.8. Estos tres puntos no lo
 alcanzan en `shoulder_pan`, `wrist_1` ni `wrist_2`, pero `shoulder_pan`, `wrist_1`, `wrist_2` y
 `wrist_3` quedan por encima de lo probado: la rampa por escalones tiene que cubrirlas, no solo
-`wrist_1`. Además, en esas corridas `wrist_1` estaba quieta (V16), así que su «limpio» dice poco.
+`wrist_1` (a `wrist_2` y `wrist_3` solo las cubre quietas: `09c_gain_ramp_protocol.md` §1.1). Además,
+en esas corridas `wrist_1` estaba quieta (V16), así que su «limpio» dice poco.
 
 **Sensibilidad en el evaluador:**
 - El rotor en el extremo alto no cambia el TCP (±0.001 mm) y sube el margen. Sin rotor, el margen
