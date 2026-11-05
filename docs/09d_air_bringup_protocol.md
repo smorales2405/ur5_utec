@@ -2,8 +2,8 @@
 
 **Estado:** paso 1 hecho y limpio (§5.1): el modo de 33 Hz depende de la `G`, y la incisión iba con
 `shoulder_pan` en 0.50. **El paso 2 (`smc_1610`) vibró a unos 35 Hz y lo paró la guarda, y corrió con
-las ganancias equivocadas** (§5.2). El error de configuración está corregido (D30); falta decidir
-cómo repetir la incisión. Plan: B7.1, D28 y D29 de
+las ganancias equivocadas** (§5.2). El error de configuración está corregido (D30), y la incisión se
+repite por escalones, desde r = 0.50 (D31, §3). Ensayado en Gazebo, sin ejecutar en el robot. Plan: B7.1, D28 y D29 de
 `Journal_UR5eControl_plan.md`. Código: `ur5_identification/air_bringup.py` y
 `scripts/run_air_bringup_real.py`.
 
@@ -52,10 +52,28 @@ incisión sola no lo diría.
 - **Guarda de seguimiento:** 0.03 rad, 21 mm a 0.7 m de alcance, por debajo de esos 37 mm. Cota
   declarada: el mayor error de la rampa fue 0.022 rad, en `shoulder_pan` a 0.2 rad/s, y en la incisión
   esa junta no se mueve. La de saturación, la de la rampa.
-- **Corrida:** `smc_1610`, con `--pan-r` según el paso 1. El brazo empieza en el `q_init` del nodo, y al
-  acabar lo sostiene el JTC donde termine la retirada: la sesión no lo recoloca.
-- **Parada:** los criterios de la rampa, más un error de TCP de más de 5 mm (la profundidad del corte)
-  o la punta medida a menos de 30 mm del tablero.
+- **Por escalones (D31, tras `smc_1610`, §5.2):** r = 0.50, 0.71, 0.85 y 1 en todas las juntas menos
+  `shoulder_pan`, que se queda en 0.50 (§5.1). Es la primera vez que `shoulder_lift` desliza con par a
+  estas ganancias: en la aproximación va a unos 0.17 rad/s, y ahí empezó la vibración de `smc_1610`.
+
+  | `r` | corrida | `K_P` al empezar el corte [N·m/rad] | `G` máx. (base) | margen |
+  |---|---|---|---|---|
+  | 0.50 | `smc_1620` | 132, 301, 270, 26, 5.6, 0.4 | 59.7 (38.1) | ×7.63 |
+  | 0.71 | `smc_1621` | 132, 607, 544, 52, 11.2, 0.7 | 84.8 (38.1) | ×5.23 |
+  | 0.85 | `smc_1622` | 132, 869, 779, 75, 16.1, 1.1 | 101.5 (38.1) | ×4.28 |
+  | 1.00 | `smc_1623` | 132, 1203, 1078, 104, 22.3, 1.5 | 119.4 (38.1) | ×3.55 |
+
+- **Una corrida por sesión,** con `--r`, y cada escalón exige el CSV del anterior. Entre escalones,
+  revisión: los criterios automáticos no ven bien un modo que crece dentro de una corrida, y en
+  `smc_1610` pasó de nada a saturar en 1.6 s.
+- **El brazo** empieza en el `q_init` del nodo, y al acabar lo sostiene el JTC donde termine la
+  retirada: la sesión no lo recoloca.
+- **Parada:** los criterios de la rampa, con el crecimiento comparado junta a junta y una banda más,
+  la de 30–40 Hz: el modo de `smc_1610` (34.9 y 36.5 Hz) cae entre las dos de la rampa. Además, un
+  error de TCP de más de 5 mm (la profundidad del corte) o la punta medida a menos de 30 mm del
+  tablero.
+- **Lo que reviso entre escalones:** el espectro de `shoulder_lift` y el codo en 30–40 Hz mientras
+  `shoulder_lift` desliza, y si crece con `r` más de lo que crece `G`.
 
 ## 4. Ejecución
 
@@ -70,9 +88,9 @@ G=~/ur5_ws/src/ur5_utec/ur5_trajectory_optimization/results/gain_tuning/smc_v7_r
 ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso base --dry-run
 ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso base --test-base 1600 --payload-kg 0.155
 
-# Paso 2, solo tras revisar el paso 1 y con --pan-r decidido (0.5 o 0.71):
-ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso incision --pan-r <r> --dry-run
-ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso incision --pan-r <r> --test-base 1600 --payload-kg 0.155
+# Paso 2, un escalón por sesión, en orden (0.5, 0.71, 0.85, 1) y revisando cada uno:
+ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso incision --r 0.5 --dry-run
+ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso incision --r 0.5 --test-base 1600 --payload-kg 0.155
 ```
 
 La sesión pide «ACEPTO» y la masa tecleada al empezar. En el paso 1, el nombre de la junta en cada
@@ -105,6 +123,12 @@ registro (`gains_check`). La incisión: 0.35 mm RMS de TCP en el corte, punta a 
 robot, sin robot y en otro dominio (`smc_97401`), arranca con `G` máxima de la base 38.07 sobre la
 incisión, frente a 76.1 en `smc_1610`, y con `gravity_in_command`, `tau_max`, el retardo y el rotor
 intactos.
+
+**Los escalones de la incisión (D31)**, `smc_98967`–`98970`, con las ganancias pedidas comprobadas en
+sus `.params.yaml`: los cuatro limpios, sin crecimiento en ninguna banda (la de 30–40 Hz, ≤ 0.004 N·m)
+y con la punta a 37 mm del tablero. El TCP en la meseta del corte baja con `r`: 1.41, 0.70, 0.48 y
+0.35 mm de RMS (máximo 1.98 mm a r = 0.50). El gemelo no tiene el modo de 35 Hz: esto no dice dónde
+aparecerá en el robot.
 
 Solo prueba que la configuración, las tablas y los indicadores funcionan de principio a fin, y que el
 nodo acepta las ganancias. **No prueba el modo de 33 Hz:** el gemelo no lo tiene, y por eso el paso 1

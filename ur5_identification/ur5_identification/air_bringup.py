@@ -9,7 +9,10 @@ sesión cada uno (`scripts/run_air_bringup_real.py`, `docs/09d_air_bringup_proto
    (`09c_gain_ramp_protocol.md` §8.2). Se barre `shoulder_pan` en una postura con esa inercia y la
    punta lejos del tablero, primero con su r en 0.50 y después en 0.71, y las demás juntas a r = 1.
 2. **La incisión en aire**, a la altura real y con el acople sin hoja: la trayectoria del corte, con
-   la mesa despejada. La punta baja a 37 mm del tablero.
+   la mesa despejada. La punta baja a 37 mm del tablero. **Por escalones** (D31): `smc_1610`, a
+   r = 1, vibró a unos 35 Hz en `shoulder_lift` y el codo, con `shoulder_lift` deslizando, algo que la
+   rampa nunca probó (`09d_air_bringup_protocol.md` §5.2). Una corrida por sesión, con revisión entre
+   escalones.
 
 Aquí solo está lo que no necesita ni ROS ni el robot.
 """
@@ -33,8 +36,21 @@ PAN_STEPS = (0.50, 0.71)
 #: La junta barrida en el paso 1.
 BASE_JOINT = 0
 
-#: `test_num` de la incisión: base + 10. Las del paso 1 son base + 0 y base + 1.
-INCISION_OFFSET = 10
+#: Escalones de `r` de la incisión, los de la rampa (`gain_ramp.RAMP_STEPS`), en todas las juntas
+#: menos `shoulder_pan`, que se queda en `PAN_INCISION_R`.
+INCISION_STEPS = (0.50, 0.71, 0.85, 1.00)
+
+#: `r` de `shoulder_pan` en la incisión: en el paso 1, con 0.71 su modo de 33 Hz quedó como a
+#: r = 0.85 en la rampa (ζ ≈ 0.016), y con 0.50, entre 0.015 y 0.030 (`09d` §5.1).
+PAN_INCISION_R = 0.50
+
+#: `test_num` de la incisión: base + 20 + escalón. Las del paso 1 son base + 0 y base + 1; base + 10
+#: fue `smc_1610`, la que vibró (§5.2), y no se reutiliza.
+INCISION_OFFSET = 20
+
+#: Banda del modo que vibró en `smc_1610` (34.9 y 36.5 Hz) [Hz]: cae entre las dos de la rampa
+#: (20–35 y 40–55 Hz), así que en la incisión se vigila además esta.
+MODE_BAND = (30.0, 40.0)
 
 #: Guarda de seguimiento de la incisión [rad]: 21 mm a 0.7 m de alcance, por debajo de los 37 mm que
 #: quedan entre la punta y el tablero. Es una cota declarada. El mayor error de la rampa fue 0.022 rad,
@@ -73,8 +89,31 @@ def base_runs(test_base: int, steps=PAN_STEPS) -> list:
     return runs
 
 
-def incision_test_num(test_base: int) -> int:
-    return test_base + INCISION_OFFSET
+def incision_r_vector(r: float) -> np.ndarray:
+    """`r` por junta en el escalón `r` de la incisión: `shoulder_pan` no pasa de `PAN_INCISION_R`."""
+    if r not in INCISION_STEPS:
+        raise ValueError(f"r = {r} no es un escalón de la incisión {INCISION_STEPS}")
+    out = np.full(6, float(r))
+    out[BASE_JOINT] = min(PAN_INCISION_R, r)
+    return out
+
+
+def incision_runs(test_base: int, steps=INCISION_STEPS) -> list:
+    """Escalones de la incisión, en orden. `ratio` es el cociente de `r` con el anterior, por
+    junta."""
+    runs = []
+    for i, r in enumerate(steps):
+        rv = incision_r_vector(r)
+        runs.append({"test_num": test_base + INCISION_OFFSET + i, "joint": None, "r": float(r),
+                     "r_joint": rv,
+                     "previous": test_base + INCISION_OFFSET + i - 1 if i else None,
+                     "ratio": rv / incision_r_vector(steps[i - 1]) if i else None})
+    return runs
+
+
+def incision_run(test_base: int, r: float) -> dict:
+    """El escalón `r` de la incisión."""
+    return next(run for run in incision_runs(test_base) if run["r"] == r)
 
 
 def incision_indicators(d: np.ndarray, i: dict) -> dict:
@@ -109,7 +148,8 @@ def check_incision(ind: dict, table_z: float) -> list:
 
 
 def label(r) -> str:
-    """`r` por junta para imprimir: las que no están en 1."""
+    """`r` por junta para imprimir: la mayor, y las que están por debajo."""
     r = np.asarray(r, float)
-    low = [f"{JOINTS[j]} {r[j]:.2f}" for j in range(6) if r[j] < 1.0]
-    return "1.00" + (f" ({', '.join(low)})" if low else "")
+    top = float(r.max())
+    low = [f"{JOINTS[j]} {r[j]:.2f}" for j in range(6) if r[j] < top]
+    return f"{top:.2f}" + (f" ({', '.join(low)})" if low else "")

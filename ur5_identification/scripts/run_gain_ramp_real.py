@@ -59,20 +59,22 @@ def load_gains(path: str) -> dict:
     return next(iter(yaml.safe_load(open(path)).values()))["ros__parameters"]
 
 
-def run_indicators(csv: str, tau_scale: float) -> dict:
-    """Los indicadores de `check_run`, sobre el CSV de una corrida."""
+def run_indicators(csv: str, tau_scale: float, bands=BANDS) -> dict:
+    """Los indicadores de `check_run`, sobre el CSV de una corrida. La incisión añade la banda
+    del modo de `smc_1610` (`air_bringup.MODE_BAND`)."""
     d, i, _ = load(csv)
     t = d[:, i["t_wall"]] - d[0, i["t_wall"]]
     m = t >= SKIP_S
     dt = float(np.median(np.diff(t)))
     n = max(1, int(round(WINDOW_S / dt)))
     top = TAU_MAX_NOMINAL * tau_scale
-    ripple, sat, bands = np.zeros(6), np.zeros(6), {b: np.zeros(6) for b in BANDS}
+    ripple, sat = np.zeros(6), np.zeros(6)
+    bands = {b: np.zeros(6) for b in bands}
     for j in range(6):
         tau, s = d[m, i[f"tau{j + 1}"]], d[m, i[f"tau{j + 1}_sat"]]
         ripple[j] = rolling_mean(np.diff(tau, prepend=tau[0]) ** 2, n).max() ** 0.5 / top[j]
         sat[j] = rolling_mean(s, n).max()
-        for b in BANDS:
+        for b in bands:
             bands[b][j] = band_rms(tau, dt, *b)[0]
     return {"ripple": ripple, "sat": sat, "bands": bands}
 

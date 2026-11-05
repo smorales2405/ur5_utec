@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-B7.1 — el SMC en aire en el UR5e REAL, con las ganancias finales (plan B7.1, D28, D29).
+B7.1 — el SMC en aire en el UR5e REAL, con las ganancias finales (plan B7.1, D28, D29, D31).
 
 Dos pasos, una sesión cada uno (docs/09d_air_bringup_protocol.md):
 
     --paso base       barre shoulder_pan en una postura con la inercia de la incisión, con su r
                       en 0.50 y después en 0.71; las demás juntas, a r = 1
     --paso incision   la incisión en aire, a la altura real, con el acople sin hoja y la mesa
-                      despejada
+                      despejada, por escalones (--r 0.5, 0.71, 0.85, 1): uno por sesión, y
+                      cada uno exige el anterior. shoulder_pan se queda en 0.50
 
 Como la rampa: el script prepara y comprueba, pero cada corrida la confirma el operador
 escribiendo una palabra. Nunca pasa `discrete_check.allow_unstable`: si el chequeo de arranque
@@ -17,7 +18,7 @@ Uso
 ---
     run_air_bringup_real.py --gains-file <candidata> --paso base --dry-run
     run_air_bringup_real.py --gains-file <candidata> --paso base --test-base 1600 --payload-kg 0.155
-    run_air_bringup_real.py --gains-file <candidata> --paso incision --pan-r 0.71 \\
+    run_air_bringup_real.py --gains-file <candidata> --paso incision --r 0.5 \\
         --test-base 1600 --payload-kg 0.155
 """
 
@@ -39,14 +40,18 @@ from run_gain_ramp_real import (BANDS, MOVE_SPEED, POSTURE_TOL, WATCHDOG_SAT_FRA
                                 launch_args, load_gains, run_indicators)
 from ur5_identification.air_bringup import (BASE_JOINT, BASE_TIP,  # noqa: E402
                                             INCISION_MIN_CLEARANCE, INCISION_Q_ERR,
-                                            PAN_STEPS, base_runs, check_incision,
-                                            incision_indicators, incision_test_num, label,
-                                            r_vector)
+                                            INCISION_STEPS, MODE_BAND, base_runs,
+                                            check_incision, incision_indicators,
+                                            incision_runs, label)
 from ur5_identification.campaign_levels import JOINT_NAMES, LEVELS  # noqa: E402
 from ur5_identification.gain_ramp import (RAMP_ACCEL, RAMP_AMPLITUDE, RAMP_SPEED,  # noqa: E402
                                           check_run, over_tested, step_gains)
 from ur5_identification.gravity_sweeps import (MIN_CLEARANCE, TABLE_Z,  # noqa: E402
                                                incision_posture, sweep_min_tip_z)
+
+
+def csv_path(test_num: int) -> str:
+    return os.path.expanduser(f"~/.ros/ur5_dyn_control/smc_{test_num}.csv")
 
 
 def share(name: str) -> str:
@@ -108,14 +113,16 @@ def plan_base(plant, g, rotor, test_base):
     return q, rows, clear, problems
 
 
-def plan_incision(plant, g, rotor, params, pan_r):
+def plan_incision(plant, g, rotor, params, test_base):
+    """Los escalones de la incisión, con K_P, G y margen al empezar el corte."""
     (y, z), z_min = incision_geometry(params)
     q_cut = incision_posture(plant, y, z)
-    row = gains_at(plant, q_cut, g, r_vector(pan_r), rotor)
+    rows = [{**run, **gains_at(plant, q_cut, g, run["r_joint"], rotor)}
+            for run in incision_runs(test_base)]
     clear = z_min - TABLE_Z
     problems = [] if clear >= INCISION_MIN_CLEARANCE else [
         f"la punta baja a {1e3 * clear:.0f} mm del tablero"]
-    return q_cut, row, clear, problems
+    return q_cut, rows, clear, problems
 
 
 def print_row(s, r):
@@ -128,8 +135,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--gains-file", required=True, help="las ganancias candidatas (fila 46)")
     ap.add_argument("--paso", required=True, choices=["base", "incision"])
-    ap.add_argument("--pan-r", type=float, default=None, choices=list(PAN_STEPS),
-                    help="r de shoulder_pan en la incisión; se decide tras el paso base")
+    ap.add_argument("--r", type=float, default=None, choices=list(INCISION_STEPS),
+                    help="escalón de la incisión; uno por sesión, en orden")
     ap.add_argument("--test-base", type=int, default=None)
     ap.add_argument("--payload-kg", type=float, default=None,
                     help="payload configurado en el pendant (el acople pesado)")
@@ -139,8 +146,9 @@ def main(argv=None):
     ap.add_argument("--resume", action="store_true", help="paso base: salta los CSV con datos")
     ap.add_argument("--log-dir", default=os.path.expanduser("~/.ros/air_bringup"))
     args = ap.parse_args(argv)
-    if args.paso == "incision" and args.pan_r is None:
-        print("  --pan-r es obligatorio en la incisión: se decide revisando el paso base.")
+    if args.paso == "incision" and args.r is None:
+        print(f"  --r es obligatorio en la incisión: un escalón de {list(INCISION_STEPS)}, en "
+              "orden, revisando cada uno antes del siguiente.")
         return 1
 
     from ur5_trajectory_optimization.gain_tuning.closed_loop import (Plant, Q_INIT,
@@ -171,17 +179,19 @@ def main(argv=None):
         params_file = share("smc_params.yaml")
         common = next(iter(yaml.safe_load(open(share("incision_common.yaml"))).values()))[
             "ros__parameters"]
-        q_cut, row, clear, problems = plan_incision(plant, g, ROTOR_INERTIA_REAL, common,
-                                                    args.pan_r)
+        q_cut, rows, clear, problems = plan_incision(plant, g, ROTOR_INERTIA_REAL, common, base)
         target = np.array(common["q_init"], float)
         print("  incisión de incision_common.yaml, con el acople SIN hoja y la mesa despejada")
         print(f"  la punta baja a {1e3 * clear:.0f} mm sobre el tablero; guarda de seguimiento "
               f"{INCISION_Q_ERR} rad")
-        print(f"  al empezar el corte, q = {np.round(q_cut, 4).tolist()}:")
-        print_row(row, r_vector(args.pan_r))
-        runs = [{**row, "test_num": incision_test_num(base), "joint": None,
-                 "pan_r": args.pan_r, "r_joint": r_vector(args.pan_r), "previous": None,
-                 "ratio": None}]
+        print(f"  escalones, al empezar el corte (q = {np.round(q_cut, 4).tolist()}):")
+        for s in rows:
+            print_row(s, s["r_joint"])
+        runs = [s for s in rows if s["r"] == args.r]
+        prev = runs[0]["previous"]
+        if prev is not None and not os.path.exists(csv_path(prev)):
+            problems.append(f"antes de r = {args.r} hay que correr y revisar smc_{prev}, el "
+                            "escalón anterior")
     move = path_min_tip_z(plant, np.asarray(Q_INIT, float), target) - TABLE_Z
     print(f"  traslado desde q_init: la punta no baja de {1e3 * move:.0f} mm")
     if move < MIN_CLEARANCE:
@@ -241,7 +251,7 @@ def main(argv=None):
                "payload_kg": args.payload_kg, "tau_scale": args.tau_scale,
                "params_file": params_file, "q": [float(v) for v in target], "runs": []}
     rc = 0
-    csv_of = lambda n: os.path.expanduser(f"~/.ros/ur5_dyn_control/smc_{n}.csv")  # noqa: E731
+    csv_of = csv_path
     try:
         visc, coul = LEVELS["0.0"]
         ok, msg = chk.set_friction(visc, coul)
@@ -295,7 +305,8 @@ def main(argv=None):
                 res = run_one(None, n, params_file, args.tau_scale, args.log_dir,
                               tool_mounted=True, controller="smc", extra_args=extra,
                               trajectory_type="incision")
-            res.update(pan_r=s["pan_r"], r_joint=[float(v) for v in s["r_joint"]])
+            res.update(pan_r=s.get("pan_r"), r=s.get("r"),
+                       r_joint=[float(v) for v in s["r_joint"]])
             ok_rel, msg_rel = chk.release_effort()
             res["effort_released"] = ok_rel
             print(f"    control devuelto al JTC: {'OK' if ok_rel else 'FALLO'} — {msg_rel}")
@@ -310,8 +321,9 @@ def main(argv=None):
                       "SAFE_HOLD o brazo sin detenerse. Revise el log antes de seguir. ***")
                 rc = 1
                 raise SystemExit
-            ind = run_indicators(csv, args.tau_scale)
-            prev = (run_indicators(csv_of(s["previous"]), args.tau_scale)
+            bands = BANDS if args.paso == "base" else (*BANDS, MODE_BAND)
+            ind = run_indicators(csv, args.tau_scale, bands)
+            prev = (run_indicators(csv_of(s["previous"]), args.tau_scale, bands)
                     if s["previous"] and os.path.exists(csv_of(s["previous"])) else None)
             reasons = check_run(ind, prev, s["ratio"] if prev else None)
             print(f"    rizado máx {100 * ind['ripple'].max():.2f} % del tope; saturado "
@@ -319,6 +331,9 @@ def main(argv=None):
                   f"Hz en base/lift/codo {ind['bands'][BANDS[0]][0]:.3f}/"
                   f"{ind['bands'][BANDS[0]][1]:.3f}/{ind['bands'][BANDS[0]][2]:.3f} N·m")
             if args.paso == "incision":
+                mode = ind["bands"][MODE_BAND]
+                print(f"    banda {int(MODE_BAND[0])}-{int(MODE_BAND[1])} Hz (la de smc_1610) en "
+                      f"lift/codo {mode[1]:.3f}/{mode[2]:.3f} N·m")
                 d, i, _ = load(csv)
                 inc = incision_indicators(d, i)
                 res["incision"] = inc

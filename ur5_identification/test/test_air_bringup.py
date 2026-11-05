@@ -14,10 +14,13 @@ sys.path.insert(0, _SCRIPTS)
 
 from ur5_identification.air_bringup import (BASE_JOINT, BASE_TIP,  # noqa: E402
                                             INCISION_MIN_CLEARANCE, INCISION_Q_ERR,
-                                            INCISION_TCP_MAX, PAN_STEPS, base_runs,
+                                            INCISION_STEPS, INCISION_TCP_MAX, MODE_BAND,
+                                            PAN_INCISION_R, PAN_STEPS, base_runs,
                                             check_incision, incision_indicators,
-                                            incision_test_num, label, r_vector)
-from ur5_identification.gain_ramp import step_r  # noqa: E402
+                                            incision_r_vector, incision_run, incision_runs,
+                                            label, r_vector)
+from ur5_identification.gain_ramp import (PRE_FAILURE_BAND, RAMP_STEPS,  # noqa: E402
+                                          check_run, step_r)
 
 _CANDIDATA = os.path.join(_SRC, "ur5_trajectory_optimization", "results", "gain_tuning",
                           "smc_v7_rotor", "candidata_fila46.yaml")
@@ -70,9 +73,40 @@ def test_la_base_sube_de_050_a_071_y_compara_junta_a_junta():
     np.testing.assert_allclose(runs[1]["ratio"], [0.71 / 0.50, 1, 1, 1, 1, 1])
 
 
-def test_la_incision_no_pisa_los_numeros_de_la_base():
-    assert incision_test_num(1600) == 1610
-    assert incision_test_num(1600) not in [r["test_num"] for r in base_runs(1600)]
+def test_la_incision_va_por_escalones_con_la_base_en_050():
+    """D31: tras `smc_1610`, los escalones de la rampa, y `shoulder_pan` donde dejó el paso 1."""
+    assert INCISION_STEPS == RAMP_STEPS and PAN_INCISION_R == PAN_STEPS[0]
+    np.testing.assert_allclose(incision_r_vector(0.50), np.full(6, 0.50))
+    np.testing.assert_allclose(incision_r_vector(0.71), [0.50] + [0.71] * 5)
+    np.testing.assert_allclose(incision_r_vector(1.00), [0.50] + [1.0] * 5)
+    assert label(incision_r_vector(0.71)) == "0.71 (shoulder_pan 0.50)"
+    with pytest.raises(ValueError):
+        incision_r_vector(0.6)
+
+
+def test_la_incision_no_pisa_los_numeros_de_la_base_ni_1610():
+    nums = [r["test_num"] for r in incision_runs(1600)]
+    assert nums == [1620, 1621, 1622, 1623]
+    assert not set(nums) & {r["test_num"] for r in base_runs(1600)} and 1610 not in nums
+
+
+def test_cada_escalon_se_compara_con_el_anterior_junta_a_junta():
+    run = incision_run(1600, 0.71)
+    assert run["previous"] == 1620
+    np.testing.assert_allclose(run["ratio"], [1.0] + [0.71 / 0.50] * 5)
+    assert incision_run(1600, 0.50)["previous"] is None
+
+
+def test_la_banda_del_modo_tambien_mira_el_crecimiento():
+    """La de `smc_1610` (34.9 y 36.5 Hz) cae entre las de la rampa."""
+    assert MODE_BAND[0] < 35.0 < 36.5 < MODE_BAND[1] and MODE_BAND[1] <= 40.0
+    assert not PRE_FAILURE_BAND[0] <= 36.5 <= PRE_FAILURE_BAND[1]
+    quiet = {"ripple": np.full(6, 0.001), "sat": np.zeros(6),
+             "bands": {PRE_FAILURE_BAND: np.full(6, 0.005), MODE_BAND: np.full(6, 0.02)}}
+    grown = {**quiet, "bands": {**quiet["bands"], MODE_BAND: np.array([0.02, 0.10, 0.02, 0.02,
+                                                                       0.02, 0.02])}}
+    reasons = check_run(grown, quiet, incision_run(1600, 0.71)["ratio"])
+    assert len(reasons) == 1 and "shoulder_lift" in reasons[0] and "30-40" in reasons[0]
 
 
 # ── la postura del paso 1 ───────────────────────────────────────────────────
@@ -122,13 +156,16 @@ def test_la_incision_deja_holgura_y_la_guarda_salta_antes_del_tablero():
     assert y == pytest.approx(0.70)              # empieza el corte lejos de la base
 
 
-def test_la_incision_cumple_g6_y_g7_con_d28():
+def test_los_escalones_de_la_incision_cumplen_g6_y_g7():
     from run_air_bringup_real import plan_incision
     from ur5_trajectory_optimization.gain_tuning.problem import ROTOR_INERTIA_REAL
-    _, row, _, problems = plan_incision(_plant(), _gains(), ROTOR_INERTIA_REAL, _common(),
-                                        PAN_STEPS[-1])
+    _, rows, _, problems = plan_incision(_plant(), _gains(), ROTOR_INERTIA_REAL, _common(), 1600)
     assert problems == []
-    assert row["g"].max() <= 120.0 and row["margin"] >= 2.0
+    assert [s["r"] for s in rows] == list(INCISION_STEPS)
+    for s in rows:
+        assert s["g"].max() <= 120.0 and s["margin"] >= 2.0
+    g_base = [s["g"][0] for s in rows]
+    assert max(g_base) == pytest.approx(min(g_base), rel=0.01), "la base no sube"
 
 
 def _incision_csv(err_z=0.0, z_offset=0.0):
@@ -203,17 +240,38 @@ def test_ensayo_en_seco_de_la_base(capsys):
     assert "ros2 launch" not in out and "allow_unstable" not in out
 
 
-def test_ensayo_en_seco_de_la_incision(capsys):
+@pytest.fixture
+def _no_runs(tmp_path, monkeypatch):
+    """Las corridas hechas se miran en un directorio vacío, no en ~/.ros."""
+    import run_air_bringup_real
+    monkeypatch.setattr(run_air_bringup_real, "csv_path",
+                        lambda n: str(tmp_path / f"smc_{n}.csv"))
+    return tmp_path
+
+
+def test_ensayo_en_seco_de_la_incision(capsys, _no_runs):
     from run_air_bringup_real import main
     _plant()
-    assert main(["--gains-file", _CANDIDATA, "--paso", "incision", "--pan-r", "0.71",
+    assert main(["--gains-file", _CANDIDATA, "--paso", "incision", "--r", "0.5",
                  "--test-base", "1600", "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "smc_1610" in out and "37 mm" in out
+    assert "smc_1620" in out and "37 mm" in out and "r = 0.71 (shoulder_pan 0.50)" in out
     assert "ros2 launch" not in out
 
 
-def test_la_incision_pide_decidir_la_base(capsys):
+def test_un_escalon_exige_el_anterior(capsys, _no_runs):
+    from run_air_bringup_real import main
+    _plant()
+    args = ["--gains-file", _CANDIDATA, "--paso", "incision", "--r", "0.71", "--test-base",
+            "1600", "--dry-run"]
+    assert main(args) == 1
+    assert "smc_1620" in capsys.readouterr().out
+    (_no_runs / "smc_1620.csv").write_text("t_wall\n")
+    assert main(args) == 0
+    assert "smc_1621" in capsys.readouterr().out
+
+
+def test_la_incision_pide_el_escalon(capsys):
     from run_air_bringup_real import main
     assert main(["--gains-file", _CANDIDATA, "--paso", "incision", "--dry-run"]) == 1
-    assert "--pan-r" in capsys.readouterr().out
+    assert "--r" in capsys.readouterr().out
