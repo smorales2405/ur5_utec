@@ -270,6 +270,16 @@ pendant solo dicen que `wrist_1` no frenó a tiempo tras el paro.
 Tests: `test_torque_gates.py`. Con el launch real, sin robot y contra un driver falso, el comando
 del paro sale con `NO ARRANCA` y el driver falso no recibe ninguna orden.
 
+### 5.2 `smc_1610` (2026-11-05): la incisión en aire vibró a 35 Hz, con las ganancias equivocadas
+
+En B7.1, la incisión en aire vibró al empezar a bajar, con una oscilación de unos 35 Hz en
+`shoulder_lift` y el codo, y la guarda de vibración la paró a los 3.35 s. El robot quedó quieto,
+sostenido por el JTC. Corrió con la candidata a r = 1 en lugar de las ganancias pedidas: en las
+configuraciones de incisión, las sobrescrituras del launch perdían ante la sección con nombre del
+gains_file. Detalle, causa y arreglo en `09d_air_bringup_protocol.md` §5.2 (plan D30).
+
+**Regla que deja:** cada ensayo y cada corrida se revisan con sus `.params.yaml`, no con lo que se pidió.
+
 ---
 
 ## 6. Lo que falta medir: el umbral de `D`

@@ -1,7 +1,9 @@
 # Protocolo — B7.1: el SMC en aire en el UR5e real, con las ganancias finales
 
-**Estado:** paso 1 hecho y limpio (§5.1): el modo de 33 Hz depende de la `G`, y la incisión va con
-`shoulder_pan` en 0.50. Paso 2 sin ejecutar. Plan: B7.1, D28 y D29 de
+**Estado:** paso 1 hecho y limpio (§5.1): el modo de 33 Hz depende de la `G`, y la incisión iba con
+`shoulder_pan` en 0.50. **El paso 2 (`smc_1610`) vibró a unos 35 Hz y lo paró la guarda, y corrió con
+las ganancias equivocadas** (§5.2). El error de configuración está corregido (D30); falta decidir
+cómo repetir la incisión. Plan: B7.1, D28 y D29 de
 `Journal_UR5eControl_plan.md`. Código: `ur5_identification/air_bringup.py` y
 `scripts/run_air_bringup_real.py`.
 
@@ -90,7 +92,19 @@ ganancias que la sesión:
 | `smc_98961` | base, `shoulder_pan` 0.50 | limpia, sin saturación |
 | `smc_98962` | base, `shoulder_pan` 0.71 | limpia, sin saturación |
 | `smc_98963` | incisión en aire, `shoulder_pan` 0.71 | limpia; TCP 0.35 mm RMS en el corte, 0.51 mm máx.; punta a 37 mm del tablero; error articular ≤ 2.5 mrad |
-| `smc_98964` | incisión en aire, `shoulder_pan` 0.50 | igual que `98963`: `shoulder_pan` no se mueve |
+| `smc_98964` | incisión en aire, `shoulder_pan` 0.50 | igual que `98963` |
+
+**Corrección (2026-11-05):** `smc_98963` y `98964` corrieron las dos con la candidata a r = 1 también
+en `shoulder_pan`, no con 0.71 y 0.50 (§5.2). Salieron iguales por eso, no porque `shoulder_pan` no se
+mueva, como escribí. No comprobé sus ganancias efectivas, como sí había hecho en los ensayos de la
+rampa.
+
+**Con el arreglo (D30)**, `smc_98965` (incisión, `shoulder_pan` 0.50) y `smc_98966` (base, 0.50)
+corrieron con las ganancias pedidas, comprobadas en sus `.params.yaml`, y el nodo lo confirma en su
+registro (`gains_check`). La incisión: 0.35 mm RMS de TCP en el corte, punta a 37 mm. Y el launch del
+robot, sin robot y en otro dominio (`smc_97401`), arranca con `G` máxima de la base 38.07 sobre la
+incisión, frente a 76.1 en `smc_1610`, y con `gravity_in_command`, `tau_max`, el retardo y el rotor
+intactos.
 
 Solo prueba que la configuración, las tablas y los indicadores funcionan de principio a fin, y que el
 nodo acepta las ganancias. **No prueba el modo de 33 Hz:** el gemelo no lo tiene, y por eso el paso 1
@@ -122,6 +136,44 @@ nodo ×3.55; el robot siguió en `NORMAL`.
 - **La fricción de la base depende de la postura:** 7.99 N·m a 0.05 rad/s aquí, frente a 7.62 en la
   postura de la rampa, y 11.2 a 0.2 rad/s. A 0.2 rad/s supera a `K` en 1.6 N·m y el error crece toda la
   meseta (0.031 rad con 0.50). No es inestabilidad, y en la incisión la base no se mueve.
+
+## 5.2 `smc_1610` (2026-11-05): vibración a 35 Hz en la incisión, con las ganancias equivocadas
+
+**Qué pasó.** Con `--pan-r 0.5`, al empezar a bajar se oyó una vibración y el robot se detuvo. A 1.75 s
+de la trayectoria, en la aproximación, con `shoulder_lift` y `wrist_1` moviéndose a unos 0.17 rad/s,
+empezó a crecer una oscilación de 34.9 y 36.5 Hz: 14.7 N·m en `shoulder_lift`, 6.9 en el codo y 1.1 en
+`shoulder_pan`. Se multiplicó por 2–3 cada 0.25 s (ζ ≈ −0.02) hasta saturar `shoulder_lift`, y la guarda
+de vibración (12 % de ciclos saturados) dio `SAFE_HOLD` a los 3.35 s. La sesión devolvió el control al
+JTC: el robot quedó quieto (deriva 3.5e-5 rad), sostenido por el controlador de trayectoria, en
+`NORMAL` y sin paro de protección. El F/T no registró contacto.
+
+**Ganancias equivocadas.** El nodo corrió la candidata a r = 1 en las seis juntas: `shoulder_pan` con
+λ = 17.727 y `G` máxima de 76.1 sobre la incisión, no con 8.863 y 38.1. Las sobrescrituras del launch
+(`lambda_joint`, `phi_joint`) no llegaron:
+
+- launch_ros escribe los diccionarios de parámetros como `/**` si el nodo no tiene espacio de nombres;
+- rclcpp aplica las secciones en el orden en que aparece cada nombre de nodo por primera vez, y dentro
+  de una sección gana el fichero posterior;
+- en la incisión, el primer fichero (`incision_common.yaml`) abre `/**`, y la sección con nombre del
+  gains_file se aplica después: pisa las sobrescrituras. En los barridos, el primer fichero
+  (`gain_ramp_params.yaml`) ya tiene nombre y el orden se invierte.
+
+Las doce corridas de la rampa y las dos del paso 1 tuvieron exactamente las ganancias pedidas
+(comprobado sobre sus `.params.yaml`); de las del robot, solo `smc_1610` no. En el repositorio, solo la
+rampa y B7.1 combinan gains_file con sobrescrituras de ganancias. El test que comprobaba el arranque de
+los escalones de la rampa (`test_discrete_check.py`) pasaba las ganancias por `-p`, que siempre gana, y
+no lo vio.
+
+**Causa de la vibración: probable, no separada.** El modo de unos 35 Hz de `smc_712`, ahora con
+`shoulder_lift` deslizando a `G` cercana a 120 (máximo de la incisión, 119.8) y el codo a 71. La rampa
+nunca movió `shoulder_lift`, y este protocolo lo declaraba (§7 de `09c`). La `G` de 76 en
+`shoulder_pan`, por el error, puede haber contribuido; esta corrida no lo separa.
+
+**Arreglo (D30).** Los launches escriben las sobrescrituras en un último fichero, con los mismos valores
+en `/**`, `<nodo>` y `/<nodo>`: ganan sea cual sea el orden. Y el nodo SMC compara las ganancias que se
+le sobrescriben (`gains_check.lambda`, `gains_check.phi_joint`) con las efectivas, y si no coinciden no
+arranca, antes de comandar par. Tests: `test_param_precedence.py`, que reproduce la causa con nodos de
+verdad.
 
 ## 6. Qué devolver
 

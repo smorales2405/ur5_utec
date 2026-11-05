@@ -57,8 +57,8 @@ operador, que es justo lo que se quiere.
 import os
 import sys as _sys
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from param_layers import (incision_layers, session_arguments,  # noqa: E402
-                          session_overrides)
+from param_layers import (incision_layers, override_file,  # noqa: E402
+                          session_arguments, session_overrides, with_gain_checks)
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -251,16 +251,20 @@ def launch_setup(context, *args, **kwargs):
     print("  Paro de emergencia a mano. Nadie dentro del espacio de trabajo.")
     print("=" * 72 + "\n")
 
+    # Las sobrescrituras van en un ultimo fichero, en todas las secciones que aplican al
+    # nodo: como diccionarios, launch_ros las escribia en `/**` y, en la incision, el
+    # gains_file con nombre las pisaba (smc_1610, 2026-11-05; launch/param_layers.py). El
+    # nodo SMC comprueba ademas que las ganancias sobrescritas son las que le llegaron.
+    overrides = {**real, **optional, **session_overrides(context)}
+    if controller == "smc":
+        overrides = with_gain_checks(overrides)
     actions = [Node(
         package="ur5_dyn_control",
         executable=EXECUTABLES[controller],
-        # Con nombre: los overrides de abajo se escriben como `/<nodo>:` y no como
-        # `/**:`, y ganan a los YAML (rclcpp da prioridad a la seccion con nombre
-        # sobre las comodin). Sin el, se ignoraban en silencio (2026-10-27).
         name=EXECUTABLES[controller],
         output="screen",
         emulate_tty=True,
-        parameters=params + [real, optional, session_overrides(context)],
+        parameters=params + [override_file(EXECUTABLES[controller], overrides)],
     )]
     if deadman:
         actions.append(Node(

@@ -165,6 +165,9 @@ if(BUILD_TESTING)
   # smc_1405: lo que se comprueba antes de pasar a par, y SAFE_HOLD.
   ament_add_pytest_test(test_torque_gates test/test_torque_gates.py
     TIMEOUT 300)
+  # smc_1610: las ganancias que pide la sesion son las que corre el nodo.
+  ament_add_pytest_test(test_param_precedence test/test_param_precedence.py
+    TIMEOUT 300)
   # B0.4: dinamica del nodo (C++) frente a la del evaluador offline (Python).
   add_executable(dump_dynamics test/dump_dynamics.cpp)
   target_link_libraries(dump_dynamics ${PROJECT_NAME}_core)

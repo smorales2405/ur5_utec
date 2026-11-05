@@ -21,6 +21,7 @@ Si alguien arranca el nodo sin el común (p. ej. `ros2 run` con un solo
 
 import math
 import os
+import tempfile
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
@@ -29,6 +30,57 @@ from launch.substitutions import LaunchConfiguration
 
 #: Bloque común de la incisión, en `config/` del paquete instalado.
 COMMON_FILE = "incision_common.yaml"
+
+#: Ganancias que el launch puede sobrescribir y que el nodo SMC comprueba al arrancar
+#: (`gains_check.*`, gz_smc_control_node.cpp): {parámetro: clave de la comprobación}.
+CHECKED_GAINS = {"lambda": "gains_check.lambda", "phi_joint": "gains_check.phi_joint"}
+
+
+def override_file(node_name: str, params: dict) -> str:
+    """YAML temporal con `params`, para pasarlo el ÚLTIMO en `Node(parameters=...)`.
+
+    `smc_1610` (2026-11-05) corrió con las ganancias de la candidata en vez de las pedidas.
+    rclcpp aplica las secciones en el orden en que aparece cada nombre de nodo por primera vez
+    entre todos los ficheros, y dentro de una sección gana el fichero posterior. launch_ros
+    escribe los diccionarios como `/**` si el nodo no tiene espacio de nombres. Con
+    `incision_common.yaml` (`/**`) delante, la sección con nombre del gains_file iba después y
+    pisaba las sobrescrituras; en los barridos el primer fichero ya tiene nombre y no pasaba.
+
+    Aquí los mismos valores van en las tres secciones que pueden aplicar al nodo (`/**`,
+    `<nodo>` y `/<nodo>`), en el último fichero: ganan sea cual sea el orden de las anteriores.
+    """
+    # Una copia por sección: con el mismo objeto, yaml escribe alias (`&id001`) y rcl no los
+    # admite («Will not support aliasing»).
+    doc = {key: {"ros__parameters": {k: _plain(v) for k, v in params.items()}}
+           for key in ("/**", node_name, "/" + node_name)}
+    with tempfile.NamedTemporaryFile("w", prefix="ur5_overrides_", suffix=".yaml",
+                                     delete=False) as fh:
+        yaml.safe_dump(doc, fh, default_flow_style=None, sort_keys=False)
+        return fh.name
+
+
+def launch_values(context, *names) -> dict:
+    """Argumentos de launch como parámetros, con el tipo que les daría launch_ros (YAML)."""
+    return {name: yaml.safe_load(LaunchConfiguration(name).perform(context)) for name in names}
+
+
+def with_gain_checks(overrides: dict) -> dict:
+    """`overrides` más `gains_check.*` con las mismas ganancias: el nodo SMC comprueba que son
+    las que le llegaron, y si no, no arranca (`smc_1610`)."""
+    out = dict(overrides)
+    for key, check in CHECKED_GAINS.items():
+        if key in overrides:
+            out[check] = list(overrides[key])
+    return out
+
+
+def _plain(value):
+    """Lo que `yaml.safe_dump` acepta y ROS 2 lee con su tipo: sin numpy ni tuplas."""
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if hasattr(value, "item"):
+        return value.item()
+    return value
 
 
 def common_file() -> str:

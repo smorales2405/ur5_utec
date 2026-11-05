@@ -37,7 +37,9 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "ur5_dyn_control/smc_law.hpp"
 #include "ur5_dyn_control/torque_control_node_base.hpp"
@@ -98,6 +100,35 @@ public:
         phi_[i] = phi_joint[static_cast<size_t>(i)];
       }
     }
+    // smc_1610 (2026-11-05): la sesion pidio unas ganancias y el nodo corrio otras, porque
+    // el gains_file con nombre piso las sobrescrituras del launch (launch/param_layers.py).
+    // Los launches pasan aqui las que sobrescriben; si no son las efectivas, el nodo no
+    // arranca, antes de comandar nada. Vacio = sin comprobacion.
+    auto check_gains = [this](const std::string & name, const Vector6d & effective) {
+        const auto want = declare_parameter<std::vector<double>>(
+          "gains_check." + name, std::vector<double>{});
+        if (want.empty()) {return;}
+        if (want.size() != 6) {
+          throw std::runtime_error("gains_check." + name + " debe tener 6 valores");
+        }
+        bool same = true;
+        for (int i = 0; i < 6; ++i) {
+          const double w = want[static_cast<size_t>(i)];
+          same = same && std::abs(effective[i] - w) <= 1e-6 * std::max(1.0, std::abs(w));
+        }
+        if (!same) {
+          std::ostringstream msg;
+          msg << "NO ARRANCA: `" << name << "` efectiva [";
+          for (int i = 0; i < 6; ++i) {msg << (i ? " " : "") << effective[i];}
+          msg << "] no es la pedida [";
+          for (int i = 0; i < 6; ++i) {msg << (i ? " " : "") << want[static_cast<size_t>(i)];}
+          msg << "]: otro fichero de parametros la piso. No se ha comandado par.";
+          throw std::runtime_error(msg.str());
+        }
+        RCLCPP_INFO(get_logger(), "gains_check: `%s` efectiva = pedida", name.c_str());
+      };
+    check_gains("lambda", lambda_);
+    check_gains("phi_joint", phi_);
     // α ∈ (0,1]: fracción de los términos nominales que se asume incierta.
     // El plan barre 0.1 / 0.3 / 0.5 / 1.0 como estudio de sensibilidad.
     alpha_ = declare_parameter<double>("alpha", 0.3);

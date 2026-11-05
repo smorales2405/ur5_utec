@@ -180,6 +180,13 @@ niega a arrancar una incisión sin él. Con `ros2 run`, dos `--params-file`, el
 común primero. `test_incision_common.py` arranca los tres nodos en `dry_run` y
 compara sus tablas byte a byte.
 
+Las sobrescrituras de los launches (`lambda_joint`, `phi_joint`, `tau_scale`, ...) van en
+un último fichero, con los mismos valores en `/**`, `<nodo>` y `/<nodo>`
+(`param_layers.override_file`). Como diccionarios, launch_ros las escribía en `/**`, y en
+la incisión la sección con nombre del gains_file las pisaba (`smc_1610`, plan D30). El
+nodo SMC compara las ganancias sobrescritas con las efectivas (`gains_check.*`) y, si no
+coinciden, no arranca.
+
 Cada corrida deja, junto a `<prefijo>_<n>.csv`, **`<prefijo>_<n>.params.yaml`**
 con todos los parámetros efectivos, recargable con `--params-file` para
 repetirla. La cabecera del CSV lleva `git_sha` y `git_dirty` (regenerados en
@@ -390,6 +397,11 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   driver falso: fuera de postura no se pasa a par, con compensación G4 se pone a cero y se
   confirma antes del cambio, y `SAFE_HOLD` no compensa fricción y queda en el CSV.
 
+- `test_param_precedence.py` — `smc_1610` (`docs/09d_air_bringup_protocol.md` §5.2): con
+  nodos de verdad, una sobrescritura en diccionario pierde en la incisión y gana en el
+  barrido; el fichero de sobrescrituras gana en los dos; si las ganancias no son las
+  pedidas, el nodo no arranca. Y los launches del SMC escriben y comprueban las ganancias.
+
 - `test_gain_ramp.py` (`ur5_identification`) — escalones, geometría y criterios de
   parada de la rampa (`docs/09c_gain_ramp_protocol.md`), también sobre `smc_712`–`717`
   si están los CSV. La sesión nunca fuerza el chequeo de arranque. `r` por junta (D28):
@@ -399,8 +411,8 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   la postura de la base tiene la inercia del corte y cumple g6, g7 y la holgura; la guarda
   de la incisión salta antes de llegar al tablero; la confirmación va antes de lanzar.
 
-Total en `colcon test-result` (2026-11-05): **174** en `ur5_dyn_control`,
-179 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **408**, todos
+Total en `colcon test-result` (2026-11-05): **184** en `ur5_dyn_control`,
+179 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **418**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)

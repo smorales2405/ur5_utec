@@ -22,8 +22,8 @@ import os
 import sys as _sys
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from world_defaults import default_world  # noqa: E402
-from param_layers import (incision_layers, session_arguments,  # noqa: E402
-                          session_overrides)
+from param_layers import (incision_layers, launch_values,  # noqa: E402
+                          override_file, session_arguments, session_overrides)
 from launch import LaunchDescription
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
@@ -92,18 +92,15 @@ def launch_setup(context, *args, **kwargs):
     node = Node(
         package="ur5_dyn_control",
         executable="gz_lqr_sdre_control_node",
-        # Con nombre: los overrides de abajo se escriben como `/<nodo>:` y no como
-        # `/**:`, y ganan a los YAML (rclcpp da prioridad a la seccion con nombre
-        # sobre las comodin). Sin el, se ignoraban en silencio (2026-10-27).
         name="gz_lqr_sdre_control_node",
         output="screen",
         parameters=params + [
-            {
-                "test_num": LaunchConfiguration("test_num"),
-                "t_sim": LaunchConfiguration("t_sim"),
-            },
-            overrides,
-            session_overrides(context),   # B0.5: material, carril, ...
+            # Las sobrescrituras, en un ultimo fichero y en todas las secciones del
+            # nodo: como diccionarios iban a `/**` y el gains_file con nombre las
+            # pisaba en la incision (smc_1610, launch/param_layers.py).
+            override_file("gz_lqr_sdre_control_node",
+                {**launch_values(context, "test_num", "t_sim"),
+                 **overrides, **session_overrides(context)}),
         ],
     )
 
