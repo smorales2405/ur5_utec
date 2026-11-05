@@ -1,6 +1,7 @@
 # Protocolo — B7.1: el SMC en aire en el UR5e real, con las ganancias finales
 
-**Estado:** preparado y ensayado en Gazebo (§5), sin ejecutar en el robot. Plan: B7.1, D28 y D29 de
+**Estado:** paso 1 hecho y limpio (§5.1): el modo de 33 Hz depende de la `G`, y la incisión va con
+`shoulder_pan` en 0.50. Paso 2 sin ejecutar. Plan: B7.1, D28 y D29 de
 `Journal_UR5eControl_plan.md`. Código: `ur5_identification/air_bringup.py` y
 `scripts/run_air_bringup_real.py`.
 
@@ -95,6 +96,32 @@ Solo prueba que la configuración, las tablas y los indicadores funcionan de pri
 nodo acepta las ganancias. **No prueba el modo de 33 Hz:** el gemelo no lo tiene, y por eso el paso 1
 se hace en el robot. Tampoco el error de TCP del robot: el gemelo tiene 1 ciclo de retardo y no tiene
 rotor.
+
+## 5.1 Resultado del paso 1 (2026-11-05, `af08746`)
+
+`smc_1600` y `smc_1601`: completas, sin guardas, sin saturación y sin motivos de parada; margen del
+nodo ×3.55; el robot siguió en `NORMAL`.
+
+| | `smc_1600` (base 0.50) | `smc_1601` (base 0.71) |
+|---|---|---|
+| `G` de la base en reposo | 36.8 | 52.2 |
+| rizado máx. / banda 20–35 Hz de la base | 0.25 % / 0.024 N·m | 0.27 % / 0.039 N·m |
+| ζ del modo, ajuste a la PSD | 0.030 ± 0.003 (POS 0.062, NEG 0.017) | **0.016 ± 0.001** |
+| ζ del modo, autocorrelación | 0.015–0.018 | 0.012–0.020 |
+| altura del pico sobre el suelo | ×56 | ×116 |
+| error máx. de la base (meseta de 0.2 rad/s) | 0.031 rad | 0.022 rad |
+
+- **El modo depende de la `G`, no de la `G` frente a la inercia.** Con la `G` relativa de `smc_1510`
+  (14.9 frente a 15.4), `smc_1601` sale como `smc_1520` (ζ 0.014) y con el doble de pico. La pregunta de
+  §1 queda contestada: con 0.71, la base del corte tendría el modo como a r = 0.85 en la rampa.
+- **Incluso con 0.50 queda poco amortiguado aquí:** 0.015–0.030, frente a 0.025–0.044 en la rampa con
+  una `G` algo menor (31.4). La postura extendida no parece ayudar.
+- **Por la regla de §2** (ζ ≥ 0.025 en `smc_1601`), la incisión va con `shoulder_pan` en **0.50**. En la
+  incisión esa junta no se mueve y su fricción la sujeta, así que el modo apenas se excita; importa en
+  cualquier tarea en la que `shoulder_pan` deslice.
+- **La fricción de la base depende de la postura:** 7.99 N·m a 0.05 rad/s aquí, frente a 7.62 en la
+  postura de la rampa, y 11.2 a 0.2 rad/s. A 0.2 rad/s supera a `K` en 1.6 N·m y el error crece toda la
+  meseta (0.031 rad con 0.50). No es inestabilidad, y en la incisión la base no se mueve.
 
 ## 6. Qué devolver
 
