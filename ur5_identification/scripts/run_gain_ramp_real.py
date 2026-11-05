@@ -3,8 +3,9 @@
 Rampa de ganancias del SMC en el UR5e REAL, escalón por escalón (plan V16, D25).
 
 Sube desde r = 0.50, por debajo de lo probado limpio en las seis juntas, hasta las ganancias
-candidatas (r = 1), barriendo ±0.20 rad una junta cada vez con las demás sostenidas. Si una
-corrida no está limpia, para la sesión. Protocolo: docs/09c_gain_ramp_protocol.md.
+candidatas (r = 1), barriendo ±0.20 rad una junta cada vez con las demás sostenidas. En el
+último escalón, `shoulder_pan` se queda en 0.71 (D28). Si una corrida no está limpia, para la
+sesión. Protocolo: docs/09c_gain_ramp_protocol.md.
 
 Igual que B4.4, el script prepara y comprueba, pero **cada corrida la confirma el operador
 escribiendo el nombre de la junta**, y **cada escalón nuevo escribiendo SUBIR**.
@@ -37,7 +38,7 @@ from ur5_identification.campaign_levels import JOINT_NAMES, LEVELS  # noqa: E402
 from ur5_identification.gain_ramp import (PRE_FAILURE_BAND, RAMP_ACCEL,  # noqa: E402
                                           RAMP_AMPLITUDE, RAMP_JOINTS, RAMP_SPEED, RAMP_STEPS,
                                           RAMP_TIP, TESTED_CLEAN_KP, check_run, over_tested,
-                                          plan_runs, step_gains)
+                                          plan_runs, step_gains, step_label, step_r)
 from ur5_identification.gravity_sweeps import (MIN_CLEARANCE, TABLE_Z,  # noqa: E402
                                                incision_posture, sweep_min_tip_z)
 
@@ -96,8 +97,9 @@ def step_table(plant, q, g: dict, rotor) -> list:
     from ur5_trajectory_optimization.gain_tuning.closed_loop import (SmcLaw, mimo_gain_margin,
                                                                      smc_loop_gains)
     rows, z = [], np.zeros(6)
-    for r in RAMP_STEPS:
-        lam, phi = step_gains(g["lambda"], g["phi_joint"], r)
+    for i, r in enumerate(RAMP_STEPS):
+        r_joint = step_r(i)
+        lam, phi = step_gains(g["lambda"], g["phi_joint"], r_joint)
         law = SmcLaw(lam=lam, eta=g["eta"], phi=phi, alpha=g["alpha"], use_sat=True,
                      alpha_g=g["alpha_g"])
         M, KP, KD = smc_loop_gains(law, plant.model, plant.data, q, z, z)
@@ -113,8 +115,8 @@ def step_table(plant, q, g: dict, rotor) -> list:
                     M, KP, KD = smc_loop_gains(law, plant.model, plant.data, qs, dq, ddq)
                     gmax = np.maximum(gmax, np.diag(KD))
                     margin = min(margin, mimo_gain_margin(M + np.diag(rotor), KP, KD, 0.002, 5))
-        rows.append({"r": r, "lam": lam, "phi": phi, "kp": kp, "g": gmax, "margin": margin,
-                     "margin_urdf": urdf})
+        rows.append({"r": r, "r_joint": r_joint, "label": step_label(i), "lam": lam,
+                     "phi": phi, "kp": kp, "g": gmax, "margin": margin, "margin_urdf": urdf})
     return rows
 
 
@@ -174,15 +176,15 @@ def main(argv=None):
     print("\n  K_P [N·m/rad] en la postura; G [N·m/(rad/s)] y margen (5 ciclos) en los barridos.")
     print(f"  probado limpio: K_P {np.round(TESTED_CLEAN_KP, 1).tolist()}")
     for s in table:
-        print(f"  r = {s['r']:.2f}  K_P {np.round(s['kp'], 1).tolist()}  G max "
+        print(f"  r = {s['label']}  K_P {np.round(s['kp'], 1).tolist()}  G max "
               f"{s['g'].max():.1f}  margen x{s['margin']:.2f}; sin rotor, en la postura, "
               f"x{s['margin_urdf']:.2f}")
         over = over_tested(s["kp"])
         print(f"            por encima de lo probado: {', '.join(over) or 'ninguna'}")
         if s["margin"] < 2.0:
-            problems.append(f"r = {s['r']:.2f}: margen x{s['margin']:.2f} por debajo de x2")
+            problems.append(f"r = {s['label']}: margen x{s['margin']:.2f} por debajo de x2")
         if s["g"].max() > 120.0:
-            problems.append(f"r = {s['r']:.2f}: G = {s['g'].max():.1f} por encima de 120")
+            problems.append(f"r = {s['label']}: G = {s['g'].max():.1f} por encima de 120")
     for msg in problems:
         print(f"  !! {msg}")
     if problems:
@@ -193,7 +195,8 @@ def main(argv=None):
     runs = plan_runs(base)
     print(f"\n  {len(runs)} corridas (test = base + 10·escalón + junta):")
     for run in runs:
-        print(f"    smc_{run['test_num']}: r = {run['r']:.2f} · {JOINT_NAMES[run['joint']]}")
+        print(f"    smc_{run['test_num']}: r = {table[run['step']]['label']} · "
+              f"{JOINT_NAMES[run['joint']]}")
     # Aquí se imprimía el comando de la primera corrida, y lanzarlo a mano acabó en un
     # paro de emergencia (smc_1405): solo la sesión lleva el robot a la postura.
     print("\n  Las corridas las lanza la sesión, una a una. No se lanzan a mano.")
@@ -262,7 +265,7 @@ def main(argv=None):
                 raise SystemExit
             if run["step"] != step:
                 step = run["step"]
-                print(f"\n{'=' * 78}\n  ESCALÓN r = {s['r']:.2f}: K_P "
+                print(f"\n{'=' * 78}\n  ESCALÓN r = {s['label']}: K_P "
                       f"{np.round(s['kp'], 1).tolist()}\n  margen x{s['margin']:.2f}; por "
                       f"encima de lo probado: {', '.join(over_tested(s['kp'])) or 'ninguna'}"
                       f"\n{'=' * 78}")
@@ -275,7 +278,7 @@ def main(argv=None):
             if not good:
                 rc = 1
                 raise SystemExit
-            print(f"\n  [r = {s['r']:.2f} · {JOINT_NAMES[j]} · test {n}]\n    Va a mover "
+            print(f"\n  [r = {s['label']} · {JOINT_NAMES[j]} · test {n}]\n    Va a mover "
                   f"{JOINT_NAMES[j]} ±{RAMP_AMPLITUDE} rad, con par.")
             if not confirm(JOINT_NAMES[j]):
                 print("    Parada por el operador.")
@@ -283,7 +286,8 @@ def main(argv=None):
             res = run_one(j, n, args.params_file, args.tau_scale, args.log_dir,
                           tool_mounted=True, controller="smc",
                           extra_args=launch_args(q, args.gains_file, s["lam"], s["phi"]))
-            res.update(r=s["r"], step=run["step"])
+            res.update(r=float(s["r"]), r_joint=[float(v) for v in s["r_joint"]],
+                       step=run["step"])
             ok_rel, msg_rel = chk.release_effort()
             res["effort_released"] = ok_rel
             print(f"    control devuelto al JTC: {'OK' if ok_rel else 'FALLO'} — {msg_rel}")

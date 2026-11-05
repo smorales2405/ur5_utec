@@ -9,6 +9,9 @@ Un escalón multiplica `λ` por `r` y divide `φ` por `r`, con `η` fija:
 
     K/φ -> r K/φ     G = M λ + K/φ -> r G     K_P = (K/φ) λ -> r² K_P
 
+`r` puede ser distinta en cada junta (`step_r`): en el último escalón, `shoulder_pan` se queda en
+0.71 (D28).
+
 Aquí solo está lo que no necesita ni ROS ni el robot: los escalones, el orden de las
 corridas y los criterios de parada. La sesión está en `scripts/run_gain_ramp_real.py`.
 """
@@ -20,6 +23,13 @@ import numpy as np
 #: Escalones de `r`. Con 0.50 todas las juntas quedan por debajo de lo probado limpio; en
 #: `K_P`, los cuatro son ×0.25, ×0.50, ×0.72 y ×1.
 RAMP_STEPS = (0.50, 0.71, 0.85, 1.00)
+
+#: Juntas cuya `r` no es la del escalón (D28): {escalón: {junta: r}}. Solo pueden bajarla.
+#: `shoulder_pan` no pasa de 0.71. En `smc_1500`, `1510` y `1520` (r = 0.50, 0.71 y 0.85), su
+#: modo de 33 Hz pasó de ζ ≈ 0.044 a 0.030 y a 0.014, y la tendencia lo lleva a cero cerca de
+#: r = 1 (`docs/09c_gain_ramp_protocol.md` §8.2). En la incisión no se mueve.
+#: Los tres primeros escalones ya se corrieron con `r` igual en todas: no se tocan.
+STEP_R_OVERRIDES = {3: {0: 0.71}}
 
 #: Orden dentro de un escalón: de la junta que menos par mueve a la que más.
 #: `wrist_1` y `shoulder_pan` superan lo probado, y `wrist_1` se mueve en la incisión. El codo
@@ -75,26 +85,48 @@ AMPLITUDE_FLOOR = 0.02
 JOINTS = ("shoulder_pan", "shoulder_lift", "elbow", "wrist_1", "wrist_2", "wrist_3")
 
 
-def step_gains(lam, phi, r: float) -> tuple:
-    """(λ, φ) del escalón `r`; `η` no cambia."""
-    if not 0.0 < r <= 1.0:
+def step_gains(lam, phi, r) -> tuple:
+    """(λ, φ) del escalón `r`, un número o uno por junta; `η` no cambia."""
+    r_arr = np.asarray(r, float)
+    if not np.all((r_arr > 0.0) & (r_arr <= 1.0)):
         raise ValueError(f"r debe estar en (0, 1], se dio {r}")
-    return np.asarray(lam, float) * r, np.asarray(phi, float) / r
+    return np.asarray(lam, float) * r_arr, np.asarray(phi, float) / r_arr
 
 
-def plan_runs(test_base: int, steps=RAMP_STEPS, joints=RAMP_JOINTS) -> list:
+def step_r(step: int, steps=RAMP_STEPS, overrides=None) -> np.ndarray:
+    """`r` de cada junta en el escalón `step`: la del escalón, salvo las que bajan (D28)."""
+    overrides = STEP_R_OVERRIDES if overrides is None else overrides
+    r = np.full(6, float(steps[step]))
+    for j, value in overrides.get(step, {}).items():
+        if not 0.0 < value <= r[j]:
+            raise ValueError(f"escalón {step}: r = {value} en {JOINTS[j]} no baja de "
+                             f"{r[j]:.2f}")
+        r[j] = value
+    return r
+
+
+def step_label(step: int, steps=RAMP_STEPS, overrides=None) -> str:
+    """`r` del escalón para imprimir, con las juntas que se quedan por debajo."""
+    r = step_r(step, steps, overrides)
+    low = [f"{JOINTS[j]} {r[j]:.2f}" for j in range(6) if r[j] < steps[step]]
+    return f"{steps[step]:.2f}" + (f" ({', '.join(low)})" if low else "")
+
+
+def plan_runs(test_base: int, steps=RAMP_STEPS, joints=RAMP_JOINTS, overrides=None) -> list:
     """Corridas en orden. `test_num` = base + 10·escalón + junta, como en B4.4.
 
     `previous` es el `test_num` de la misma junta en el escalón anterior, con el que se
-    compara el crecimiento, y `ratio` el cociente de `r` entre los dos.
+    compara el crecimiento, y `ratio` el cociente de `r` entre los dos, junta a junta.
     """
     runs = []
     for i, r in enumerate(steps):
+        r_now = step_r(i, steps, overrides)
+        r_before = step_r(i - 1, steps, overrides) if i else None
         for j in joints:
-            runs.append({"step": i, "r": float(r), "joint": int(j),
+            runs.append({"step": i, "r": float(r), "r_joint": r_now, "joint": int(j),
                          "test_num": test_base + 10 * i + int(j),
                          "previous": test_base + 10 * (i - 1) + int(j) if i else None,
-                         "ratio": float(r / steps[i - 1]) if i else None})
+                         "ratio": r_now / r_before if i else None})
     return runs
 
 
@@ -103,13 +135,12 @@ def over_tested(kp) -> list:
     return [JOINTS[j] for j in range(6) if float(np.asarray(kp)[j]) > TESTED_CLEAN_KP[j]]
 
 
-def check_run(indicators: dict, previous: dict | None = None,
-              ratio: float | None = None) -> list:
+def check_run(indicators: dict, previous: dict | None = None, ratio=None) -> list:
     """Motivos para parar la rampa, vacío si la corrida está limpia.
 
     `indicators` lleva `ripple` y `sat` (fracciones, 6 valores) y `bands`:
     {(f1, f2): 6 amplitudes en N·m}. `previous` son los de la misma junta en el escalón
-    anterior, y `ratio` el cociente de `r`.
+    anterior, y `ratio` el cociente de `r`: un número o uno por junta.
     """
     reasons = []
     ripple, sat = np.asarray(indicators["ripple"]), np.asarray(indicators["sat"])
@@ -132,12 +163,13 @@ def check_run(indicators: dict, previous: dict | None = None,
         return reasons
     if ratio is None:
         raise ValueError("con `previous` hace falta `ratio`")
+    ratio = np.broadcast_to(np.asarray(ratio, float), (6,))
     for band, amps in bands.items():
         before = np.asarray(previous["bands"][band])
         for j in range(6):
             a = float(np.asarray(amps)[j])
-            if a > AMPLITUDE_FLOOR and a > GROWTH_MAX * ratio * float(before[j]):
+            if a > AMPLITUDE_FLOOR and a > GROWTH_MAX * ratio[j] * float(before[j]):
                 reasons.append(f"{JOINTS[j]}: banda de {band[0]:.0f}-{band[1]:.0f} Hz de "
-                               f"{float(before[j]):.3f} a {a:.3f} N·m con r ×{ratio:.2f}: "
+                               f"{float(before[j]):.3f} a {a:.3f} N·m con r ×{ratio[j]:.2f}: "
                                f"más del doble de lo esperado por ruido")
     return reasons

@@ -1,6 +1,8 @@
 # Protocolo — rampa de ganancias del SMC en el UR5e real
 
-**Estado:** en curso, sin ningún escalón completo. El comando de la primera corrida, lanzado a mano
+**Estado:** r = 0.50, 0.71 y 0.85 completos y limpios. Falta el último escalón: r = 1 con
+`shoulder_pan` en 0.71 (D28, §8.3), porque su modo de 33 Hz pierde amortiguamiento con la ganancia
+(§8.2). El comando de la primera corrida, lanzado a mano
 el 2026-11-05 (`smc_1405`), acabó en paro de emergencia antes de ejecutar la ley
 (`09_real_bringup.md` §5.1): **las corridas se lanzan solo con la sesión.** Con la sesión,
 `smc_1505` (`wrist_3`, r = 0.50) paró por seguimiento, sin rastro de vibración, y `wrist_2` y
@@ -18,7 +20,8 @@ modo flexible ni fricción. Se llega a ella por escalones, moviendo la junta: en
 ## 1. Qué hace
 
 Cada escalón multiplica `λ` por `r` y divide `φ` por `r`, con `η` fija: `G` escala con `r` y `K_P`
-con `r²`. Son 12 corridas: 4 escalones × 3 juntas barridas, una cada vez, con las demás sostenidas.
+con `r²`. `r` puede ser distinta en cada junta: en el último escalón, `shoulder_pan` se queda en 0.71
+(D28). Son 12 corridas: 4 escalones × 3 juntas barridas, una cada vez, con las demás sostenidas.
 
 | `r` | `K_P` en la postura [N·m/rad] | `G` máx. en los barridos | margen (5 ciclos, con rotor) | por encima de lo probado |
 |---|---|---|---|---|
@@ -26,7 +29,10 @@ con `r²`. Son 12 corridas: 4 escalones × 3 juntas barridas, una cada vez, con 
 | 0.50 | 132, 273, 282, 26, 5.6, 0.4 | 59.7 | ×7.64 | ninguna |
 | 0.71 | 266, 549, 569, 52, 11.2, 0.7 | 84.7 | ×5.20 | `shoulder_pan`, `wrist_1` |
 | 0.85 | 382, 788, 815, 75, 16.1, 1.1 | 101.4 | ×4.24 | `shoulder_pan`, `wrist_1`, `wrist_3` |
-| 1.00 | 528, 1090, 1129, 104, 22.3, 1.5 | 119.3 | ×3.51 | `shoulder_pan`, `wrist_1`, `wrist_2`, `wrist_3` |
+| 1.00, `shoulder_pan` en 0.71 | 266, 1090, 1129, 104, 22.3, 1.5 | 119.3 | ×3.51 | `shoulder_pan`, `wrist_1`, `wrist_2`, `wrist_3` |
+
+El último escalón iba a ser r = 1 en las seis juntas, con un `K_P` de 528 en `shoulder_pan`. Bajarla
+a 0.71 no cambia el margen ni la `G` máxima, porque los limitan `shoulder_lift` y el codo.
 
 - **Juntas barridas, en este orden:** `wrist_1`, codo, `shoulder_pan`. El codo no supera lo probado,
   pero arrancó el ciclo de `smc_712` y domina el modo que limita el margen en el modelo rígido (unos
@@ -115,7 +121,7 @@ La sesión se para sola, y no sube, en cualquiera de estos casos:
 | rizado de τ sobre el tope, en cualquier junta | > 5 % | `718`, el limpio más alto: 2.34 %. Fallo de `712`: 69 % |
 | ciclos saturados, en cualquier junta | > 10 % | limpias: 0. Fallo de `712`: 91 % |
 | banda de 20–35 Hz en `shoulder_lift` y codo | ≥ 85 % de lo de `712` antes de irse (0.089 y 0.081 N·m) | limpias: hasta el 73 % |
-| crecimiento de una banda entre escalones | > 2 veces lo esperado por ruido (∝ `r`), si supera 0.02 N·m | `713`–`717` no lo disparan. **Es una cota declarada, no medida** |
+| crecimiento de una banda entre escalones | > 2 veces lo esperado por ruido (∝ `r` de cada junta), si supera 0.02 N·m | `713`–`717` no lo disparan. **Es una cota declarada, no medida** |
 
 Si se para, no se repite el escalón ni se sube: revisar la corrida antes. Los criterios se han
 pasado por `smc_713`–`717` (no paran) y por `smc_712` (para).
@@ -125,6 +131,13 @@ pasado por `smc_713`–`717` (no paran) y por `smc_712` (para).
 En el gemelo, a r = 0.50 y r = 1, con la fricción real en la planta (`smc_98931`, `98932`, `98941`–
 `98944`: `wrist_1`, codo, `shoulder_pan`): las seis acaban sin disparar ninguna guarda, sin saturación
 y con un error ≤ 0.0136 rad.
+
+**Último escalón de D28**, r = 1 con `shoulder_pan` en 0.71 (`smc_98951`, `98954` y `98953`:
+`wrist_1`, codo y `shoulder_pan`): las tres acaban sin guardas ni saturación, con las ganancias del
+escalón y un error ≤ 0.0068 rad. `smc_98952` no llegó a ejecutar la ley: el gemelo arrancó con el
+spawner cambiando aún de controlador, el cambio falló («not inactive») y el nodo terminó. No tiene que
+ver con las ganancias, y en el robot el controlador lo cambia la sesión, no un spawner. El gemelo no
+tiene el modo de 33 Hz: este ensayo no dice nada de él.
 
 **El gemelo reproduce `smc_1505`:** barriendo `wrist_3` a r = 0.50 (`smc_98945`), la guarda salta con
 −0.30 rad en la misma meseta, a los 28.7 s de `TRACK` (en el robot, a los 28.4 s). `wrist_3` no se
@@ -161,3 +174,106 @@ La salida de `--dry-run` y de la sesión, el registro (`~/.ros/gain_ramp/session
 - Que `G ≤ 120` baste en la combinación de las tres juntas grandes: solo se prueba con una de ellas
   en movimiento cada vez.
 - `wrist_2` y `wrist_3` en movimiento con estas ganancias (§1.1).
+
+## 8. Resultados
+
+Corridas del 2026-11-05 con `b3df2f6`: ninguna guarda, ningún ciclo saturado y ningún motivo de
+parada. El error y la banda de 20–35 Hz son los de la junta barrida.
+
+| r | corrida | junta | margen | rizado máx. | banda 20–35 Hz [N·m] | error máx. [rad] |
+|---|---|---|---|---|---|---|
+| 0.50 | `smc_1503` | `wrist_1` | ×7.91 | 0.29 % | 0.0020 | 0.0135 |
+| 0.50 | `smc_1502` | codo | ×7.66 | 0.25 % | 0.0117 | 0.0093 |
+| 0.50 | `smc_1500` | `shoulder_pan` | ×7.89 | 0.24 % | 0.0195 | 0.0136 |
+| 0.71 | `smc_1513` | `wrist_1` | ×5.41 | 0.30 % | 0.0023 | 0.0091 |
+| 0.71 | `smc_1512` | codo | ×5.22 | 0.28 % | 0.0173 | 0.0090 |
+| 0.71 | `smc_1510` | `shoulder_pan` | ×5.40 | 0.25 % | 0.0385 | 0.0051 |
+| 0.85 | `smc_1523` | `wrist_1` | ×4.42 | 0.30 % | 0.0021 | 0.0061 |
+| 0.85 | `smc_1522` | codo | ×4.25 | 0.55 % | 0.0267 | 0.0036 |
+| 0.85 | `smc_1520` | `shoulder_pan` | ×4.42 | 0.28 % | 0.0326 | 0.0072 |
+
+`shoulder_lift` y el codo quedan en el 14 % y el 21 % de sus niveles previos al fallo de `smc_712` a
+r = 0.71, y en el 19 % y el 33 % a r = 0.85. De r = 0.71 a 0.85, la banda del codo crece ×1.54, para
+×1.20 de `r`; el criterio permite ×2.39. El robot siguió en `NORMAL` en todas las corridas, y el
+usuario no oyó ningún zumbido en `smc_1510` ni en `smc_1520`.
+
+### 8.1 `K` llega a su techo a 0.2 rad/s
+
+`K` no cambia entre escalones, y a 0.2 rad/s la fricción real supera a la del modelo. La mejora
+de seguimiento con `r` deja de cumplirse en la junta que toca el techo.
+
+- **`shoulder_pan`, `smc_1500`:** par de 10.83 N·m (corriente × `k`: 10.82), frente a 9.58 del modelo
+  y 10.04 de la campaña de agosto. El déficit de 1.25 N·m superó a `K` ≈ 1.2: el 75 % de la meseta
+  quedó fuera de la capa límite, a 0.195 rad/s, con el error creciendo 0.0045 rad/s.
+- **`shoulder_pan`, `smc_1510`:** el par bajó a 10.71 N·m, el déficit quedó justo por debajo de `K` y
+  el error bajó a 0.0051 rad. La causa de esa bajada no está separada; el frío (`02_friction_real.md`
+  §8.5) solo explica parte de la diferencia con agosto. En `smc_1520` volvió a 10.84 N·m y a quedar
+  fuera de la capa, con 0.0072 rad.
+- **Codo:** a +0.2 rad/s pasó del 93 % del techo (`smc_1502`) a estar fuera de la capa toda la meseta
+  (`smc_1512`, 2.74 N·m sobre la compensación, 0.0090 rad), y volvió a quedar dentro en `smc_1522`
+  (1.98 N·m, 0.0036 rad). Su par en esa meseta varió 0.8 N·m entre corridas, encima de un desfase de
+  unos +1.2 N·m.
+
+La fricción a 0.2 rad/s cambia de una corrida a otra lo bastante para que la junta cruce el techo.
+
+No es inestabilidad: la guarda tardaría más de un minuto en saltar y la meseta dura 1.4 s. En la
+incisión, `shoulder_pan` no se mueve y el codo no pasa de 0.071 rad/s. `shoulder_lift` llega a
+0.19 rad/s: tiene casi el triple de `η`, pero con esta ley no se ha barrido.
+
+### 8.2 Modo de 33 Hz en `shoulder_pan`: pierde amortiguamiento con la ganancia
+
+En la meseta de 0.05 rad/s, con la ley dentro de la capa en los tres escalones, `q̇` de
+`shoulder_pan` tiene un pico estrecho en 33 Hz que no depende de la velocidad. Su envolvente es
+aleatoria (coeficiente de variación 0.39–0.69; un tono puro daría mucho menos): es ruido filtrado por
+un modo. Su amortiguamiento baja a cada escalón:
+
+| r | `G` en la postura | ζ, ajuste a la PSD | ζ, decaimiento de la autocorrelación | altura sobre el suelo |
+|---|---|---|---|---|
+| 0.50 | 31.4 | 0.044 ± 0.005 | 0.025–0.033 | ×26 |
+| 0.71 | 44.6 | 0.030 ± 0.004 | 0.020–0.022 | ×32 |
+| 0.85 | 53.4 | 0.014 ± 0.002 | 0.011–0.021 | ×40 |
+
+- **Extrapolación lineal:** ζ llega a cero entre `G` ≈ 61 y 80, y r = 1 da `G` = 62.8. Es una
+  extrapolación de tres puntos; los dos métodos coinciden en la tendencia, no en el valor.
+- **Resolución:** con ζ = 0.014, el ancho a −3 dB (0.9 Hz) está cerca de la resolución de la PSD
+  (0.5 Hz), así que ese valor puede ser optimista.
+- **Modelo:** el modelo rígido con 5 ciclos de retardo da |L| de 0.05 a 0.11 a 33 Hz entre r = 0.5 y 1.
+  El modo es de la planta, y ni el evaluador ni el chequeo de arranque lo tienen: su ×4.42 a r = 0.85
+  no dice nada de él.
+- **Codo:** su contenido de 22–29 Hz crece algo más que `G`, pero ni el ajuste ni la autocorrelación
+  dan un amortiguamiento interpretable, porque lleva una línea de unos 25.5 Hz a toda velocidad. No
+  hay tendencia medida, ni a favor ni en contra.
+
+**El tono del giro cae encima de ese modo.** A 0.2 rad/s hay una línea de 10 veces el giro del motor
+(31.4, 32.0 y 31.7 Hz, según la velocidad de cada corrida; en `cur_950`, 16.1, 32.1 y 56.3 Hz a 0.1,
+0.2 y 0.35 rad/s), suponiendo una reducción 1:101. Su par no creció a r = 0.85 (0.16–0.22 N·m, frente
+a 0.21–0.31) porque la ley volvió a quedar fuera de la capa en esa meseta. Su amplitud en `q̇` sigue
+más a la frecuencia, más cerca o más lejos del modo, que a la ganancia: la cuenta de margen que hice
+con ella a r = 0.71 (×1.4 a ×2.6) no sirve.
+
+**Hipótesis sin comprobar:** el ciclo de unos 35 Hz de `smc_712`, con `G` mucho mayores, podría ser
+este modo.
+
+### 8.3 Antes de r = 1
+
+Con `shoulder_pan` a r = 1, el modo de 33 Hz quedaría con un amortiguamiento casi nulo, y las guardas
+solo lo verían cuando ya estuviera saturando. `shoulder_pan` no se mueve en la incisión.
+
+**Decidido por el usuario (D28):** en el último escalón, `shoulder_pan` se queda en r = 0.71, donde
+ζ ≈ 0.03 (`smc_1510`); `wrist_1` y el codo llegan a r = 1. Se barren las tres, también
+`shoulder_pan`, porque las ganancias de las otras juntas entran en su fila de `K_D`: `smc_1530` dirá
+si su modo sigue como en `smc_1510`.
+
+- **Código:** `STEP_R_OVERRIDES` y `step_r` en `gain_ramp.py`; el crecimiento se compara con la `r` de
+  cada junta. Los tres primeros escalones no cambian. Corridas: `smc_1533`, `1532` y `1530`, con
+  `--resume`.
+- **Descartado:** parar en r = 0.85, que deja `shoulder_pan` con ζ ≈ 0.01–0.02.
+- **Pendiente:** recalcular en el evaluador el error de TCP de la candidata con `shoulder_pan` en 0.71.
+  El del artículo se calculó con r = 1.
+
+### 8.4 Final normal de una corrida
+
+El nodo deja de publicar al acabar `HOLD_END`, y el vigilante de comandos devuelve el control al JTC a
+unos 100 ms con `[ERROR] DEADMAN`. Por eso `release_effort` encuentra el cambio hecho y el
+`controller_manager` da avisos «not inactive». No es un fallo: la deriva posterior no pasa de
+5.8e-5 rad en las nueve corridas.

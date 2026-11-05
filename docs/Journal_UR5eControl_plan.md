@@ -1,6 +1,9 @@
 # Plan actualizado — Incisión con UR5e por par: LQR-SDRE vs SMC optimizado
 
-- **Fecha:** 2026-11-05 · **Revisión 13** — paro de emergencia en `smc_1405`, antes de ejecutar la
+- **Fecha:** 2026-11-05 · **Revisión 14** — la rampa pasa limpia en el robot r = 0.50, 0.71 y 0.85,
+  pero el modo de 33 Hz de `shoulder_pan` pierde amortiguamiento con la ganancia y llegaría a cero
+  cerca de r = 1: en el último escalón se queda en r = 0.71 (D28, `09c_gain_ramp_protocol.md` §8).
+  Rev. 13: paro de emergencia en `smc_1405`, antes de ejecutar la
   ley: la guarda de la postura actuaba ya con el par activo y `SAFE_HOLD` compensaba la fricción con
   la velocidad medida. Corregido y probado sin robot (D26, `09_real_bringup.md` §5.1). En la primera
   corrida de la rampa (`smc_1505`), `wrist_3` no siguió el barrido, sin rastro de vibración:
@@ -69,6 +72,7 @@ con el **Computed Torque (CT)** como línea base natural.
 | D20 | Pinocchio 4.1 (actualizado desde 3.1 hace unos meses) se **retiene** | Hecho: `apt-mark hold` de `robotpkg-{,py310-}pinocchio` 4.1.0 y de lo que lleva compilado dentro, `robotpkg-{,py310-}coal` 3.0.4, `robotpkg-py310-eigenpy` 3.13.0, `robotpkg-{,py310-}casadi` 3.7.2. Para actualizar: `sudo apt-mark unhold <paquete>` y re-verificar (test cruzado de B0.4) |
 | D21 | Muestras aún sin comprar: el usuario las conseguirá según las **dimensiones recomendadas** | §3.5 (h) |
 | D22 | **Trabajo futuro**, tras el corte recto: corte **curvo** con la hoja tangente a la trayectoria | B10 |
+| D28 | **(2026-11-05) En el último escalón de la rampa, `shoulder_pan` se queda en r = 0.71** | Elegido por el usuario tras r = 0.85. En la meseta de 0.05 rad/s, el modo de 33 Hz de `shoulder_pan` pasó de ζ ≈ 0.044 a 0.030 y a 0.014, con `G` de 31, 45 y 53. La tendencia lo lleva a cero cerca de r = 1 (`G` = 63). Ni el evaluador ni el chequeo de arranque lo tienen: su margen, ×3.51, no cambia, porque lo limitan `shoulder_lift` y el codo. `shoulder_pan` no se mueve en la incisión; `wrist_1` y el codo llegan a r = 1 (`09c_gain_ramp_protocol.md` §8.2–8.3). **Pendiente:** el error de TCP de la candidata con `shoulder_pan` en 0.71 en el evaluador, y comprobar si el ciclo de unos 35 Hz de `smc_712` era este modo |
 | D27 | **(2026-11-05) La rampa no barre `wrist_2` ni `wrist_3`** | Aceptado por el usuario tras `smc_1505`. La ley casi no puede con ellas (`K` = 0.06 y 0.003 N·m, frente a `F_c` = 1.96 y 2.35 N·m): barrerlas prueba la compensación de fricción, no la ley. Quedan `wrist_1`, codo y `shoulder_pan`, 12 corridas (`09c_gain_ramp_protocol.md` §1.1). A r = 1 superan lo probado, y eso solo se ve con la junta quieta. Para el análisis: en el robot las sujeta sobre todo la fricción, que el evaluador no tiene |
 | D26 | **(2026-11-05) Antes de pasar a par se comprueban la postura y G4, y `SAFE_HOLD` no compensa fricción** | Tras el paro de `smc_1405` (`09_real_bringup.md` §5.1). Aceptado por el usuario. Fuera de postura, o sin confirmar G4 = 0 con la compensación activa, el nodo sale con el JTC sosteniendo el robot. `SAFE_HOLD` escribe en el CSV. `--dry-run` no imprime un comando lanzable. La causa física es probable, no medida: `SAFE_HOLD` no registraba nada |
 | D25 | **(2026-11-03) La inercia de los rotores se mide en el robot antes de usarla** | Opción A del usuario frente a V16: prueba corta por posición (B4.6, `09b_inertia_protocol.md`), después inercia medida en la planta del evaluador y en `g7`, re-sintonía y rampa de `wrist_1` por escalones antes de cualquier incisión. Tocar el chequeo de arranque del nodo necesita visto bueno aparte: es una protección de seguridad. Descartado relajar `g4` con el URDF: el error (≥ 17 mm) supera la profundidad de corte (5 mm). **Tras medir (2026-11-03), confirmado por el usuario:** en planta y `g7` entra el extremo bajo del rango medido, porque menos inercia da menos margen; la ley se queda con la M del URDF, porque poner el rotor también en ella obliga a bajar λ con `G ≤ 120` (estático: 0.7 frente a 1.5 mm en la punta). **(2026-11-04)** El usuario eligió la fila 46 de `smc_v7_rotor` y confirmó que el chequeo de arranque del real sume el rotor medido y bloquee por debajo de ×2 (antes, por debajo de ×1 con la M del URDF). **Aplicado:** `discrete_check.rotor_inertia` y `discrete_check.margin_min`, los fija `ur5e_real.launch.py`; por defecto son neutros, para Gazebo. El chequeo acepta ganancias que antes rechazaba, y descansa en un modelo rígido que no ve el modo flexible: lo que cubre ese hueco son `G ≤ 120`, las guardas y la rampa, que nunca usa `allow_unstable` |
@@ -641,7 +645,8 @@ ley sigue con la M del URDF. 80 de 80 puntos factibles (`smc_v6_d5`: 0 de 80), c
 - El evaluador no tiene modo flexible ni fricción, y sus mm no son una predicción del robot.
 - ε-restricción no convergió (0 de 12): no hay certificado KKT.
 
-El usuario eligió la fila 46 (`candidata_fila46.yaml`). Queda por decidir con qué criterio se presenta
+El usuario eligió la fila 46 (`candidata_fila46.yaml`). En el robot, `shoulder_pan` se queda en
+r = 0.71: su modo de 33 Hz pierde amortiguamiento con la ganancia (D28). Queda por decidir con qué criterio se presenta
 en el artículo. En el modelo rígido, el modo que limita su margen es de unos 19 Hz y lo domina el
 codo, no `wrist_1`: por eso la rampa (`09c_gain_ramp_protocol.md`) también barre el codo.
 

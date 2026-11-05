@@ -18,7 +18,8 @@ from ur5_identification.gain_ramp import (AMPLITUDE_FLOOR, PRE_FAILURE_BAND,  # 
                                           RAMP_AMPLITUDE, RAMP_JOINTS, RAMP_SPEED, RAMP_STEPS,
                                           RAMP_TIP,
                                           RIPPLE_MAX, SAT_MAX, TESTED_CLEAN_KP, check_run,
-                                          over_tested, plan_runs, step_gains)
+                                          over_tested, plan_runs, step_gains, step_label,
+                                          step_r)
 
 _RESULTS = os.path.join(_SRC, "ur5_trajectory_optimization", "results", "gain_tuning")
 _V7 = os.path.join(_RESULTS, "smc_v7_rotor")
@@ -70,6 +71,34 @@ def test_r_fuera_de_rango_se_rechaza(r):
 def test_la_rampa_acaba_en_la_candidata_y_solo_sube():
     assert RAMP_STEPS[-1] == 1.0
     assert list(RAMP_STEPS) == sorted(set(RAMP_STEPS))
+    for i in range(1, len(RAMP_STEPS)):
+        down = [j for j in range(6) if step_r(i)[j] < step_r(i - 1)[j]]
+        assert down == ([0] if i == len(RAMP_STEPS) - 1 else []), "solo baja pan, al final"
+
+
+def test_r_por_junta_escala_cada_junta():
+    lam, phi = step_gains([1.0, 2.0], [0.1, 0.2], [0.5, 1.0])
+    np.testing.assert_allclose(lam, [0.5, 2.0])
+    np.testing.assert_allclose(phi, [0.2, 0.2])
+
+
+def test_los_escalones_ya_corridos_no_cambian():
+    """`smc_1500`–`1523` se corrieron con la misma `r` en las seis juntas."""
+    for i in range(3):
+        np.testing.assert_allclose(step_r(i), RAMP_STEPS[i])
+        assert step_label(i) == f"{RAMP_STEPS[i]:.2f}"
+
+
+def test_shoulder_pan_se_queda_en_071_en_el_ultimo_escalon():
+    """D28: su modo de 33 Hz pierde amortiguamiento con `G` (`09c` §8.2)."""
+    np.testing.assert_allclose(step_r(len(RAMP_STEPS) - 1), [0.71, 1.0, 1.0, 1.0, 1.0, 1.0])
+    assert step_label(len(RAMP_STEPS) - 1) == "1.00 (shoulder_pan 0.71)"
+
+
+@pytest.mark.parametrize("value", [0.0, 0.9])
+def test_un_tope_solo_puede_bajar_r(value):
+    with pytest.raises(ValueError):
+        step_r(0, overrides={0: {0: value}})
 
 
 def test_kp_escala_con_r_cuadrado_y_g_con_r():
@@ -108,6 +137,8 @@ def test_la_postura_y_los_escalones_cumplen_lo_prometido():
     table = step_table(plant, incision_posture(plant, *RAMP_TIP), _gains(), ROTOR_INERTIA_REAL)
     assert over_tested(table[0]["kp"]) == []
     assert set(over_tested(table[-1]["kp"])) == {"shoulder_pan", "wrist_1", "wrist_2", "wrist_3"}
+    # shoulder_pan acaba con el K_P de r = 0.71, el de smc_1510
+    assert table[-1]["kp"][0] == pytest.approx(table[1]["kp"][0], rel=1e-6)
     margins = [s["margin"] for s in table]
     assert margins == sorted(margins, reverse=True)
     assert margins[-1] >= 2.0
@@ -129,7 +160,21 @@ def test_numeros_unicos_y_comparan_con_la_misma_junta():
         else:
             prev = by_num[r["previous"]]
             assert prev["joint"] == r["joint"] and prev["step"] == r["step"] - 1
-            assert r["ratio"] == pytest.approx(r["r"] / prev["r"])
+            np.testing.assert_allclose(r["ratio"], r["r_joint"] / prev["r_joint"])
+
+
+def test_el_crecimiento_se_mide_junta_a_junta():
+    """En la corrida de shoulder_pan del último escalón, su r baja de 0.85 a 0.71 y la del
+    resto sube a 1: su banda no puede crecer como la de las demás."""
+    run = [r for r in plan_runs(1500) if r["step"] == 3 and r["joint"] == 0][0]
+    assert run["test_num"] == 1530 and run["previous"] == 1520
+    np.testing.assert_allclose(run["ratio"], [0.71 / 0.85] + [1.0 / 0.85] * 5)
+    prev, ind = _quiet(), _quiet()
+    prev["bands"][PRE_FAILURE_BAND][0] = 0.0326
+    ind["bands"][PRE_FAILURE_BAND][0] = 0.0326 * 2.0 * (1.0 / 0.85) * 0.99
+    reasons = check_run(ind, prev, run["ratio"])
+    assert len(reasons) == 1 and "shoulder_pan" in reasons[0]
+    assert check_run(ind, prev, 1.0 / 0.85) == []
 
 
 def test_se_barren_wrist_1_el_codo_y_shoulder_pan():
@@ -317,7 +362,8 @@ def test_ensayo_en_seco_no_pide_nada(capsys):
     params = os.path.join(_CONFIG, "gain_ramp_params.yaml")
     assert main(["--gains-file", _CANDIDATA, "--params-file", params, "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "12 corridas" in out and "r = 1.00" in out and "allow_unstable" not in out
+    assert "12 corridas" in out and "r = 1.00 (shoulder_pan 0.71)" in out
+    assert "allow_unstable" not in out
     assert "ros2 launch" not in out, "lanzarlo a mano fue el paro de smc_1405"
 
 

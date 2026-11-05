@@ -392,10 +392,12 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
 
 - `test_gain_ramp.py` (`ur5_identification`) — escalones, geometría y criterios de
   parada de la rampa (`docs/09c_gain_ramp_protocol.md`), también sobre `smc_712`–`717`
-  si están los CSV. La sesión nunca fuerza el chequeo de arranque.
+  si están los CSV. La sesión nunca fuerza el chequeo de arranque. `r` por junta (D28):
+  los escalones ya corridos no cambian, `shoulder_pan` acaba en 0.71 y el crecimiento se
+  compara junta a junta.
 
 Total en `colcon test-result` (2026-11-05): **174** en `ur5_dyn_control`,
-154 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **383**, todos
+160 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **389**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)

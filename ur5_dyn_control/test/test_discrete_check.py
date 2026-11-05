@@ -158,7 +158,7 @@ def test_los_escalones_de_la_rampa_pasan_el_chequeo(tmp_path, step):
     closed_loop = pytest.importorskip("ur5_trajectory_optimization.gain_tuning.closed_loop")
     sweeps = pytest.importorskip("ur5_identification.gravity_sweeps")
     g = next(iter(yaml.safe_load(open(_CANDIDATA)).values()))["ros__parameters"]
-    lam, phi = ramp.step_gains(g["lambda"], g["phi_joint"], ramp.RAMP_STEPS[step])
+    lam, phi = ramp.step_gains(g["lambda"], g["phi_joint"], ramp.step_r(step))
     q = sweeps.incision_posture(closed_loop.Plant(closed_loop.default_urdf()), *ramp.RAMP_TIP)
     rc, log = _start(tmp_path, "gz_smc_control_node", ["gain_ramp_params.yaml", _CANDIDATA],
                      48 + step, extra=[("lambda", _list(lam)), ("phi_joint", _list(phi)),
