@@ -9,7 +9,9 @@ TCP y un modo de 31.6 Hz casi sin amortiguar mientras `shoulder_lift` desliza (�
 (D32), y la incisión se repite con ella desde r = 0.50, como `smc_1630`–`1633`. Con la fricción en tabla (D33) y
 `wrist_1` a r = 1 (D34), `smc_1650` fue la primera incisión limpia (§5.6); por encima de r = 0.50 la sesión no corre
 (D35). **A `shoulder_lift` le faltaba fricción a la velocidad del corte: medida con su carga (`cur_1660`, D36), su fila
-de la tabla cambia (D37, §5.7), y la incisión se repite como `smc_1670`.** Plan: B7.1, D28 y D29 de
+de la tabla cambia (D37, §5.7), y la incisión se repite como `smc_1670`.** En `smc_1670` el tramo estable del corte
+baja de 2 mm de RMS por primera vez (1.98), pero lift se quedó pegada al invertirse al empezar el corte y el TCP llegó a
+6 mm (§5.8). Plan: B7.1, D28 y D29 de
 `Journal_UR5eControl_plan.md`. Código: `ur5_identification/air_bringup.py` y
 `scripts/run_air_bringup_real.py`.
 
@@ -408,6 +410,31 @@ en el gemelo es un error a propósito porque no compensa de más), 98975 baja el
 
 Por bandas, sin la parte de menos de 0.5 Hz del error de lift (sobre todo, el arranque frente al tramo estable) el TCP
 quedaría en 1.79 mm; sin la de 0.5–3 Hz (el rizado), en 2.23.
+
+## 5.8 Con la fila de lift a la carga del corte (`smc_1670`, 2026-11-09, `8777d04`, D37)
+
+Parámetros efectivos verificados: frente a `smc_1650`, solo cambia la tabla. Guardas, saturación y las bandas, limpias
+(30–40 Hz en lift/codo: 0.037/0.015 N·m). **La sesión la da por no limpia: TCP máximo 6.06 mm, por encima de 5.**
+
+| | `smc_1650` | `smc_1670` |
+|---|---|---|
+| TCP en el corte, RMS / máx. [mm] | 2.34 / 4.21 | 2.82 / 6.05 |
+| desde 2 s (tramo estable) | 2.23 / 4.21 | **1.98 / 3.19** |
+| los 2 primeros s (arranque) | 2.91 / 3.65 | 5.51 / 6.05 |
+| error de lift en el corte, medio ± desv. [mrad] | +1.02 ± 2.27 | −0.18 ± 3.21 |
+
+- **En el tramo estable, la tabla hace lo que se esperaba, y algo más:** el RMS baja de 2.23 a 1.98 mm, y el error de
+  lift baja en casi todos los segundos (p. ej., +3.19 → +2.24 mrad a 4 s y +1.49 → +0.19 a 10 s).
+- **El arranque empeoró, y no por la tabla.** Al final del descenso lift sube a 0.006 rad/s, para y se invierte para
+  empezar el corte. En `smc_1670` se quedó pegada unos 2.5 s, de −1 a +1.5 s (q̇ ≈ 0 con q̇_des = +0.006 y luego
+  −0.009), con hasta −7.9 mrad de error. En `smc_1650` siguió moviéndose (0.003–0.005 rad/s) con −3 a −4 mrad.
+  En `smc_1670` recibía más par en el sentido del movimiento (+10.3 N·m frente a +9.0), así que lo que cambió es el
+  par para despegarla, no lo que la ley mandaba. Con dos corridas no se sabe por qué varía. Una hipótesis sin
+  comprobar: el rizado del reductor (±0.65 N·m, §5.7) depende de dónde se pare la junta.
+- **Hacia dónde:** en el peor instante (1.4 s), la punta queda 5.7 mm por ENCIMA de la referencia (dz +5.65, dy
+  +2.06 mm). Con contacto, la hoja entraría menos, no más. En el tramo estable, dz medio −1.1 mm (RMS 1.49).
+- **Lo que no arregla ni la tabla ni la ganancia:** subir la de lift está vetado por su modo de 31.6 Hz (D35). Despegar
+  una junta pegada pide par que crezca con el tiempo, es decir, acción integral (la vía 3).
 
 ## 6. Qué devolver
 
