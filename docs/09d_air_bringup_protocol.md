@@ -256,6 +256,30 @@ de este modo no caben juntos. Las vías posibles son decisión del usuario: un f
 en la rama derivativa a 31–36 Hz, mejor compensación de gravedad y fricción para necesitar menos
 rigidez, o acción integral.
 
+## 5.4 Con la gravedad corregida (`smc_1630`, 2026-11-09, `7f76807`, D32)
+
+Mismo escalón (r = 0.50, `shoulder_pan` 0.50), con `gravity_correction`: completa, sin guardas, margen ×7.62,
+ganancias y ε comprobados en su `.params.yaml` y en el registro del nodo.
+
+| | `smc_1620` (sin corregir) | `smc_1630` (D32) |
+|---|---|---|
+| TCP RMS en el corte | 5.41 mm | **3.49 mm** |
+| TCP máximo | 11.0 mm | **6.83 mm** |
+| z − z_des medio en el corte | +4.6 mm | **−1.3 mm** |
+| punta sobre el tablero (mín.) | 39 mm | 33 mm |
+| banda de 30–40 Hz de `shoulder_lift` en la aproximación (máx. cada 2 s) | 0.52 N·m | 0.19 N·m |
+
+- **La gravedad, corregida:** el sesgo vertical desaparece; z queda entre −3.6 y +2.3 mm en el corte.
+- **Lo que queda es fricción a baja velocidad,** en dos formas distintas. En el peor instante (20.8 s, corte),
+  `wrist_1` aporta 3.9 mm (14 mrad) y el codo 3.1 mm (4.8 mrad).
+  - **Codo: el modelo sobrecompensa.** En el corte va a 0.027 rad/s y la ley resta +0.97 N·m de media. La
+    campaña de agosto (`cur_952`, G4 a 0.0, en `q_init`) midió 6.49 N·m a 0.02 rad/s y 7.51 a 0.05, frente a 7.74
+    y 8.15 del modelo F_c + F_v·v: a esa velocidad la compensación empuja de más, unos 0.9 N·m.
+  - **`wrist_1`: se pega y salta.** Su modelo coincide con la campaña a 0.02–0.2 rad/s (1.81 N·m a 0.02); en el
+    corte va a 0.012 rad/s, se queda pegada el 12 % del tiempo y acumula hasta 15.6 mrad antes de soltarse,
+    con la rigidez de r = 0.50 (`K_P` 26). Ninguna compensación fija lo quita.
+- **El modo de 31.6 Hz** sigue ahí, con menos amplitud: la ley ya no pelea contra 1.5 N·m de sesgo.
+
 ## 6. Qué devolver
 
 La salida de las sesiones y sus registros (`~/.ros/air_bringup/session_*.yaml`), los CSV `smc_16??`
