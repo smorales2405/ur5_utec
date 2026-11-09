@@ -427,8 +427,8 @@ Parámetros efectivos verificados: frente a `smc_1650`, solo cambia la tabla. Gu
 
 - **En el tramo estable, la tabla hace lo que se esperaba, y algo más:** el RMS baja de 2.23 a 1.98 mm, y el error de
   lift baja en casi todos los segundos (p. ej., +3.19 → +2.24 mrad a 4 s y +1.49 → +0.19 a 10 s).
-- **El arranque empeoró, y no por la tabla.** Al final del descenso lift sube a 0.006 rad/s, para y se invierte para
-  empezar el corte. En `smc_1670` se quedó pegada unos 2.5 s, de −1 a +1.5 s (q̇ ≈ 0 con q̇_des = +0.006 y luego
+- **El arranque empeoró** (lo que sigue lo escribí antes de `smc_1674`; ver la corrección más abajo). Al final del
+  descenso lift sube a 0.006 rad/s, para y se invierte para empezar el corte. En `smc_1670` se quedó pegada unos 2.5 s, de −1 a +1.5 s (q̇ ≈ 0 con q̇_des = +0.006 y luego
   −0.009), con hasta −7.9 mrad de error. En `smc_1650` siguió moviéndose (0.003–0.005 rad/s) con −3 a −4 mrad.
   En `smc_1670` recibía más par en el sentido del movimiento (+10.3 N·m frente a +9.0), así que lo que cambió es el
   par para despegarla, no lo que la ley mandaba. Con dos corridas no se sabe por qué varía. Una hipótesis sin
@@ -442,6 +442,31 @@ Parámetros efectivos verificados: frente a `smc_1650`, solo cambia la tabla. Gu
 La sesión no sobrescribe corridas, así que `--repeticion` corre el mismo escalón con número nuevo: el original +4, en
 su decena (`smc_1670` → `smc_1674`). Exige que el original exista, no salta el bloqueo de D35 y queda en el registro
 (`repeats`).
+
+**`smc_1674` (14:22, `bf61595`): parámetros efectivos idénticos a `smc_1670`, y lift se volvió a pegar, peor.** TCP en el
+corte 3.65 mm RMS, máx. 8.56 mm (dz +8.1, hacia arriba); desde 2 s, 2.08 mm (máx. 4.60). Lift, sin moverse de −1.5 a
++1.75 s, con hasta −11.5 mrad y +11.5 N·m.
+
+**Corrección: la tabla de D37 queda bajo sospecha.** Al final del descenso, en el mismo punto de todas las incisiones a
+r = 0.50:
+
+| corrida | hora | fricción | lift se despega en + |
+|---|---|---|---|
+| `smc_1620` | 11:49 | lineal, sin gravedad | −1.59 s, +8.47 N·m |
+| `smc_1630` | 12:37 | lineal | −1.59 s, +8.24 N·m |
+| `smc_1640` | 13:01 | tabla de agosto | −1.59 s, +8.42 N·m |
+| `smc_1650` | 13:18 | tabla de agosto | −1.59 s, +8.76 N·m |
+| `smc_1670` | 14:07 | tabla de D37 | no se despega (hasta +10.42) |
+| `smc_1674` | 14:22 | tabla de D37 | no se despega (hasta +11.53) |
+
+Cuatro de cuatro frente a cero de dos, con un despegue muy repetible antes. Las dos explicaciones posibles no se
+separan con estos datos:
+- **La tabla.** Es lo único que cambia en los parámetros. Pero con ella la ley empuja más en el sentido del movimiento,
+  y no conozco un mecanismo por el que eso pegue la junta.
+- **El estado del robot** después de las 13:18: entre `smc_1650` y `smc_1670` estuvo el barrido `cur_1660` (control de
+  posición, G4 a 0, como las incisiones). Temperatura u otra cosa: sin comprobar.
+
+Lo que las separa es una incisión con la tabla de agosto, ahora: si se despega a +8.5 N·m, era la tabla.
 
 ## 6. Qué devolver
 
