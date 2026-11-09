@@ -3,7 +3,9 @@
 **Estado:** paso 1 hecho y limpio (§5.1): el modo de 33 Hz depende de la `G`, y la incisión iba con
 `shoulder_pan` en 0.50. **El paso 2 (`smc_1610`) vibró a unos 35 Hz y lo paró la guarda, y corrió con
 las ganancias equivocadas** (§5.2). El error de configuración está corregido (D30), y la incisión se
-repite por escalones, desde r = 0.50 (D31, §3). Ensayado en Gazebo, sin ejecutar en el robot. Plan: B7.1, D28 y D29 de
+repite por escalones, desde r = 0.50 (D31, §3). **El escalón 0.50 (`smc_1620`) pasó, pero con 11 mm de
+TCP y un modo de 31.6 Hz casi sin amortiguar mientras `shoulder_lift` desliza (§5.3): no se sube a
+0.71.** Plan: B7.1, D28 y D29 de
 `Journal_UR5eControl_plan.md`. Código: `ur5_identification/air_bringup.py` y
 `scripts/run_air_bringup_real.py`.
 
@@ -198,6 +200,39 @@ en `/**`, `<nodo>` y `/<nodo>`: ganan sea cual sea el orden. Y el nodo SMC compa
 le sobrescriben (`gains_check.lambda`, `gains_check.phi_joint`) con las efectivas, y si no coinciden no
 arranca, antes de comandar par. Tests: `test_param_precedence.py`, que reproduce la causa con nodos de
 verdad.
+
+## 5.3 Escalón r = 0.50 de la incisión (`smc_1620`, 2026-11-09, `2a29e68`)
+
+Completa, sin guardas ni saturación, margen del nodo ×7.62, con las ganancias pedidas (`gains_check` en
+el registro, `G` máxima 38, 60 y 36 en las tres juntas grandes). La sesión la marcó por el error de
+TCP.
+
+**El TCP: un desfase lento, por encima de lo pedido.** 5.41 mm RMS en la meseta del corte y 11.0 mm de
+máximo, al final de la aproximación. Lo pone sobre todo el codo (13 mrad, 8.5 mm por sí solo), y en el
+corte `wrist_1` (17 mrad). La punta quedó siempre por encima (z entre +1 y +8 mm; +4.6 de media en el
+corte) y no bajó de 39 mm sobre el tablero: con la hoja, el corte saldría casi sin profundidad. En
+Gazebo, el mismo escalón da 1.4 mm. Con r = 0.50 la rigidez es la cuarta parte de la final.
+
+**Un modo de 31.6 Hz, casi sin amortiguamiento, mientras `shoulder_lift` desliza.**
+
+- **Frecuencia fija:** en la aproximación, `shoulder_lift` y el codo llevan un pico a 31–33 Hz en cada
+  ventana de 0.5 s, mientras el tono de 10 veces el giro de `shoulder_lift` recorre de 4 a 30 Hz. No es
+  el tono: es un modo.
+- **Amplitud:** crece con el deslizamiento hasta 0.9 N·m en `shoulder_lift` y 0.3 en el codo, y cae
+  cuando la junta frena. En Gazebo, 0.004.
+- **Amortiguamiento** (2.5–6 s): ζ ≈ 0.004–0.016 por ajuste a la PSD y 0.006–0.010 por
+  autocorrelación, en la resolución de la PSD, así que puede ser menor.
+- **Con más ganancia:** en `smc_1610` (r = 1) la frecuencia subió a 33–36 Hz y el modo creció sin
+  límite (ζ ≈ −0.02). Es lo que hace un modo de lazo cerrado que pierde amortiguamiento con la `G`.
+
+**Extrapolación, no medida:** en línea recta con la `G` de `shoulder_lift` (60 a r = 0.50, 120 a
+r = 1), ζ = 0 cae hacia `G` ≈ 77, r ≈ 0.64. El escalón de 0.71 (`G` 85) estaría ya del lado inestable.
+`smc_1610` tenía además `shoulder_pan` a r = 1, y eso no se puede separar.
+
+**Recomendación: no correr r = 0.71.** Con esta ley, la rigidez que pide el corte y el amortiguamiento
+de este modo no caben juntos. Las vías posibles son decisión del usuario: un filtro de banda eliminada
+en la rama derivativa a 31–36 Hz, mejor compensación de gravedad y fricción para necesitar menos
+rigidez, o acción integral.
 
 ## 6. Qué devolver
 
