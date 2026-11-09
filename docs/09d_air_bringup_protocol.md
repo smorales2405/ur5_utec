@@ -316,6 +316,29 @@ En el corte, por junta (error medio; lo que añade la ley; tiempo pegada):
 La vía 1 ha dado lo que podía: la gravedad y el sesgo de fricción del codo. Lo que queda es que `wrist_1` se pegue, y
 un sesgo de 0.4 N·m en `shoulder_lift` que depende de la postura. Ninguna compensación fija lo quita.
 
+## 5.6 Con `wrist_1` a r = 1 (`smc_1650`, 2026-11-09, `e212f98`, D34): la primera incisión limpia
+
+Completa, sin guardas ni motivos de parada, margen del nodo ×5.37, con lo pedido (λ de `wrist_1` 51.7, tabla de fricción,
+velocidad deseada y ε, en su `.params.yaml`).
+
+| | `smc_1620` | `smc_1630` | `smc_1640` | `smc_1650` |
+|---|---|---|---|---|
+| correcciones | — | gravedad | + fricción en tabla | + `wrist_1` a r = 1 |
+| TCP RMS en el corte | 5.41 mm | 3.49 mm | 2.95 mm | **2.34 mm** |
+| TCP máximo | 11.0 mm | 6.83 mm | 5.26 mm | **4.24 mm** |
+| `wrist_1` pegada en el corte | 12 % | 12 % | 15 % | **2 %** |
+| modo de 31.6 Hz: q̇ de `shoulder_lift` (2.5–6 s) | 7.6e-3 | 3.2e-3 | 3.1e-3 | 3.3e-3 |
+
+- **`wrist_1`:** error RMS en el corte de 5.38 a 1.47 mrad, y máximo de 13.45 a 3.97.
+- **El modo no empeora:** ζ ≈ 0.031 (ajuste) y 0.016 (autocorrelación), envolvente de ruido de banda estrecha
+  (CV 0.57). Con la gravedad corregida su amplitud bajó a menos de la mitad que en `smc_1620`, y así sigue.
+- **Lo que queda es `shoulder_lift`:** +1.23 mrad de media en el corte, porque le faltan 0.36 N·m a 0.015 rad/s; en el
+  peor instante (17.0 s) aporta 2.39 mm.
+- **Frente a los criterios:** el máximo (4.24 mm) queda por debajo de los 5 mm de profundidad de corte, pero el RMS
+  (2.34 mm) sigue por encima de la tolerancia declarada de 2 mm (g4).
+- **No se sube a r = 0.71:** con estas ganancias, `shoulder_lift` y el codo siguen limitados por el modo (§5.3). La
+  sesión lo permitiría, porque solo exige que exista el escalón anterior.
+
 ## 6. Qué devolver
 
 La salida de las sesiones y sus registros (`~/.ros/air_bringup/session_*.yaml`), los CSV `smc_16??`
