@@ -179,6 +179,16 @@ struct SaturationFlags
   }
 };
 
+/// D32 (B4.4, `fl_1101`–`1133`): el robot compensa con su modelo g_UR, y la gravedad real es
+/// g_real = (1 − ε) g_UR, junta a junta, en cualquier postura del trazo. Sobra +ε·g, que
+/// empuja el brazo hacia arriba (`smc_1620`: la punta, siempre por encima). Este es el par
+/// que lo cancela, −ε ⊙ g(q), para sumarlo al de la ley ANTES de la politica de gravedad: no
+/// depende de quien compense g, solo de lo que el robot hace de mas.
+inline Vector6d gravityResidualTorque(const Vector6d & g_q, const Vector6d & eps)
+{
+  return -(eps.array() * g_q.array()).matrix();
+}
+
 /// Composicion completa: lo que realmente se publica al controlador.
 /// El ORDEN importa: primero la politica de gravedad, despues la saturacion,
 /// porque tau_max limita lo que se ENVIA al hardware. En el robot real el

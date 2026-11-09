@@ -12,7 +12,8 @@ sesión cada uno (`scripts/run_air_bringup_real.py`, `docs/09d_air_bringup_proto
    la mesa despejada. La punta baja a 37 mm del tablero. **Por escalones** (D31): `smc_1610`, a
    r = 1, vibró a unos 35 Hz en `shoulder_lift` y el codo, con `shoulder_lift` deslizando, algo que la
    rampa nunca probó (`09d_air_bringup_protocol.md` §5.2). Una corrida por sesión, con revisión entre
-   escalones.
+   escalones. Desde D32, con el exceso de compensación de gravedad del robot corregido (B4.4): en
+   `smc_1620` era lo que dejaba la punta siempre por encima.
 
 Aquí solo está lo que no necesita ni ROS ni el robot.
 """
@@ -44,9 +45,10 @@ INCISION_STEPS = (0.50, 0.71, 0.85, 1.00)
 #: r = 0.85 en la rampa (ζ ≈ 0.016), y con 0.50, entre 0.015 y 0.030 (`09d` §5.1).
 PAN_INCISION_R = 0.50
 
-#: `test_num` de la incisión: base + 20 + escalón. Las del paso 1 son base + 0 y base + 1; base + 10
-#: fue `smc_1610`, la que vibró (§5.2), y no se reutiliza.
-INCISION_OFFSET = 20
+#: `test_num` de la incisión: base + 30 + escalón, con la gravedad corregida (D32). Las del paso 1
+#: son base + 0 y base + 1; base + 10 fue `smc_1610`, la que vibró (§5.2), y base + 20, `smc_1620`,
+#: el escalón 0.50 sin corregir la gravedad (§5.3). No se reutilizan.
+INCISION_OFFSET = 30
 
 #: Banda del modo que vibró en `smc_1610` (34.9 y 36.5 Hz) [Hz]: cae entre las dos de la rampa
 #: (20–35 y 40–55 Hz), así que en la incisión se vigila además esta.

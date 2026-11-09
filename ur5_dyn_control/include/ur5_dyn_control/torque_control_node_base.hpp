@@ -242,6 +242,10 @@ private:
   // G3: true en Gazebo (el torque comandado incluye g), false en el UR5e real
   // (el robot compensa la gravedad internamente -> hay que restarla).
   bool gravity_in_command_ = true;
+  /// D32: exceso de compensacion de gravedad del robot (B4.4), fraccion de g por junta. Cero =
+  /// sin correccion (Gazebo, y las medidas que lo determinan).
+  Vector6d gravity_residual_eps_ = Vector6d::Zero();
+  bool gravity_residual_active_ = false;
   /// Si q0 excede q_init_check_tol: true = PARAR (SAFE_HOLD), false = avisar.
   /// Default: estricto en el robot real, permisivo en Gazebo.
   bool q_init_check_strict_ = false;

@@ -339,3 +339,37 @@ int main(int argc, char ** argv)
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+// ── D32: el exceso de compensacion del robot (B4.4) ──────────────────────────
+// El robot suma su g_UR al comando, y la gravedad real es (1 − ε) g_UR. Con el
+// par residual sumado a la ley, lo que actua sobre el brazo, descontada su
+// gravedad real, es lo que la ley pretendia: tau_ley − g. Sin el, sobra ε·g.
+TEST(GravityResidual, CancelsTheRobotsExcessOnRealRobot)
+{
+  ur5_dyn_control::Ur5Dynamics dyn(urdfPath(), kGravity);
+  const Vector6d eps = vec6(0.0, 0.0356, 0.0536, 0.0386, 0.0, 0.0);   // B4.4
+  const Vector6d extra = vec6(1.0, -2.0, 3.0, -0.4, 0.2, -0.1);
+  const Vector6d no_limit = Vector6d::Constant(1e9);
+  for (const auto & q : testConfigurations()) {
+    const Vector6d g_ur = dyn.gravity(q);
+    const Vector6d g_real = ((Vector6d::Ones() - eps).array() * g_ur.array()).matrix();
+    const Vector6d tau_law = g_ur + extra;
+    const Vector6d with = torqueCommand(
+      tau_law + ur5_dyn_control::gravityResidualTorque(g_ur, eps), g_ur, false, no_limit);
+    const Vector6d without = torqueCommand(tau_law, g_ur, false, no_limit);
+    const Vector6d net_with = with + g_ur - g_real;
+    const Vector6d net_without = without + g_ur - g_real;
+    EXPECT_LT((net_with - (tau_law - g_ur)).cwiseAbs().maxCoeff(), kTolNm) << q.transpose();
+    EXPECT_LT((net_without - (tau_law - g_ur) -
+               (eps.array() * g_ur.array()).matrix()).cwiseAbs().maxCoeff(), kTolNm);
+  }
+}
+
+TEST(GravityResidual, ZeroEpsChangesNothing)
+{
+  ur5_dyn_control::Ur5Dynamics dyn(urdfPath(), kGravity);
+  for (const auto & q : testConfigurations()) {
+    EXPECT_TRUE(ur5_dyn_control::gravityResidualTorque(dyn.gravity(q), Vector6d::Zero()) ==
+                Vector6d::Zero());
+  }
+}

@@ -17,9 +17,9 @@ import os
 import sys as _sys
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from world_defaults import default_world  # noqa: E402
-from param_layers import (incision_layers, launch_values,  # noqa: E402
-                          override_file, session_arguments, session_overrides,
-                          with_gain_checks)
+from param_layers import (gravity_correction, gravity_correction_argument,  # noqa: E402
+                          incision_layers, launch_values, override_file,
+                          session_arguments, session_overrides, with_gain_checks)
 from launch import LaunchDescription
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
@@ -147,7 +147,8 @@ def launch_setup(context, *args, **kwargs):
             # pisaba en la incision (smc_1610, launch/param_layers.py).
             override_file("gz_smc_control_node", with_gain_checks(
                 {**launch_values(context, "test_num", "t_sim"),
-                 **overrides, **session_overrides(context)})),
+                 **overrides, **gravity_correction(context),
+                 **session_overrides(context)})),
         ],
     )
 
@@ -261,5 +262,5 @@ def generate_launch_description():
 
 
     return LaunchDescription(
-        declared_arguments + session_arguments()
+        declared_arguments + session_arguments() + [gravity_correction_argument()]
         + [OpaqueFunction(function=launch_setup)])

@@ -177,6 +177,25 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
   // En el UR5e real DEBE ser false: direct_torque() compensa la gravedad dentro
   // del robot y comandarla otra vez la duplica. Ver torque_command.hpp.
   gravity_in_command_ = declare_parameter<bool>("gravity_in_command", true);
+  // D32 (B4.4): el robot compensa g_UR y la gravedad real es (1 - eps) g_UR; se resta eps*g(q)
+  // del comando (torque_command.hpp, gravityResidualTorque). Vacio o ceros = sin correccion.
+  {
+    const auto eps = declare_parameter<std::vector<double>>(
+      "gravity_residual.eps", std::vector<double>{});
+    if (!eps.empty()) {
+      if (eps.size() != 6) {
+        throw std::runtime_error("gravity_residual.eps debe tener 6 valores");
+      }
+      for (int i = 0; i < 6; ++i) {
+        const double e = eps[static_cast<size_t>(i)];
+        if (!(std::abs(e) <= 0.2)) {
+          throw std::runtime_error("gravity_residual.eps: cada valor en [-0.2, 0.2]");
+        }
+        gravity_residual_eps_[i] = e;
+      }
+      gravity_residual_active_ = gravity_residual_eps_.cwiseAbs().maxCoeff() > 0.0;
+    }
+  }
 
   // FASE 5 — error inicial DELIBERADO para el ensayo de tiempo de alcance.
   //
@@ -408,6 +427,13 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
               "G3 gravity_in_command=%s -> tau_cmd = tau_ley%s",
               gravity_in_command_ ? "true (Gazebo)" : "false (UR5e real)",
               gravity_in_command_ ? "" : " - g(q)");
+  if (gravity_residual_active_) {
+    RCLCPP_INFO(get_logger(),
+                "D32: se resta el exceso de compensacion de gravedad del robot (B4.4), "
+                "eps*g(q) con eps = [%.4f %.4f %.4f %.4f %.4f %.4f]",
+                gravity_residual_eps_[0], gravity_residual_eps_[1], gravity_residual_eps_[2],
+                gravity_residual_eps_[3], gravity_residual_eps_[4], gravity_residual_eps_[5]);
+  }
 
   // Torque de sosten "a ciegas" para PRE_HOLD (antes de /joint_states).
   tau_hold_blind_ = dyn_->gravity(q_init_);
@@ -1301,10 +1327,14 @@ Vector6d TorqueControlNodeBase::commandFromLaw(const Vector6d & tau_law,
       }
     }
   }
-  const Vector6d tau_total = tau_law + ff;
-  // g(q) solo se evalua cuando hace falta restarla (ahorra una RNEA por tick
-  // en el caso de Gazebo, que es el default).
-  const Vector6d g_q = gravity_in_command_ ? Vector6d::Zero().eval() : dyn_->gravity(q);
+  // g(q) solo se evalua cuando hace falta (ahorra una RNEA por tick en el caso de Gazebo,
+  // que es el default): para restarla (G3) o para la correccion de D32.
+  const bool need_g = !gravity_in_command_ || gravity_residual_active_;
+  const Vector6d g_model = need_g ? dyn_->gravity(q) : Vector6d::Zero().eval();
+  const Vector6d tau_total = tau_law + ff +
+    (gravity_residual_active_ ? gravityResidualTorque(g_model, gravity_residual_eps_) :
+    Vector6d::Zero().eval());
+  const Vector6d g_q = gravity_in_command_ ? Vector6d::Zero().eval() : g_model;
   const Vector6d tau_sat = torqueCommand(tau_total, g_q, gravity_in_command_, tau_max_);
 
   // FASE 3 — limite de tasa sobre el comando ya saturado, y marcas de recorte

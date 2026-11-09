@@ -397,6 +397,10 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   driver falso: fuera de postura no se pasa a par, con compensación G4 se pone a cero y se
   confirma antes del cambio, y `SAFE_HOLD` no compensa fricción y queda en el CSV.
 
+- `test_gravity_residual.py` — D32: el exceso de compensación de gravedad del robot (B4.4) es
+  el del evaluador; los launches solo lo restan con `gravity_correction:=true`, y el nodo
+  lo anuncia y rechaza valores raros. El signo y la cancelación, en el gtest `GravityResidual`.
+
 - `test_param_precedence.py` — `smc_1610` (`docs/09d_air_bringup_protocol.md` §5.2): con
   nodos de verdad, una sobrescritura en diccionario pierde en la incisión y gana en el
   barrido; el fichero de sobrescrituras gana en los dos; si las ganancias no son las
@@ -412,8 +416,8 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   de la incisión salta antes de llegar al tablero; la confirmación va antes de lanzar; la
   incisión va por escalones (D31), cada uno exige el anterior y vigila la banda de 30–40 Hz.
 
-Total en `colcon test-result` (2026-11-05): **184** en `ur5_dyn_control`,
-183 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **422**, todos
+Total en `colcon test-result` (2026-11-09): **193** en `ur5_dyn_control`,
+183 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **431**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)

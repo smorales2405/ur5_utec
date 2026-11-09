@@ -84,15 +84,16 @@ def test_la_incision_va_por_escalones_con_la_base_en_050():
         incision_r_vector(0.6)
 
 
-def test_la_incision_no_pisa_los_numeros_de_la_base_ni_1610():
+def test_la_incision_no_pisa_los_numeros_de_la_base_ni_1610_ni_1620():
     nums = [r["test_num"] for r in incision_runs(1600)]
-    assert nums == [1620, 1621, 1622, 1623]
-    assert not set(nums) & {r["test_num"] for r in base_runs(1600)} and 1610 not in nums
+    assert nums == [1630, 1631, 1632, 1633]
+    assert not set(nums) & {r["test_num"] for r in base_runs(1600)}
+    assert 1610 not in nums and 1620 not in nums
 
 
 def test_cada_escalon_se_compara_con_el_anterior_junta_a_junta():
     run = incision_run(1600, 0.71)
-    assert run["previous"] == 1620
+    assert run["previous"] == 1630
     np.testing.assert_allclose(run["ratio"], [1.0] + [0.71 / 0.50] * 5)
     assert incision_run(1600, 0.50)["previous"] is None
 
@@ -203,6 +204,7 @@ def test_el_launch_de_la_incision():
     assert "gains_file:=/g.yaml" in args
     assert "friction_compensation:=viscous_coulomb" in args
     assert f"watchdog_q_err_max:={INCISION_Q_ERR}" in args
+    assert "gravity_correction:=true" in args, "D32: la incisión corrige la gravedad"
     assert not any(a.startswith(("q_init", "sweep")) for a in args)
 
 
@@ -255,7 +257,8 @@ def test_ensayo_en_seco_de_la_incision(capsys, _no_runs):
     assert main(["--gains-file", _CANDIDATA, "--paso", "incision", "--r", "0.5",
                  "--test-base", "1600", "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "smc_1620" in out and "37 mm" in out and "r = 0.71 (shoulder_pan 0.50)" in out
+    assert "smc_1630" in out and "37 mm" in out and "r = 0.71 (shoulder_pan 0.50)" in out
+    assert "D32" in out
     assert "ros2 launch" not in out
 
 
@@ -265,10 +268,10 @@ def test_un_escalon_exige_el_anterior(capsys, _no_runs):
     args = ["--gains-file", _CANDIDATA, "--paso", "incision", "--r", "0.71", "--test-base",
             "1600", "--dry-run"]
     assert main(args) == 1
-    assert "smc_1620" in capsys.readouterr().out
-    (_no_runs / "smc_1620.csv").write_text("t_wall\n")
+    assert "smc_1630" in capsys.readouterr().out
+    (_no_runs / "smc_1630.csv").write_text("t_wall\n")
     assert main(args) == 0
-    assert "smc_1621" in capsys.readouterr().out
+    assert "smc_1631" in capsys.readouterr().out
 
 
 def test_la_incision_pide_el_escalon(capsys):

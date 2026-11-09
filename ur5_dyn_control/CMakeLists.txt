@@ -168,6 +168,9 @@ if(BUILD_TESTING)
   # smc_1610: las ganancias que pide la sesion son las que corre el nodo.
   ament_add_pytest_test(test_param_precedence test/test_param_precedence.py
     TIMEOUT 300)
+  # D32: el exceso de compensacion de gravedad del robot (B4.4), restado en el nodo.
+  ament_add_pytest_test(test_gravity_residual test/test_gravity_residual.py
+    TIMEOUT 300)
   # B0.4: dinamica del nodo (C++) frente a la del evaluador offline (Python).
   add_executable(dump_dynamics test/dump_dynamics.cpp)
   target_link_libraries(dump_dynamics ${PROJECT_NAME}_core)

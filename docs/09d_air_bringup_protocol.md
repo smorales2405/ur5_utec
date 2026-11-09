@@ -5,7 +5,8 @@
 las ganancias equivocadas** (§5.2). El error de configuración está corregido (D30), y la incisión se
 repite por escalones, desde r = 0.50 (D31, §3). **El escalón 0.50 (`smc_1620`) pasó, pero con 11 mm de
 TCP y un modo de 31.6 Hz casi sin amortiguar mientras `shoulder_lift` desliza (§5.3): no se sube a
-0.71.** Plan: B7.1, D28 y D29 de
+0.71.** Casi todo el error era la gravedad que el robot compensa de más (B4.4): el nodo la resta
+(D32), y la incisión se repite con ella desde r = 0.50, como `smc_1630`–`1633`. Plan: B7.1, D28 y D29 de
 `Journal_UR5eControl_plan.md`. Código: `ur5_identification/air_bringup.py` y
 `scripts/run_air_bringup_real.py`.
 
@@ -60,11 +61,14 @@ incisión sola no lo diría.
 
   | `r` | corrida | `K_P` al empezar el corte [N·m/rad] | `G` máx. (base) | margen |
   |---|---|---|---|---|
-  | 0.50 | `smc_1620` | 132, 301, 270, 26, 5.6, 0.4 | 59.7 (38.1) | ×7.63 |
-  | 0.71 | `smc_1621` | 132, 607, 544, 52, 11.2, 0.7 | 84.8 (38.1) | ×5.23 |
-  | 0.85 | `smc_1622` | 132, 869, 779, 75, 16.1, 1.1 | 101.5 (38.1) | ×4.28 |
-  | 1.00 | `smc_1623` | 132, 1203, 1078, 104, 22.3, 1.5 | 119.4 (38.1) | ×3.55 |
+  | 0.50 | `smc_1630` | 132, 301, 270, 26, 5.6, 0.4 | 59.7 (38.1) | ×7.63 |
+  | 0.71 | `smc_1631` | 132, 607, 544, 52, 11.2, 0.7 | 84.8 (38.1) | ×5.23 |
+  | 0.85 | `smc_1632` | 132, 869, 779, 75, 16.1, 1.1 | 101.5 (38.1) | ×4.28 |
+  | 1.00 | `smc_1633` | 132, 1203, 1078, 104, 22.3, 1.5 | 119.4 (38.1) | ×3.55 |
 
+- **Con la gravedad corregida (D32):** la sesión pasa `gravity_correction:=true` y el nodo resta el exceso de
+  compensación del robot medido en B4.4. Corridas `smc_1630`–`1633`; `smc_1620`, sin corregir, queda como
+  referencia.
 - **Una corrida por sesión,** con `--r`, y cada escalón exige el CSV del anterior. Entre escalones,
   revisión: los criterios automáticos no ven bien un modo que crece dentro de una corrida, y en
   `smc_1610` pasó de nada a saturar en 1.6 s.
@@ -228,6 +232,24 @@ Gazebo, el mismo escalón da 1.4 mm. Con r = 0.50 la rigidez es la cuarta parte 
 **Extrapolación, no medida:** en línea recta con la `G` de `shoulder_lift` (60 a r = 0.50, 120 a
 r = 1), ζ = 0 cae hacia `G` ≈ 77, r ≈ 0.64. El escalón de 0.71 (`G` 85) estaría ya del lado inestable.
 `smc_1610` tenía además `shoulder_pan` a r = 1, y eso no se puede separar.
+
+**El sesgo es la gravedad que el robot compensa de más (D32).** Lo que la ley tuvo que añadir, `K·sat(s/φ)`,
+coincide con lo que predice B4.4 (ε·ĝ, con g_real = (1 − ε) g_UR):
+
+| fase | `shoulder_lift`: ley | B4.4 | codo: ley | B4.4 |
+|---|---|---|---|---|
+| aproximación | −1.43 | −1.18 | −1.06 | −1.07 |
+| corte | −1.74 | −1.47 | −0.56 | −0.90 |
+| retirada | −1.50 | −1.31 | −1.55 | −0.88 |
+
+En N·m. En las fases lentas el codo queda pegado por la fricción y la ley apenas añade. El evaluador, con ese
+exceso, da 6.00 mm de TCP a r = 0.50 (medido: 5.41 mm) y 0.11 mm corregido, a cualquier `r`. `wrist_1`
+(17 mrad en el corte) no lo explica la gravedad (0.08 N·m).
+
+**Signo, comprobado en Gazebo** (`smc_98971`, r = 0.50, con la corrección): allí la gravedad es exacta, y
+corregirla baja la punta −5.2 mm de media en el corte, el mismo tamaño que el robot la subía (+4.6) con el
+signo contrario. Peor caso, si el robot no tuviera exceso: la punta a 31 mm del tablero, por encima de los
+30 mm del criterio de parada.
 
 **Recomendación: no correr r = 0.71.** Con esta ley, la rigidez que pide el corte y el amortiguamiento
 de este modo no caben juntos. Las vías posibles son decisión del usuario: un filtro de banda eliminada

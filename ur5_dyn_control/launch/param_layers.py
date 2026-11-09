@@ -31,6 +31,30 @@ from launch.substitutions import LaunchConfiguration
 #: Bloque común de la incisión, en `config/` del paquete instalado.
 COMMON_FILE = "incision_common.yaml"
 
+#: D32: exceso de compensacion de gravedad del robot real, medido en B4.4 (`fl_1101`–`1133`):
+#: g_real = (1 − ε) g_UR, junta a junta. El mismo valor que `GRAVITY_ERROR_REAL` del evaluador
+#: (lo comprueba un test). Con `gravity_correction:=true` el nodo resta ε·g(q). En Gazebo la
+#: gravedad es exacta: activarlo allí introduce el error contrario, y sirve para ver su signo.
+GRAVITY_RESIDUAL_B44 = [0.0, 0.0356, 0.0536, 0.0386, 0.0, 0.0]
+
+
+def gravity_correction(context) -> dict:
+    """`gravity_residual.eps` si el argumento `gravity_correction` lo pide; si no, nada."""
+    raw = LaunchConfiguration("gravity_correction").perform(context).strip().lower()
+    if raw not in ("true", "false", "1", "0", "yes", "no", ""):
+        raise RuntimeError(f"gravity_correction debe ser true o false, se dio {raw!r}")
+    return ({"gravity_residual.eps": list(GRAVITY_RESIDUAL_B44)}
+            if raw in ("true", "1", "yes") else {})
+
+
+def gravity_correction_argument() -> DeclareLaunchArgument:
+    """El argumento, el MISMO en sim y en real (test_launch_arg_symmetry)."""
+    return DeclareLaunchArgument(
+        "gravity_correction", default_value="false",
+        description="D32: resta el exceso de compensacion de gravedad medido en B4.4 "
+                    "(eps*g(q)). Por defecto no, para no alterar medidas como la de B4.4")
+
+
 #: Ganancias que el launch puede sobrescribir y que el nodo SMC comprueba al arrancar
 #: (`gains_check.*`, gz_smc_control_node.cpp): {parámetro: clave de la comprobación}.
 CHECKED_GAINS = {"lambda": "gains_check.lambda", "phi_joint": "gains_check.phi_joint"}

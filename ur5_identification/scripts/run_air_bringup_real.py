@@ -8,7 +8,8 @@ Dos pasos, una sesión cada uno (docs/09d_air_bringup_protocol.md):
                       en 0.50 y después en 0.71; las demás juntas, a r = 1
     --paso incision   la incisión en aire, a la altura real, con el acople sin hoja y la mesa
                       despejada, por escalones (--r 0.5, 0.71, 0.85, 1): uno por sesión, y
-                      cada uno exige el anterior. shoulder_pan se queda en 0.50
+                      cada uno exige el anterior. shoulder_pan se queda en 0.50, y se corrige
+                      el exceso de compensación de gravedad del robot (D32)
 
 Como la rampa: el script prepara y comprueba, pero cada corrida la confirma el operador
 escribiendo una palabra. Nunca pasa `discrete_check.allow_unstable`: si el chequeo de arranque
@@ -89,7 +90,7 @@ def incision_args(gains_file: str, lam, phi) -> list:
     def fmt(values):
         return ",".join(f"{float(v):.6f}" for v in values)
     return [f"gains_file:={gains_file}", f"lambda_joint:={fmt(lam)}", f"phi_joint:={fmt(phi)}",
-            "friction_compensation:=viscous_coulomb",
+            "friction_compensation:=viscous_coulomb", "gravity_correction:=true",
             f"watchdog_sat_frac_max:={WATCHDOG_SAT_FRAC}",
             f"watchdog_q_err_max:={INCISION_Q_ERR}"]
 
@@ -182,6 +183,7 @@ def main(argv=None):
         q_cut, rows, clear, problems = plan_incision(plant, g, ROTOR_INERTIA_REAL, common, base)
         target = np.array(common["q_init"], float)
         print("  incisión de incision_common.yaml, con el acople SIN hoja y la mesa despejada")
+        print("  gravedad: se resta el exceso de compensación del robot medido en B4.4 (D32)")
         print(f"  la punta baja a {1e3 * clear:.0f} mm sobre el tablero; guarda de seguimiento "
               f"{INCISION_Q_ERR} rad")
         print(f"  escalones, al empezar el corte (q = {np.round(q_cut, 4).tolist()}):")

@@ -57,8 +57,9 @@ operador, que es justo lo que se quiere.
 import os
 import sys as _sys
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from param_layers import (incision_layers, override_file,  # noqa: E402
-                          session_arguments, session_overrides, with_gain_checks)
+from param_layers import (gravity_correction, gravity_correction_argument,  # noqa: E402
+                          incision_layers, override_file, session_arguments,
+                          session_overrides, with_gain_checks)
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -231,6 +232,9 @@ def launch_setup(context, *args, **kwargs):
           f"planta, no arranca por debajo de x{real['discrete_check.margin_min']:g}")
     print("  switch: +forward_effort_controller  "
           "-scaled_joint_trajectory_controller")
+    eps = gravity_correction(context).get("gravity_residual.eps")
+    print("  gravedad: " + (f"se resta el exceso del robot medido en B4.4, eps = {eps} (D32)"
+                            if eps else "sin corregir el exceso del robot (gravity_correction)"))
     fc_mode = optional.get("friction_compensation", "none")
     if fc_mode and fc_mode != "none":
         print(f"  friccion: compensacion '{fc_mode}' con la velocidad "
@@ -255,7 +259,8 @@ def launch_setup(context, *args, **kwargs):
     # nodo: como diccionarios, launch_ros las escribia en `/**` y, en la incision, el
     # gains_file con nombre las pisaba (smc_1610, 2026-11-05; launch/param_layers.py). El
     # nodo SMC comprueba ademas que las ganancias sobrescritas son las que le llegaron.
-    overrides = {**real, **optional, **session_overrides(context)}
+    overrides = {**real, **optional, **gravity_correction(context),
+                 **session_overrides(context)}
     if controller == "smc":
         overrides = with_gain_checks(overrides)
     actions = [Node(
@@ -401,5 +406,6 @@ def generate_launch_description():
             "gains_file", default_value="",
             description="YAML de ganancias de run_gain_tuning (FASE 7)"),
         *session_arguments(),   # B0.5: material, carril, ... (iguales que en sim)
+        gravity_correction_argument(),   # D32, el mismo que en sim
         OpaqueFunction(function=launch_setup),
     ])
