@@ -70,7 +70,8 @@ incisión sola no lo diría.
   y `friction_compensation:=table`, y `wrist_1` va a r = 1 en todos los escalones (D34). Corridas
   `smc_1650`–`1653`. Quedan como referencia `smc_1620` (sin corregir), `smc_1630` (gravedad) y `smc_1640`
   (gravedad y fricción, `wrist_1` a 0.50).
-- **Una corrida por sesión,** con `--r`, y cada escalón exige el CSV del anterior. Entre escalones,
+- **Una corrida por sesión,** con `--r`, y cada escalón exige el CSV del anterior. **Por encima de r = 0.50, la
+  sesión no corre (D35):** el modo de 31.6 Hz se haría inestable (§5.3). Entre escalones,
   revisión: los criterios automáticos no ven bien un modo que crece dentro de una corrida, y en
   `smc_1610` pasó de nada a saturar en 1.6 s.
 - **El brazo** empieza en el `q_init` del nodo, y al acabar lo sostiene el JTC donde termine la
@@ -338,6 +339,26 @@ velocidad deseada y ε, en su `.params.yaml`).
   (2.34 mm) sigue por encima de la tolerancia declarada de 2 mm (g4).
 - **No se sube a r = 0.71:** con estas ganancias, `shoulder_lift` y el codo siguen limitados por el modo (§5.3). La
   sesión lo permitiría, porque solo exige que exista el escalón anterior.
+
+## 5.7 Fricción de `shoulder_lift` a baja velocidad, con la carga del corte (D36, preparado)
+
+Lo que queda en `smc_1650` es `shoulder_lift`: le faltan 0.36 N·m en el corte, donde va a 0.015 rad/s, por debajo de la
+menor velocidad de la campaña de agosto, que además midió en `q_init`, con la mitad de carga gravitatoria (−21 N·m
+frente a −45 en el corte).
+
+- **Barrido por control de posición, sin par:** el controlador de trayectoria mueve `shoulder_lift` ±0.06 rad a 0.005,
+  0.01, 0.015, 0.02, 0.05 y 0.1 rad/s, unos 160 s; las demás juntas, quietas. G4 a 0.0, como la campaña.
+- **Postura:** punta en y = 0.69, z = 0.10: `shoulder_lift` con −42.4 N·m de gravedad, el 93 % del corte; la punta no
+  baja de 105 mm sobre el tablero.
+- **Resultado:** fricción = ½ (i⁺ − i⁻)·k por velocidad, comparada con la fila de `shoulder_lift` de la tabla actual.
+  Con 0.02 y 0.05 rad/s se ve además el efecto de la carga frente a agosto.
+- **Comprobado sin robot:** la tabla del barrido la construye el mismo generador de C++ que la campaña: 158 s, las
+  doce mesetas a su velocidad y 0.52 rad/s² de aceleración máxima.
+
+```bash
+ros2 run ur5_identification run_lift_friction_real.py --dry-run
+ros2 run ur5_identification run_lift_friction_real.py --payload-kg 0.155
+```
 
 ## 6. Qué devolver
 

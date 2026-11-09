@@ -266,9 +266,11 @@ def test_ensayo_en_seco_de_la_incision(capsys, _no_runs):
     assert "ros2 launch" not in out
 
 
-def test_un_escalon_exige_el_anterior(capsys, _no_runs):
+def test_un_escalon_exige_el_anterior(capsys, _no_runs, monkeypatch):
+    import run_air_bringup_real
     from run_air_bringup_real import main
     _plant()
+    monkeypatch.setattr(run_air_bringup_real, "INCISION_MAX_R", 1.0)   # sin el bloqueo de D35
     args = ["--gains-file", _CANDIDATA, "--paso", "incision", "--r", "0.71", "--test-base",
             "1600", "--dry-run"]
     assert main(args) == 1
@@ -276,6 +278,21 @@ def test_un_escalon_exige_el_anterior(capsys, _no_runs):
     (_no_runs / "smc_1650.csv").write_text("t_wall\n")
     assert main(args) == 0
     assert "smc_1651" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("r", ["0.71", "0.85", "1.0"])
+def test_los_escalones_por_encima_de_050_estan_bloqueados(capsys, _no_runs, r):
+    """D35: con `shoulder_lift` deslizando, el modo de 31.6 Hz se haría inestable hacia r ≈ 0.64.
+    Aunque exista el escalón anterior, la sesión no los corre."""
+    from run_air_bringup_real import main
+    from ur5_identification.air_bringup import INCISION_MAX_R
+    _plant()
+    assert INCISION_MAX_R == 0.50
+    for n in (1650, 1651, 1652):
+        (_no_runs / f"smc_{n}.csv").write_text("t_wall\n")
+    assert main(["--gains-file", _CANDIDATA, "--paso", "incision", "--r", r, "--test-base",
+                 "1600", "--dry-run"]) == 1
+    assert "bloqueado (D35)" in capsys.readouterr().out
 
 
 def test_la_incision_pide_el_escalon(capsys):

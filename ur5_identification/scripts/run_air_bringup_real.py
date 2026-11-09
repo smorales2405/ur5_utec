@@ -41,7 +41,8 @@ from analyze_vibration import load  # noqa: E402
 from run_gain_ramp_real import (BANDS, MOVE_SPEED, POSTURE_TOL, WATCHDOG_SAT_FRAC,  # noqa: E402
                                 launch_args, load_gains, run_indicators)
 from ur5_identification.air_bringup import (BASE_JOINT, BASE_TIP,  # noqa: E402
-                                            INCISION_MIN_CLEARANCE, INCISION_Q_ERR,
+                                            INCISION_MAX_R, INCISION_MIN_CLEARANCE,
+                                            INCISION_Q_ERR,
                                             INCISION_STEPS, MODE_BAND, base_runs,
                                             check_incision, incision_indicators,
                                             incision_runs, label)
@@ -194,6 +195,10 @@ def main(argv=None):
             print_row(s, s["r_joint"])
         runs = [s for s in rows if s["r"] == args.r]
         prev = runs[0]["previous"]
+        if args.r > INCISION_MAX_R:
+            problems.append(f"r = {args.r} está bloqueado (D35): por encima de {INCISION_MAX_R}, el "
+                            "modo de 31.6 Hz de shoulder_lift y el codo pierde el amortiguamiento "
+                            "(docs/09d_air_bringup_protocol.md §5.3)")
         if prev is not None and not os.path.exists(csv_path(prev)):
             problems.append(f"antes de r = {args.r} hay que correr y revisar smc_{prev}, el "
                             "escalón anterior")

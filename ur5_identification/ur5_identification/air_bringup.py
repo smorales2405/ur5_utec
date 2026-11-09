@@ -43,6 +43,11 @@ BASE_JOINT = 0
 #: menos `shoulder_pan`, que se queda en `PAN_INCISION_R`.
 INCISION_STEPS = (0.50, 0.71, 0.85, 1.00)
 
+#: Escalón más alto que la sesión deja correr (D35). Con `shoulder_lift` deslizando, el modo de
+#: 31.6 Hz tiene ζ ≈ 0.01–0.03 a r = 0.50 y se hizo inestable a r = 1 (`smc_1610`); extrapolado, hacia
+#: r ≈ 0.64 (`09d` §5.3). Subirlo necesita algo que lo amortigüe, no solo correr el escalón.
+INCISION_MAX_R = 0.50
+
 #: `r` de `shoulder_pan` en la incisión: en el paso 1, con 0.71 su modo de 33 Hz quedó como a
 #: r = 0.85 en la rampa (ζ ≈ 0.016), y con 0.50, entre 0.015 y 0.030 (`09d` §5.1).
 PAN_INCISION_R = 0.50

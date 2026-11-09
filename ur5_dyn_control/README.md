@@ -397,6 +397,10 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   driver falso: fuera de postura no se pasa a par, con compensación G4 se pone a cero y se
   confirma antes del cambio, y `SAFE_HOLD` no compensa fricción y queda en el CSV.
 
+- `test_lift_friction.py` (`ur5_identification`) — D36: la medida de fricción de `shoulder_lift`
+  a baja velocidad tiene la carga del corte y holgura, solo cambia el barrido de
+  `sweep_params.yaml`, no lanza nada en seco ni sobrescribe, y confirma antes de mover.
+
 - `test_friction_table.py` — D33: el nodo carga la tabla de fricción medida y rechaza una mal
   formada; su procedencia, en `ur5_identification/test/test_friction_table.py`, y la
   interpolación, en el gtest `FrictionTable`.
@@ -421,7 +425,7 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   incisión va por escalones (D31), cada uno exige el anterior y vigila la banda de 30–40 Hz.
 
 Total en `colcon test-result` (2026-11-09): **200** en `ur5_dyn_control`,
-187 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **442**, todos
+196 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **451**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)
