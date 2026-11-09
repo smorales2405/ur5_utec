@@ -10,8 +10,10 @@ TCP y un modo de 31.6 Hz casi sin amortiguar mientras `shoulder_lift` desliza (�
 `wrist_1` a r = 1 (D34), `smc_1650` fue la primera incisión limpia (§5.6); por encima de r = 0.50 la sesión no corre
 (D35). **A `shoulder_lift` le faltaba fricción a la velocidad del corte: medida con su carga (`cur_1660`, D36), su fila
 de la tabla cambia (D37, §5.7), y la incisión se repite como `smc_1670`.** En `smc_1670` el tramo estable del corte
-baja de 2 mm de RMS por primera vez (1.98), pero lift se quedó pegada al invertirse al empezar el corte y el TCP llegó a
-6 mm (§5.8). Plan: B7.1, D28 y D29 de
+baja de 2 mm de RMS por primera vez (1.98), pero lift se quedó pegada al empezar el corte y el TCP llegó a 6 mm; en la
+repetición (`smc_1674`), 8.6 mm. En las cuatro anteriores lift siempre se despegó (§5.8). **D39 vuelve a la tabla de
+agosto y repite `smc_1650` como `smc_1654`, para separar la tabla del estado del robot (temperatura).** Plan: B7.1,
+D28 y D29 de
 `Journal_UR5eControl_plan.md`. Código: `ur5_identification/air_bringup.py` y
 `scripts/run_air_bringup_real.py`.
 
@@ -104,8 +106,8 @@ ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso base 
 # Paso 2, un escalón por sesión, en orden (0.5, 0.71, 0.85, 1) y revisando cada uno:
 ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso incision --r 0.5 --dry-run
 ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso incision --r 0.5 --test-base 1600 --payload-kg 0.155
-# Desde D37 crea smc_1670; por encima de r = 0.50 no corre (D35).
-# Repetir un escalón ya corrido, con número nuevo (D38): smc_1670 -> smc_1674.
+# Con la configuración de smc_1650 (D39), r = 0.5 es smc_1650, que ya existe; por encima de 0.50 no corre (D35).
+# Repetir un escalón ya corrido, con número nuevo (D38): smc_1650 -> smc_1654.
 ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso incision --r 0.5 --test-base 1600 --repeticion --payload-kg 0.155
 ```
 
@@ -467,6 +469,16 @@ separan con estos datos:
   posición, G4 a 0, como las incisiones). Temperatura u otra cosa: sin comprobar.
 
 Lo que las separa es una incisión con la tabla de agosto, ahora: si se despega a +8.5 N·m, era la tabla.
+
+**D39: la incisión vuelve a la tabla de agosto, la configuración de `smc_1650`, y se repite como `smc_1654`.** Lo
+aceptó el usuario, que nota caliente el último eslabón: la temperatura es candidata. La corrida se hace en el mismo
+estado del robot que `smc_1670`/`1674`, así que separa las dos causas:
+- si lift se despega a unos +8.5 N·m, era la tabla, y B7.1 se cierra con la de agosto;
+- si también se pega, es el estado del robot, y se documenta antes de pasar a contacto.
+
+En el código, `INCISION_LOAD_RUNS` queda vacío y la medida se conserva como `LIFT_INCISION_LOAD`; la tabla regenerada
+es idéntica a la de `smc_1650.params.yaml`. La incisión vuelve a su decena (base + 50). La sesión ahora se para antes
+de mover nada si la corrida ya existe, y sugiere `--repeticion`.
 
 ## 6. Qué devolver
 

@@ -11,7 +11,7 @@ con G4 a 0.0 (fricción física), en `q_init` y ±45°. La semidiferencia cancel
 lo que no cambia de signo con el sentido. `k_j` es la de `docs/02_friction_real.md` §8.4.
 Salvedad: la fricción cambia con la postura y la temperatura, del orden de 0.4 N·m (`09c` §8).
 
-D37: la fila de `shoulder_lift` sale de `cur_1660`, medida igual pero con la carga del corte y hasta
+D37 (retirado en D39): la fila de `shoulder_lift` salía de `cur_1660`, medida igual pero con la carga del corte y hasta
 0.005 rad/s. En `smc_1650` a lift le faltaban 0.36 N·m a 0.015 rad/s; la tabla de agosto (en
 `q_init`, −21 N·m de gravedad frente a −45) se quedaba 0.18–0.28 N·m corta por debajo de 0.02 rad/s.
 Las demás juntas repiten por debajo de 0.02 su primer valor, que es lo que ya hacía el nodo.
@@ -29,11 +29,15 @@ from .force_estimator import K_CURRENT
 #: Campaña de agosto con G4 a 0.0: `cur_950 + junta` (`02_friction_real.md` §10).
 CAMPAIGN_G4_0 = tuple(950 + j for j in range(6))
 
-#: Medidas con la carga de la incisión que sustituyen a las de agosto en su junta, a las
-#: velocidades que cubren (D37): (junta, test_num de `cur_*.csv`). `cur_1660`, `shoulder_lift` a
-#: 0.005–0.1 rad/s con −42.4 N·m de gravedad (el 93 % del corte; en `q_init`, −21): a baja velocidad
-#: la fricción sube 0.2–0.3 N·m, y a 0.05–0.1 coincide con agosto (`09d` §5.7).
-INCISION_LOAD_RUNS = ((1, 1660),)
+#: Medida con la carga de la incisión (D36): (junta, test_num de `cur_*.csv`). `cur_1660`,
+#: `shoulder_lift` a 0.005–0.1 rad/s con −42.4 N·m de gravedad (el 93 % del corte; en `q_init`,
+#: −21): a baja velocidad la fricción sube 0.2–0.3 N·m, y a 0.05–0.1 coincide con agosto (`09d` §5.7).
+LIFT_INCISION_LOAD = ((1, 1660),)
+
+#: Las que sustituyen a las de agosto en la tabla de la incisión, en su junta y a sus velocidades.
+#: D37 usó `LIFT_INCISION_LOAD`; D39 la retira: con ella, lift no se despegó al empezar el corte en
+#: `smc_1670` ni en `smc_1674`, y sin ella sí, siempre (`09d` §5.8). Vacío: la tabla de agosto (D33).
+INCISION_LOAD_RUNS = ()
 
 
 def _load(path: str) -> tuple:

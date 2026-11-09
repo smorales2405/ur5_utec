@@ -115,18 +115,18 @@
       # D33: friccion MEDIDA por velocidad, para `friction_compensation: table` [N.m]. Campana de
       # agosto con G4 a 0.0 (cur_950-955), semidiferencia de corrientes por k (02 8.4). El modelo
       # f_c + f_v*v de arriba sobrecompensaba el codo ~1 N.m a 0.02-0.05 rad/s (smc_1630) y se
-      # quedaba corto en shoulder_lift a 0.2. Una fila por junta. D37: la de shoulder_lift, de
-      # cur_1660 (con la carga del corte, hasta 0.005 rad/s); las demas repiten por debajo de 0.02
-      # su primer valor, como ya hacia el nodo. GENERADO: no editar a mano;
+      # quedaba corto en shoulder_lift a 0.2. Una fila por junta. D37 tomo la de shoulder_lift de
+      # cur_1660 (con la carga del corte); D39 la retira: con ella lift no se despego al empezar el
+      # corte (smc_1670, smc_1674; 09d 5.8). GENERADO: no editar a mano;
       # `ros2 run ur5_identification build_friction_table.py`, y --check lo compara (test).
-      table_speeds: [0.005, 0.010, 0.015, 0.020, 0.050, 0.100, 0.200, 0.350, 0.500, 0.750, 1.000]
+      table_speeds: [0.020, 0.050, 0.100, 0.200, 0.350, 0.500, 0.750, 1.000]
       table: [
-        6.270, 6.270, 6.270, 6.270, 7.174, 8.285, 10.040, 12.279, 14.204, 16.970, 19.379,
-        6.398, 6.235, 6.358, 6.464, 7.065, 8.109, 9.971, 12.607, 15.106, 17.923, 20.503,
-        6.491, 6.491, 6.491, 6.491, 7.517, 8.682, 10.441, 13.004, 15.655, 18.068, 20.599,
-        1.811, 1.811, 1.811, 1.811, 1.839, 1.902, 2.030, 2.206, 2.398, 2.708, 3.009,
-        1.895, 1.895, 1.895, 1.895, 1.953, 2.105, 2.304, 2.475, 2.628, 2.912, 3.192,
-        2.138, 2.138, 2.138, 2.138, 2.315, 2.572, 2.931, 3.291, 3.548, 3.920, 4.268]
+        6.270, 7.174, 8.285, 10.040, 12.279, 14.204, 16.970, 19.379,
+        6.182, 7.136, 8.096, 9.971, 12.607, 15.106, 17.923, 20.503,
+        6.491, 7.517, 8.682, 10.441, 13.004, 15.655, 18.068, 20.599,
+        1.811, 1.839, 1.902, 2.030, 2.206, 2.398, 2.708, 3.009,
+        1.895, 1.953, 2.105, 2.304, 2.475, 2.628, 2.912, 3.192,
+        2.138, 2.315, 2.572, 2.931, 3.291, 3.548, 3.920, 4.268]
 
     # -- Trayectoria ---------------------------------------------------------
     # A4 — orientacion del TCP constante, hoja hacia abajo.

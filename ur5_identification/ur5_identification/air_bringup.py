@@ -59,13 +59,14 @@ PAN_INCISION_R = 0.50
 WRIST1_INCISION_R = 1.00
 WRIST1 = 3
 
-#: `test_num` de la incisión: base + 70 + escalón, con la gravedad corregida (D32), la fricción
-#: medida (D33) con la fila de `shoulder_lift` a la carga del corte (D37) y `wrist_1` a r = 1 (D34).
-#: Las del paso 1 son base + 0 y base + 1; base + 10 fue `smc_1610`, la que vibró (§5.2); base + 20,
-#: `smc_1620`, sin corregir (§5.3); base + 30, `smc_1630`, con la gravedad (§5.4); base + 40,
-#: `smc_1640`, con la gravedad y la fricción (§5.5), y base + 50, `smc_1650`, con `wrist_1` a r = 1
-#: (§5.6). Base + 60 se salta: 1660 es el barrido de fricción `cur_1660` (§5.7). No se reutilizan.
-INCISION_OFFSET = 70
+#: `test_num` de la incisión: base + 50 + escalón, con la gravedad corregida (D32), la fricción
+#: medida de agosto (D33) y `wrist_1` a r = 1 (D34): la configuración de `smc_1650` (§5.6), a la que
+#: vuelve D39. Las del paso 1 son base + 0 y base + 1; base + 10 fue `smc_1610`, la que vibró (§5.2);
+#: base + 20, `smc_1620`, sin corregir (§5.3); base + 30, `smc_1630`, con la gravedad (§5.4); base +
+#: 40, `smc_1640`, con la gravedad y la fricción (§5.5). Base + 60 es el barrido `cur_1660` (§5.7), y
+#: base + 70, `smc_1670`/`1674`, la fila de lift de D37 (§5.8). Una decena por configuración: si
+#: vuelve una configuración, vuelve su decena, y sus corridas nuevas son repeticiones.
+INCISION_OFFSET = 50
 
 #: Banda del modo que vibró en `smc_1610` (34.9 y 36.5 Hz) [Hz]: cae entre las dos de la rampa
 #: (20–35 y 40–55 Hz), así que en la incisión se vigila además esta.
@@ -138,7 +139,7 @@ def incision_run(test_base: int, r: float) -> dict:
 
 
 #: D38: la repetición de un escalón va `len(INCISION_STEPS)` números después del original, en la
-#: misma decena (`smc_1670` → `smc_1674`): misma configuración, número nuevo. Una por escalón.
+#: misma decena (`smc_1650` → `smc_1654`): misma configuración, número nuevo. Una por escalón.
 INCISION_REPEAT_SHIFT = len(INCISION_STEPS)
 
 

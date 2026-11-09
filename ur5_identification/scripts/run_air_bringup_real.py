@@ -10,8 +10,8 @@ Dos pasos, una sesión cada uno (docs/09d_air_bringup_protocol.md):
                       despejada, por escalones (--r 0.5, 0.71, 0.85, 1): uno por sesión, y
                       cada uno exige el anterior. shoulder_pan se queda en 0.50; se corrige
                       el exceso de compensación de gravedad del robot (D32) y la fricción se
-                      compensa con la tabla medida (D33; shoulder_lift, a la carga del
-                      corte, D37)
+                      compensa con la tabla medida en agosto (D33; D39 retira la fila de
+                      shoulder_lift de D37)
 
 Como la rampa: el script prepara y comprueba, pero cada corrida la confirma el operador
 escribiendo una palabra. Nunca pasa `discrete_check.allow_unstable`: si el chequeo de arranque
@@ -192,8 +192,8 @@ def main(argv=None):
         target = np.array(common["q_init"], float)
         print("  incisión de incision_common.yaml, con el acople SIN hoja y la mesa despejada")
         print("  gravedad: se resta el exceso de compensación del robot medido en B4.4 (D32)")
-        print("  fricción: la medida por velocidad, en tabla (D33); shoulder_lift, con la carga del "
-              "corte y hasta 0.005 rad/s (D37)")
+        print("  fricción: la medida por velocidad en agosto, en tabla (D33); sin la fila de lift de "
+              "D37 (D39)")
         print("  wrist_1 a r = 1 en todos los escalones (D34); shoulder_pan, a 0.50")
         print(f"  la punta baja a {1e3 * clear:.0f} mm sobre el tablero; guarda de seguimiento "
               f"{INCISION_Q_ERR} rad")
@@ -213,6 +213,10 @@ def main(argv=None):
             runs = [incision_repeat(s) for s in runs]
             if not os.path.exists(csv_path(runs[0]["repeats"])):
                 problems.append(f"no hay smc_{runs[0]['repeats']} que repetir: córralo antes")
+        for s in runs:
+            if os.path.exists(csv_path(s["test_num"])):
+                problems.append(f"smc_{s['test_num']} ya existe: no se sobrescriben corridas"
+                                + ("" if s.get("repeats") else "; para repetirla, --repeticion"))
     move = path_min_tip_z(plant, np.asarray(Q_INIT, float), target) - TABLE_Z
     print(f"  traslado desde q_init: la punta no baja de {1e3 * move:.0f} mm")
     if move < MIN_CLEARANCE:

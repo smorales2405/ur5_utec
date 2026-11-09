@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 import yaml
 
-from ur5_identification.friction_table import (CAMPAIGN_G4_0, INCISION_LOAD_RUNS, build_table,
-                                               interp)
+from ur5_identification.friction_table import (CAMPAIGN_G4_0, INCISION_LOAD_RUNS,
+                                               LIFT_INCISION_LOAD, build_table, interp)
 
 _SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _COMMON = os.path.join(_SRC, "ur5_dyn_control", "config", "incision_common.yaml")
@@ -67,10 +67,19 @@ def test_la_tabla_es_fisica():
 
 
 def test_lift_con_la_carga_del_corte():
-    """D37: cur_1660 frente a agosto. Más fricción a la velocidad del corte; igual a 0.05–0.1."""
-    speeds, table = _yaml_table()
+    """D36: cur_1660 frente a agosto. Más fricción a la velocidad del corte; igual a 0.05–0.1."""
+    if not os.path.exists(os.path.join(_CSV, "cur_1660.csv")):
+        pytest.skip("sin cur_1660")
+    speeds, table = build_table(_CSV, extra=LIFT_INCISION_LOAD)
     lift, august = table[1], dict(zip([0.02, 0.05, 0.10], [6.182, 7.136, 8.096]))
     at = lambda v: lift[list(speeds).index(v)]  # noqa: E731
     assert 0.15 < at(0.015) - august[0.02] < 0.3, "a 0.015 rad/s (el corte de smc_1650)"
     assert abs(at(0.05) - august[0.05]) < 0.1 and abs(at(0.10) - august[0.10]) < 0.1
-    assert INCISION_LOAD_RUNS == ((1, 1660),)
+
+
+def test_la_incision_usa_la_tabla_de_agosto():
+    """D39: con la fila de lift de D37, lift no se despegó al empezar el corte (smc_1670, 1674)."""
+    assert INCISION_LOAD_RUNS == ()
+    speeds, table = _yaml_table()
+    assert list(speeds) == [0.02, 0.05, 0.10, 0.20, 0.35, 0.50, 0.75, 1.00]
+    assert table[1, 0] == pytest.approx(6.182)

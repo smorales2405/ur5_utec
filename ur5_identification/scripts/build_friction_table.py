@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 D33: tabla de fricción medida por velocidad, desde la campaña de agosto (G4 a 0.0, cur_950–955).
-D37: la fila de shoulder_lift, desde `cur_1660` (con la carga del corte, hasta 0.005 rad/s).
+D37 tomó la fila de shoulder_lift de `cur_1660`; D39 la retira (friction_table.INCISION_LOAD_RUNS).
 
 Imprime el bloque YAML para `friction:` de `ur5_dyn_control/config/incision_common.yaml`, y con
 `--check` compara el que hay en ese fichero con el recalculado (código 1 si no coinciden).
