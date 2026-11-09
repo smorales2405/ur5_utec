@@ -73,28 +73,31 @@ def test_la_base_sube_de_050_a_071_y_compara_junta_a_junta():
     np.testing.assert_allclose(runs[1]["ratio"], [0.71 / 0.50, 1, 1, 1, 1, 1])
 
 
-def test_la_incision_va_por_escalones_con_la_base_en_050():
-    """D31: tras `smc_1610`, los escalones de la rampa, y `shoulder_pan` donde dejó el paso 1."""
+def test_la_incision_va_por_escalones_con_la_base_en_050_y_wrist_1_en_1():
+    """D31: tras `smc_1610`, los escalones de la rampa, y `shoulder_pan` donde dejó el paso 1.
+    D34: `wrist_1` a r = 1, porque con 0.50 se pegaba en el corte (`smc_1640`)."""
     assert INCISION_STEPS == RAMP_STEPS and PAN_INCISION_R == PAN_STEPS[0]
-    np.testing.assert_allclose(incision_r_vector(0.50), np.full(6, 0.50))
-    np.testing.assert_allclose(incision_r_vector(0.71), [0.50] + [0.71] * 5)
+    np.testing.assert_allclose(incision_r_vector(0.50), [0.50, 0.50, 0.50, 1.0, 0.50, 0.50])
+    np.testing.assert_allclose(incision_r_vector(0.71), [0.50, 0.71, 0.71, 1.0, 0.71, 0.71])
     np.testing.assert_allclose(incision_r_vector(1.00), [0.50] + [1.0] * 5)
-    assert label(incision_r_vector(0.71)) == "0.71 (shoulder_pan 0.50)"
+    assert label(incision_r_vector(0.50)) == "0.50 (wrist_1 1.00)"
+    assert label(incision_r_vector(0.71)) == "0.71 (shoulder_pan 0.50, wrist_1 1.00)"
     with pytest.raises(ValueError):
         incision_r_vector(0.6)
 
 
 def test_la_incision_no_pisa_los_numeros_ya_usados():
     nums = [r["test_num"] for r in incision_runs(1600)]
-    assert nums == [1640, 1641, 1642, 1643]
+    assert nums == [1650, 1651, 1652, 1653]
     assert not set(nums) & {r["test_num"] for r in base_runs(1600)}
-    assert not {1610, 1620, 1630} & set(nums)
+    assert not {1610, 1620, 1630, 1640} & set(nums)
 
 
 def test_cada_escalon_se_compara_con_el_anterior_junta_a_junta():
     run = incision_run(1600, 0.71)
-    assert run["previous"] == 1640
-    np.testing.assert_allclose(run["ratio"], [1.0] + [0.71 / 0.50] * 5)
+    assert run["previous"] == 1650
+    np.testing.assert_allclose(run["ratio"], [1.0, 0.71 / 0.5, 0.71 / 0.5, 1.0, 0.71 / 0.5,
+                                              0.71 / 0.5])
     assert incision_run(1600, 0.50)["previous"] is None
 
 
@@ -257,7 +260,8 @@ def test_ensayo_en_seco_de_la_incision(capsys, _no_runs):
     assert main(["--gains-file", _CANDIDATA, "--paso", "incision", "--r", "0.5",
                  "--test-base", "1600", "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "smc_1640" in out and "37 mm" in out and "r = 0.71 (shoulder_pan 0.50)" in out
+    assert "smc_1650" in out and "37 mm" in out
+    assert "r = 0.71 (shoulder_pan 0.50, wrist_1 1.00)" in out and "D34" in out
     assert "D32" in out and "D33" in out
     assert "ros2 launch" not in out
 
@@ -268,10 +272,10 @@ def test_un_escalon_exige_el_anterior(capsys, _no_runs):
     args = ["--gains-file", _CANDIDATA, "--paso", "incision", "--r", "0.71", "--test-base",
             "1600", "--dry-run"]
     assert main(args) == 1
-    assert "smc_1640" in capsys.readouterr().out
-    (_no_runs / "smc_1640.csv").write_text("t_wall\n")
+    assert "smc_1650" in capsys.readouterr().out
+    (_no_runs / "smc_1650.csv").write_text("t_wall\n")
     assert main(args) == 0
-    assert "smc_1641" in capsys.readouterr().out
+    assert "smc_1651" in capsys.readouterr().out
 
 
 def test_la_incision_pide_el_escalon(capsys):

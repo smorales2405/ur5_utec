@@ -14,7 +14,8 @@ sesión cada uno (`scripts/run_air_bringup_real.py`, `docs/09d_air_bringup_proto
    rampa nunca probó (`09d_air_bringup_protocol.md` §5.2). Una corrida por sesión, con revisión entre
    escalones. Desde D32, con el exceso de compensación de gravedad del robot corregido (B4.4): en
    `smc_1620` era lo que dejaba la punta siempre por encima. Desde D33, con la fricción medida por
-   velocidad: el modelo lineal sobrecompensaba el codo a 0.02–0.05 rad/s (`smc_1630`).
+   velocidad: el modelo lineal sobrecompensaba el codo a 0.02–0.05 rad/s (`smc_1630`). Desde D34,
+   con `wrist_1` a r = 1: con 0.50 se pegaba y saltaba en el corte (`smc_1640`).
 
 Aquí solo está lo que no necesita ni ROS ni el robot.
 """
@@ -46,11 +47,19 @@ INCISION_STEPS = (0.50, 0.71, 0.85, 1.00)
 #: r = 0.85 en la rampa (ζ ≈ 0.016), y con 0.50, entre 0.015 y 0.030 (`09d` §5.1).
 PAN_INCISION_R = 0.50
 
-#: `test_num` de la incisión: base + 40 + escalón, con la gravedad corregida (D32) y la fricción
-#: medida por velocidad (D33). Las del paso 1 son base + 0 y base + 1; base + 10 fue `smc_1610`, la
-#: que vibró (§5.2); base + 20, `smc_1620`, el escalón 0.50 sin corregir (§5.3), y base + 30,
-#: `smc_1630`, con la gravedad corregida y la fricción lineal (§5.4). No se reutilizan.
-INCISION_OFFSET = 40
+#: `r` de `wrist_1` en la incisión (D34): en `smc_1640`, con 0.50, se pegaba el 15 % del corte y
+#: aportaba 3.25 mm en el peor instante. Con 1, `K_P` ×4 y ese error a la cuarta parte. Apenas pesa
+#: en el modo de 31.6 Hz: su ley responde ahí 0.009 N·m, frente a 0.18 de `shoulder_lift`. A r = 1
+#: ya corrió limpia en el robot (`smc_1533`, la rampa).
+WRIST1_INCISION_R = 1.00
+WRIST1 = 3
+
+#: `test_num` de la incisión: base + 50 + escalón, con la gravedad corregida (D32), la fricción
+#: medida (D33) y `wrist_1` a r = 1 (D34). Las del paso 1 son base + 0 y base + 1; base + 10 fue
+#: `smc_1610`, la que vibró (§5.2); base + 20, `smc_1620`, sin corregir (§5.3); base + 30, `smc_1630`,
+#: con la gravedad (§5.4), y base + 40, `smc_1640`, con la gravedad y la fricción (§5.5). No se
+#: reutilizan.
+INCISION_OFFSET = 50
 
 #: Banda del modo que vibró en `smc_1610` (34.9 y 36.5 Hz) [Hz]: cae entre las dos de la rampa
 #: (20–35 y 40–55 Hz), así que en la incisión se vigila además esta.
@@ -94,11 +103,13 @@ def base_runs(test_base: int, steps=PAN_STEPS) -> list:
 
 
 def incision_r_vector(r: float) -> np.ndarray:
-    """`r` por junta en el escalón `r` de la incisión: `shoulder_pan` no pasa de `PAN_INCISION_R`."""
+    """`r` por junta en el escalón `r` de la incisión: `shoulder_pan` no pasa de `PAN_INCISION_R`,
+    y `wrist_1` va a `WRIST1_INCISION_R` (D34)."""
     if r not in INCISION_STEPS:
         raise ValueError(f"r = {r} no es un escalón de la incisión {INCISION_STEPS}")
     out = np.full(6, float(r))
     out[BASE_JOINT] = min(PAN_INCISION_R, r)
+    out[WRIST1] = max(WRIST1_INCISION_R, r)
     return out
 
 
@@ -152,8 +163,9 @@ def check_incision(ind: dict, table_z: float) -> list:
 
 
 def label(r) -> str:
-    """`r` por junta para imprimir: la mayor, y las que están por debajo."""
-    r = np.asarray(r, float)
-    top = float(r.max())
-    low = [f"{JOINTS[j]} {r[j]:.2f}" for j in range(6) if r[j] < top]
-    return f"{top:.2f}" + (f" ({', '.join(low)})" if low else "")
+    """`r` por junta para imprimir: la de la mayoría, y las que son distintas."""
+    r = np.round(np.asarray(r, float), 6)
+    values, counts = np.unique(r, return_counts=True)
+    base = float(values[counts == counts.max()].max())
+    other = [f"{JOINTS[j]} {r[j]:.2f}" for j in range(6) if r[j] != base]
+    return f"{base:.2f}" + (f" ({', '.join(other)})" if other else "")

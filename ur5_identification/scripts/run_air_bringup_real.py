@@ -186,6 +186,7 @@ def main(argv=None):
         print("  incisión de incision_common.yaml, con el acople SIN hoja y la mesa despejada")
         print("  gravedad: se resta el exceso de compensación del robot medido en B4.4 (D32)")
         print("  fricción: la medida por velocidad en la campaña de agosto, en tabla (D33)")
+        print("  wrist_1 a r = 1 en todos los escalones (D34); shoulder_pan, a 0.50")
         print(f"  la punta baja a {1e3 * clear:.0f} mm sobre el tablero; guarda de seguimiento "
               f"{INCISION_Q_ERR} rad")
         print(f"  escalones, al empezar el corte (q = {np.round(q_cut, 4).tolist()}):")

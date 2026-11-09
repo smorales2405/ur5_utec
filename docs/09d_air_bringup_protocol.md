@@ -61,14 +61,15 @@ incisión sola no lo diría.
 
   | `r` | corrida | `K_P` al empezar el corte [N·m/rad] | `G` máx. (base) | margen |
   |---|---|---|---|---|
-  | 0.50 | `smc_1640` | 132, 301, 270, 26, 5.6, 0.4 | 59.7 (38.1) | ×7.63 |
-  | 0.71 | `smc_1641` | 132, 607, 544, 52, 11.2, 0.7 | 84.8 (38.1) | ×5.23 |
-  | 0.85 | `smc_1642` | 132, 869, 779, 75, 16.1, 1.1 | 101.5 (38.1) | ×4.28 |
-  | 1.00 | `smc_1643` | 132, 1203, 1078, 104, 22.3, 1.5 | 119.4 (38.1) | ×3.55 |
+  | 0.50 | `smc_1650` | 132, 301, 270, 104, 5.6, 0.4 | 59.7 (38.1) | ×5.38 |
+  | 0.71 | `smc_1651` | 132, 607, 544, 104, 11.2, 0.7 | 84.8 (38.1) | ×4.95 |
+  | 0.85 | `smc_1652` | 132, 869, 779, 104, 16.1, 1.1 | 101.5 (38.1) | ×4.23 |
+  | 1.00 | `smc_1653` | 132, 1203, 1078, 104, 22.3, 1.5 | 119.4 (38.1) | ×3.55 |
 
 - **Con la gravedad corregida (D32) y la fricción medida (D33):** la sesión pasa `gravity_correction:=true`
-  y `friction_compensation:=table`. Corridas `smc_1640`–`1643`. Quedan como referencia `smc_1620` (sin
-  corregir) y `smc_1630` (gravedad corregida, fricción lineal).
+  y `friction_compensation:=table`, y `wrist_1` va a r = 1 en todos los escalones (D34). Corridas
+  `smc_1650`–`1653`. Quedan como referencia `smc_1620` (sin corregir), `smc_1630` (gravedad) y `smc_1640`
+  (gravedad y fricción, `wrist_1` a 0.50).
 - **Una corrida por sesión,** con `--r`, y cada escalón exige el CSV del anterior. Entre escalones,
   revisión: los criterios automáticos no ven bien un modo que crece dentro de una corrida, y en
   `smc_1610` pasó de nada a saturar en 1.6 s.
@@ -255,6 +256,12 @@ signo contrario. Peor caso, si el robot no tuviera exceso: la punta a 31 mm del 
 gravedad es exacta): limpia, con las ganancias pedidas y `friction_compensation: table`; TCP 1.15 mm RMS en el
 corte (1.41 con la fricción lineal, `smc_98967`) y la punta a 36 mm. La planta del gemelo lleva la fricción
 lineal, así que esto solo prueba que el nodo carga y usa la tabla.
+
+**Con `wrist_1` a r = 1 (D34), en Gazebo** (`smc_98973`, frente a `98972`): limpia, con las ganancias pedidas. El
+error de `wrist_1` en el corte baja de 7.78 a 1.94 mrad RMS, la cuarta parte, y su aporte al TCP de 2.18 a 0.54 mm;
+`shoulder_lift` y el codo, idénticos. El TCP total sube de 1.15 a 2.26 mm porque en el gemelo, con su fricción
+lineal, la tabla deja el codo con 5.5 mrad de sesgo, y el error de `wrist_1` lo compensaba por casualidad en la
+punta. En el robot el codo ya no tiene ese sesgo con la tabla (`smc_1640`, −0.36 mrad).
 
 **Recomendación: no correr r = 0.71.** Con esta ley, la rigidez que pide el corte y el amortiguamiento
 de este modo no caben juntos. Las vías posibles son decisión del usuario: un filtro de banda eliminada

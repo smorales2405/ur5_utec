@@ -237,8 +237,10 @@ def launch_setup(context, *args, **kwargs):
                             if eps else "sin corregir el exceso del robot (gravity_correction)"))
     fc_mode = optional.get("friction_compensation", "none")
     if fc_mode and fc_mode != "none":
+        # Sin argumento, la fuente es la del YAML (la incision pide `desired`): decir
+        # "MEDIDA (default)" aqui confundia (smc_1640).
         print(f"  friccion: compensacion '{fc_mode}' con la velocidad "
-              f"{optional.get('friction.dq_source', 'MEDIDA (default)')}")
+              f"{optional.get('friction.dq_source', 'que fije el YAML de parametros')}")
         print("  G4: el nodo la pone a cero y lo confirma antes de pasar a par")
     # B7.0: vigilante de comandos en su PROPIO proceso (scripts/command_deadman.py).
     # forward_effort_controller retiene el ultimo par y el driver lo reenvia en
