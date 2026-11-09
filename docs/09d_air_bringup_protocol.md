@@ -480,6 +480,28 @@ En el código, `INCISION_LOAD_RUNS` queda vacío y la medida se conserva como `L
 es idéntica a la de `smc_1650.params.yaml`. La incisión vuelve a su decena (base + 50). La sesión ahora se para antes
 de mover nada si la corrida ya existe, y sugiere `--repeticion`.
 
+**`smc_1654` (14:38, `982699f`): parámetros idénticos a `smc_1650`, y lift también se pegó. No era la tabla.** Lift se
+despegó a −0.52 s con +10.63 N·m, en vez de a −1.59 s con +8.2–8.8, y se soltó de golpe. El máximo de la sesión, 6.09 mm,
+está ahí (−0.49 s, la punta 5.8 mm por encima). Temperaturas de las juntas al acabar (pendant): base 31, shoulder 32.2,
+elbow 31.2, wrist 1 35.5, wrist 2 38, wrist 3 38.5 °C; no se anotaron las de la mañana.
+
+| corrida | hora | tabla | despegue de lift en + | TCP máx. [mm] | RMS del corte desde 2 s [mm] | e lift medio desde 2 s [mrad] |
+|---|---|---|---|---|---|---|
+| `smc_1650` | 13:18 | agosto | −1.59 s, +8.76 N·m | 4.24 | 2.22 | +1.71 |
+| `smc_1670` | 14:07 | D37 | no (hasta +10.42) | 6.06 | 1.98 | +0.99 |
+| `smc_1674` | 14:22 | D37 | no (hasta +11.53) | 8.56 | 2.09 | +1.29 |
+| `smc_1654` | 14:38 | agosto | −0.52 s, +10.63 N·m | 6.09 | 2.90 | +2.15 |
+
+- **Lo que cambió es el robot, no la tabla.** Después de las 13:18, despegar lift en ese punto pide ≥ 10.4 N·m en vez de
+  8.2–8.8, y con la misma tabla su retraso en el corte sube de +1.71 a +2.15 mrad: más fricción. Qué lo causó no lo sé.
+  La temperatura es candidata, pero en el sentido contrario al habitual: en agosto, la viscosa cayó un 9.3 % de frío a
+  rodado (`02_friction_real.md` §8.5). Entre medias también estuvo el barrido `cur_1660`.
+- **Con el robot en el mismo estado, la tabla de D37 es mejor en el corte:** 1.98 y 2.09 mm frente a 2.90, y lift va
+  más cerca (+0.99 y +1.29 frente a +2.15 mrad). La premisa de D39 (que la tabla pegaba lift) queda refutada; la
+  corrida sirvió de prueba A/B.
+- **En el estado de la tarde, ninguna configuración pasa de 5 mm de máximo,** y siempre por el mismo motivo: lift
+  pegada al final del descenso, con la punta hacia arriba (+5.6 a +8.1 mm).
+
 ## 6. Qué devolver
 
 La salida de las sesiones y sus registros (`~/.ros/air_bringup/session_*.yaml`), los CSV `smc_16??`
