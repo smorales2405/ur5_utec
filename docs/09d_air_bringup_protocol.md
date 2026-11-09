@@ -6,7 +6,10 @@ las ganancias equivocadas** (§5.2). El error de configuración está corregido 
 repite por escalones, desde r = 0.50 (D31, §3). **El escalón 0.50 (`smc_1620`) pasó, pero con 11 mm de
 TCP y un modo de 31.6 Hz casi sin amortiguar mientras `shoulder_lift` desliza (§5.3): no se sube a
 0.71.** Casi todo el error era la gravedad que el robot compensa de más (B4.4): el nodo la resta
-(D32), y la incisión se repite con ella desde r = 0.50, como `smc_1630`–`1633`. Plan: B7.1, D28 y D29 de
+(D32), y la incisión se repite con ella desde r = 0.50, como `smc_1630`–`1633`. Con la fricción en tabla (D33) y
+`wrist_1` a r = 1 (D34), `smc_1650` fue la primera incisión limpia (§5.6); por encima de r = 0.50 la sesión no corre
+(D35). **A `shoulder_lift` le faltaba fricción a la velocidad del corte: medida con su carga (`cur_1660`, D36), su fila
+de la tabla cambia (D37, §5.7), y la incisión se repite como `smc_1670`.** Plan: B7.1, D28 y D29 de
 `Journal_UR5eControl_plan.md`. Código: `ur5_identification/air_bringup.py` y
 `scripts/run_air_bringup_real.py`.
 
@@ -99,6 +102,7 @@ ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso base 
 # Paso 2, un escalón por sesión, en orden (0.5, 0.71, 0.85, 1) y revisando cada uno:
 ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso incision --r 0.5 --dry-run
 ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso incision --r 0.5 --test-base 1600 --payload-kg 0.155
+# Desde D37 crea smc_1670; por encima de r = 0.50 no corre (D35).
 ```
 
 La sesión pide «ACEPTO» y la masa tecleada al empezar. En el paso 1, el nombre de la junta en cada
@@ -340,7 +344,7 @@ velocidad deseada y ε, en su `.params.yaml`).
 - **No se sube a r = 0.71:** con estas ganancias, `shoulder_lift` y el codo siguen limitados por el modo (§5.3). La
   sesión lo permitiría, porque solo exige que exista el escalón anterior.
 
-## 5.7 Fricción de `shoulder_lift` a baja velocidad, con la carga del corte (D36, preparado)
+## 5.7 Fricción de `shoulder_lift` a baja velocidad, con la carga del corte (`cur_1660`, 2026-11-09, D36 y D37)
 
 Lo que queda en `smc_1650` es `shoulder_lift`: le faltan 0.36 N·m en el corte, donde va a 0.015 rad/s, por debajo de la
 menor velocidad de la campaña de agosto, que además midió en `q_init`, con la mitad de carga gravitatoria (−21 N·m
@@ -365,6 +369,45 @@ construye la tabla con un nodo que la escribe en un par de segundos y se queda e
 lo mataba a los 120 s fijos, y la sesión mandaba esa salida solo al registro. Se interrumpió las dos veces antes de
 que venciera. Ahora se para en cuanto el nodo anuncia la tabla (1.4 s), la salida va también a pantalla, y la
 confirmación ya no dice «comandar par».
+
+**Resultado (`cur_1660`, 13:46–13:49, `f46044c`): limpio.** Fricción de `shoulder_lift` [N·m]:
+
+| v [rad/s] | 0.005 | 0.010 | 0.015 | 0.020 | 0.050 | 0.100 |
+|---|---|---|---|---|---|---|
+| con la carga del corte (`cur_1660`) | 6.398 | 6.235 | 6.358 | 6.464 | 7.065 | 8.109 |
+| tabla de agosto (`q_init`; por debajo de 0.02, su valor en 0.02) | 6.182 | 6.182 | 6.182 | 6.182 | 7.136 | 8.096 |
+
+- **A 0.05 y 0.1 rad/s coincide con agosto** (±0.07 N·m). **Por debajo de 0.02, 0.18–0.28 N·m más.** Con un solo
+  barrido no se separa si es la carga, la postura o la temperatura; para la incisión da igual, porque se midió en
+  sus condiciones.
+- **Plana entre 0.005 y 0.02:** sube y baja 0.23 N·m sin tendencia. Se usa tal cual, sin suavizar.
+- **Explica el déficit de `smc_1650` con su signo.** En el corte, `shoulder_lift` baja (q̇_des −0.0147 rad/s), va
+  1.2 mrad por detrás, y el término conmutado de la ley empuja de media −0.36 N·m en el sentido del movimiento:
+  fricción sin compensar. Con la tabla nueva, el feedforward añade −0.22 N·m en ese sentido: el 60 % de lo que faltaba.
+
+**D37: la fila de `shoulder_lift` de la tabla sale de `cur_1660`.** `build_friction_table.py` la toma de ahí
+(`INCISION_LOAD_RUNS` en `friction_table.py`), y la tabla pasa a 11 velocidades, de 0.005 a 1 rad/s. Por debajo de
+0.02, las demás juntas repiten su primer valor, que es lo que ya hacía el nodo: para ellas no cambia nada. La tabla
+solo la usa la incisión (`incision_common.yaml`). La incisión se repite como `smc_1670`–`1673`; 1660 se salta porque
+es el barrido.
+
+**Ensayado en Gazebo:** el nodo carga las 11 velocidades (lift a 0.015 rad/s: 6.358 N·m en el `.params.yaml`) y las
+ganancias pedidas; la corrida sale limpia. Comparado con el ensayo de D34 (98973, sin la corrección de gravedad, que
+en el gemelo es un error a propósito porque no compensa de más), 98975 baja el error medio de lift de +2.23 a
++1.66 mrad y deja igual el codo y `wrist_1`. (98974, con la corrección, no es comparable.)
+
+**Qué esperar en el robot: poco.** El error medio de lift en el corte de `smc_1650` es +1.0 mrad, pero su desviación,
+2.3 mrad. Por cinemática sobre `smc_1650`, quitar el 60 % de ese error medio baja el RMS del TCP de 2.34 a unos
+2.2 mm; con lift perfecto bajaría a 1.36 mm. Lo que la tabla no toca:
+
+- **Rizado del reductor de lift.** En el corte estable (0.018 rad/s), su error oscila a unos 0.56 Hz, y el par a la misma
+  frecuencia con 0.68 N·m de amplitud. En `cur_1660`, por control de posición, la corriente de lift tiene un rizado de
+  0.4–0.7 N·m a un orden fijo del giro del motor (2.22, con reducción 101) a 0.01, 0.015 y 0.02 rad/s: depende de la
+  posición, cada unos 0.028 rad de la junta. Es la misma componente.
+- **El arranque del corte:** el primer segundo y medio, lift va 2.4–3.2 mrad por delante de la referencia.
+
+Por bandas, sin la parte de menos de 0.5 Hz del error de lift (sobre todo, el arranque frente al tramo estable) el TCP
+quedaría en 1.79 mm; sin la de 0.5–3 Hz (el rizado), en 2.23.
 
 ## 6. Qué devolver
 

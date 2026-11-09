@@ -88,14 +88,14 @@ def test_la_incision_va_por_escalones_con_la_base_en_050_y_wrist_1_en_1():
 
 def test_la_incision_no_pisa_los_numeros_ya_usados():
     nums = [r["test_num"] for r in incision_runs(1600)]
-    assert nums == [1650, 1651, 1652, 1653]
+    assert nums == [1670, 1671, 1672, 1673]
     assert not set(nums) & {r["test_num"] for r in base_runs(1600)}
     assert not {1610, 1620, 1630, 1640} & set(nums)
 
 
 def test_cada_escalon_se_compara_con_el_anterior_junta_a_junta():
     run = incision_run(1600, 0.71)
-    assert run["previous"] == 1650
+    assert run["previous"] == 1670
     np.testing.assert_allclose(run["ratio"], [1.0, 0.71 / 0.5, 0.71 / 0.5, 1.0, 0.71 / 0.5,
                                               0.71 / 0.5])
     assert incision_run(1600, 0.50)["previous"] is None
@@ -260,7 +260,7 @@ def test_ensayo_en_seco_de_la_incision(capsys, _no_runs):
     assert main(["--gains-file", _CANDIDATA, "--paso", "incision", "--r", "0.5",
                  "--test-base", "1600", "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "smc_1650" in out and "37 mm" in out
+    assert "smc_1670" in out and "37 mm" in out
     assert "r = 0.71 (shoulder_pan 0.50, wrist_1 1.00)" in out and "D34" in out
     assert "D32" in out and "D33" in out
     assert "ros2 launch" not in out
@@ -274,10 +274,10 @@ def test_un_escalon_exige_el_anterior(capsys, _no_runs, monkeypatch):
     args = ["--gains-file", _CANDIDATA, "--paso", "incision", "--r", "0.71", "--test-base",
             "1600", "--dry-run"]
     assert main(args) == 1
-    assert "smc_1650" in capsys.readouterr().out
-    (_no_runs / "smc_1650.csv").write_text("t_wall\n")
+    assert "smc_1670" in capsys.readouterr().out
+    (_no_runs / "smc_1670.csv").write_text("t_wall\n")
     assert main(args) == 0
-    assert "smc_1651" in capsys.readouterr().out
+    assert "smc_1671" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("r", ["0.71", "0.85", "1.0"])
@@ -288,7 +288,7 @@ def test_los_escalones_por_encima_de_050_estan_bloqueados(capsys, _no_runs, r):
     from ur5_identification.air_bringup import INCISION_MAX_R
     _plant()
     assert INCISION_MAX_R == 0.50
-    for n in (1650, 1651, 1652):
+    for n in (1670, 1671, 1672):
         (_no_runs / f"smc_{n}.csv").write_text("t_wall\n")
     assert main(["--gains-file", _CANDIDATA, "--paso", "incision", "--r", r, "--test-base",
                  "1600", "--dry-run"]) == 1

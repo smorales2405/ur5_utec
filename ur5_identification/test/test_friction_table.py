@@ -1,4 +1,5 @@
-"""D33: fricción medida por velocidad (campaña de agosto, G4 a 0.0) para la compensación del nodo."""
+"""D33: fricción medida por velocidad (campaña de agosto, G4 a 0.0) para la compensación del nodo.
+D37: la fila de shoulder_lift, con la carga del corte y hasta 0.005 rad/s (cur_1660)."""
 
 import os
 
@@ -6,7 +7,8 @@ import numpy as np
 import pytest
 import yaml
 
-from ur5_identification.friction_table import CAMPAIGN_G4_0, build_table, interp
+from ur5_identification.friction_table import (CAMPAIGN_G4_0, INCISION_LOAD_RUNS, build_table,
+                                               interp)
 
 _SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _COMMON = os.path.join(_SRC, "ur5_dyn_control", "config", "incision_common.yaml")
@@ -20,9 +22,15 @@ def _friction():
 
 
 def _campaign():
-    if not all(os.path.exists(os.path.join(_CSV, f"cur_{n}.csv")) for n in CAMPAIGN_G4_0):
-        pytest.skip("sin la campaña cur_950-955")
+    runs = list(CAMPAIGN_G4_0) + [n for _, n in INCISION_LOAD_RUNS]
+    if not all(os.path.exists(os.path.join(_CSV, f"cur_{n}.csv")) for n in runs):
+        pytest.skip("sin la campaña cur_950-955 o sin cur_1660")
     return build_table(_CSV)
+
+
+def _yaml_table():
+    fr = _friction()
+    return np.array(fr["table_speeds"]), np.reshape(fr["table"], (6, -1))
 
 
 def test_interpolacion_como_el_nodo():
@@ -31,7 +39,7 @@ def test_interpolacion_como_el_nodo():
     assert interp(s, f, 0.2) == pytest.approx(13.0)
 
 
-def test_la_tabla_del_yaml_es_la_de_la_campana():
+def test_la_tabla_del_yaml_es_la_medida():
     speeds, table = _campaign()
     fr = _friction()
     np.testing.assert_allclose(fr["table_speeds"], speeds)
@@ -41,16 +49,28 @@ def test_la_tabla_del_yaml_es_la_de_la_campana():
 
 def test_el_modelo_lineal_sobrecompensa_las_grandes_a_baja_velocidad():
     """Por qué existe (smc_1630): a 0.02 rad/s, ~1 N·m de más en el codo."""
-    fr = _friction()
-    speeds, table = np.array(fr["table_speeds"]), np.reshape(fr["table"], (6, -1))
+    speeds, table = _yaml_table()
+    at = list(speeds).index(0.02)
     model = _F_C[:, None] + _F_V[:, None] * speeds[None, :]
-    assert (model[:3, 0] - table[:3, 0]).min() > 0.7
-    assert model[2, 0] - table[2, 0] == pytest.approx(1.24, abs=0.05)
+    assert (model[:3, at] - table[:3, at]).min() > 0.5, "lift, 0.53 con la carga del corte (D37)"
+    assert model[2, at] - table[2, at] == pytest.approx(1.24, abs=0.05)
     assert np.abs(model[3:, :] - table[3:, :]).max() < 0.35, "las muñecas, como el modelo"
 
 
 def test_la_tabla_es_fisica():
-    fr = _friction()
-    speeds, table = np.array(fr["table_speeds"]), np.reshape(fr["table"], (6, -1))
-    assert np.all(np.diff(speeds) > 0) and speeds[0] > 0
-    assert np.all(table > 0) and np.all(np.diff(table, axis=1) > 0), "crece con la velocidad"
+    speeds, table = _yaml_table()
+    assert np.all(np.diff(speeds) > 0) and speeds[0] > 0 and np.all(table > 0)
+    fast = speeds >= 0.02
+    assert np.all(np.diff(table[:, fast], axis=1) > 0), "desde 0.02 rad/s, crece con la velocidad"
+    # Por debajo, casi plana: en lift, lo medido sube y baja 0.23 N·m (cur_1660); se usa tal cual.
+    assert np.ptp(table[:, ~fast | (speeds == 0.02)], axis=1).max() < 0.3
+
+
+def test_lift_con_la_carga_del_corte():
+    """D37: cur_1660 frente a agosto. Más fricción a la velocidad del corte; igual a 0.05–0.1."""
+    speeds, table = _yaml_table()
+    lift, august = table[1], dict(zip([0.02, 0.05, 0.10], [6.182, 7.136, 8.096]))
+    at = lambda v: lift[list(speeds).index(v)]  # noqa: E731
+    assert 0.15 < at(0.015) - august[0.02] < 0.3, "a 0.015 rad/s (el corte de smc_1650)"
+    assert abs(at(0.05) - august[0.05]) < 0.1 and abs(at(0.10) - august[0.10]) < 0.1
+    assert INCISION_LOAD_RUNS == ((1, 1660),)

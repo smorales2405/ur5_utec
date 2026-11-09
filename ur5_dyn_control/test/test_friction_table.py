@@ -25,8 +25,10 @@ def test_la_incision_compensa_con_la_tabla(tmp_path):
     rc, log, eff = _start(tmp_path, [*_INCISION, _CANDIDATA, override_file(
         _NODE, {"friction_compensation": "table", "friction.dq_source": "desired"})], 81)
     assert rc is None, log[-2000:]
-    assert "Compensacion de friccion 'table' (D33): medida a 8 velocidades" in log
-    assert eff["friction_compensation"] == "table" and len(eff["friction.table"]) == 48
+    assert "Compensacion de friccion 'table' (D33): medida a 11 velocidades" in log
+    assert eff["friction_compensation"] == "table" and len(eff["friction.table"]) == 66
+    lift = dict(zip(eff["friction.table_speeds"], eff["friction.table"][11:22]))
+    assert lift[0.015] == pytest.approx(6.358), "D37: shoulder_lift con la carga del corte"
 
 
 @pytest.mark.parametrize("bad", [{"friction.table": [1.0] * 47},

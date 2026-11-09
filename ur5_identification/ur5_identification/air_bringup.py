@@ -59,12 +59,13 @@ PAN_INCISION_R = 0.50
 WRIST1_INCISION_R = 1.00
 WRIST1 = 3
 
-#: `test_num` de la incisión: base + 50 + escalón, con la gravedad corregida (D32), la fricción
-#: medida (D33) y `wrist_1` a r = 1 (D34). Las del paso 1 son base + 0 y base + 1; base + 10 fue
-#: `smc_1610`, la que vibró (§5.2); base + 20, `smc_1620`, sin corregir (§5.3); base + 30, `smc_1630`,
-#: con la gravedad (§5.4), y base + 40, `smc_1640`, con la gravedad y la fricción (§5.5). No se
-#: reutilizan.
-INCISION_OFFSET = 50
+#: `test_num` de la incisión: base + 70 + escalón, con la gravedad corregida (D32), la fricción
+#: medida (D33) con la fila de `shoulder_lift` a la carga del corte (D37) y `wrist_1` a r = 1 (D34).
+#: Las del paso 1 son base + 0 y base + 1; base + 10 fue `smc_1610`, la que vibró (§5.2); base + 20,
+#: `smc_1620`, sin corregir (§5.3); base + 30, `smc_1630`, con la gravedad (§5.4); base + 40,
+#: `smc_1640`, con la gravedad y la fricción (§5.5), y base + 50, `smc_1650`, con `wrist_1` a r = 1
+#: (§5.6). Base + 60 se salta: 1660 es el barrido de fricción `cur_1660` (§5.7). No se reutilizan.
+INCISION_OFFSET = 70
 
 #: Banda del modo que vibró en `smc_1610` (34.9 y 36.5 Hz) [Hz]: cae entre las dos de la rampa
 #: (20–35 y 40–55 Hz), así que en la incisión se vigila además esta.

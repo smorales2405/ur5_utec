@@ -10,7 +10,8 @@ Dos pasos, una sesión cada uno (docs/09d_air_bringup_protocol.md):
                       despejada, por escalones (--r 0.5, 0.71, 0.85, 1): uno por sesión, y
                       cada uno exige el anterior. shoulder_pan se queda en 0.50; se corrige
                       el exceso de compensación de gravedad del robot (D32) y la fricción se
-                      compensa con la tabla medida (D33)
+                      compensa con la tabla medida (D33; shoulder_lift, a la carga del
+                      corte, D37)
 
 Como la rampa: el script prepara y comprueba, pero cada corrida la confirma el operador
 escribiendo una palabra. Nunca pasa `discrete_check.allow_unstable`: si el chequeo de arranque
@@ -186,7 +187,8 @@ def main(argv=None):
         target = np.array(common["q_init"], float)
         print("  incisión de incision_common.yaml, con el acople SIN hoja y la mesa despejada")
         print("  gravedad: se resta el exceso de compensación del robot medido en B4.4 (D32)")
-        print("  fricción: la medida por velocidad en la campaña de agosto, en tabla (D33)")
+        print("  fricción: la medida por velocidad, en tabla (D33); shoulder_lift, con la carga del "
+              "corte y hasta 0.005 rad/s (D37)")
         print("  wrist_1 a r = 1 en todos los escalones (D34); shoulder_pan, a 0.50")
         print(f"  la punta baja a {1e3 * clear:.0f} mm sobre el tablero; guarda de seguimiento "
               f"{INCISION_Q_ERR} rad")

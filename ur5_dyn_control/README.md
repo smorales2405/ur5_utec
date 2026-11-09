@@ -402,7 +402,7 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   `sweep_params.yaml`, no lanza nada en seco ni sobrescribe, y confirma antes de mover.
 
 - `test_friction_table.py` — D33: el nodo carga la tabla de fricción medida y rechaza una mal
-  formada; su procedencia, en `ur5_identification/test/test_friction_table.py`, y la
+  formada; desde D37, con 11 velocidades y la fila de `shoulder_lift` con la carga del corte; su procedencia, en `ur5_identification/test/test_friction_table.py`, y la
   interpolación, en el gtest `FrictionTable`.
 
 - `test_gravity_residual.py` — D32: el exceso de compensación de gravedad del robot (B4.4) es
@@ -425,7 +425,7 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   incisión va por escalones (D31), cada uno exige el anterior y vigila la banda de 30–40 Hz.
 
 Total en `colcon test-result` (2026-11-09): **200** en `ur5_dyn_control`,
-197 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **452**, todos
+198 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **453**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)
