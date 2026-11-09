@@ -226,10 +226,38 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
       friction_mode_ = FrictionCompensation::VISCOUS;
     } else if (mode == "viscous_coulomb") {
       friction_mode_ = FrictionCompensation::VISCOUS_COULOMB;
+    } else if (mode == "table") {
+      friction_mode_ = FrictionCompensation::TABLE;
     } else {
       throw std::runtime_error(
         "friction_compensation desconocido: '" + mode +
-        "' (validos: none, viscous, viscous_coulomb)");
+        "' (validos: none, viscous, viscous_coulomb, table)");
+    }
+    // D33: la tabla medida. Se declara siempre (el YAML de la incision la lleva); solo se exige
+    // con el modo `table`.
+    friction_table_speeds_ = declare_parameter<std::vector<double>>(
+      "friction.table_speeds", std::vector<double>{});
+    friction_table_ = declare_parameter<std::vector<double>>(
+      "friction.table", std::vector<double>{});
+    if (friction_mode_ == FrictionCompensation::TABLE) {
+      const size_t n = friction_table_speeds_.size();
+      if (n < 2 || friction_table_.size() != 6 * n) {
+        throw std::runtime_error(
+                "friction_compensation=table: friction.table_speeds necesita >= 2 velocidades "
+                "y friction.table, 6 filas de ese largo");
+      }
+      for (size_t i = 0; i < n; ++i) {
+        if (!(friction_table_speeds_[i] > 0.0) ||
+          (i > 0 && !(friction_table_speeds_[i] > friction_table_speeds_[i - 1])))
+        {
+          throw std::runtime_error("friction.table_speeds: positivas y crecientes");
+        }
+      }
+      for (const double f : friction_table_) {
+        if (!(f >= 0.0)) {
+          throw std::runtime_error("friction.table: valores >= 0");
+        }
+      }
     }
     friction_f_v_ = paramToVec6(declare_parameter<std::vector<double>>(
         "friction.f_v", std::vector<double>(6, 0.0)), "friction.f_v");
@@ -271,7 +299,16 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
                   "solo tiene sentido con dq_source='desired'.",
                   friction_dq_eps_);
     }
-    if (friction_mode_ != FrictionCompensation::NONE) {
+    if (friction_mode_ == FrictionCompensation::TABLE) {
+      const size_t n = friction_table_speeds_.size();
+      RCLCPP_INFO(get_logger(),
+                  "Compensacion de friccion 'table' (D33): medida a %zu velocidades, de %.3f a "
+                  "%.3f rad/s; a la menor, [%.3f %.3f %.3f %.3f %.3f %.3f] N.m (tanh eps=%.2e)",
+                  n, friction_table_speeds_[0], friction_table_speeds_[n - 1],
+                  friction_table_[0], friction_table_[n], friction_table_[2 * n],
+                  friction_table_[3 * n], friction_table_[4 * n], friction_table_[5 * n],
+                  friction_dq_eps_);
+    } else if (friction_mode_ != FrictionCompensation::NONE) {
       RCLCPP_INFO(get_logger(),
                   "Compensacion de friccion '%s': F_v=[%.3f %.3f %.3f %.3f %.3f %.3f] "
                   "F_c=[%.3f %.3f %.3f %.3f %.3f %.3f] (tanh eps=%.2e rad/s)",
@@ -281,6 +318,8 @@ TorqueControlNodeBase::TorqueControlNodeBase(const std::string & node_name)
                   friction_f_c_[0], friction_f_c_[1], friction_f_c_[2],
                   friction_f_c_[3], friction_f_c_[4], friction_f_c_[5],
                   friction_dq_eps_);
+    }
+    if (friction_mode_ != FrictionCompensation::NONE) {
       if (friction_ff_dv_max_ <= 0.0) {
         RCLCPP_WARN(get_logger(),
                     "  feedforward SIN limite de tasa: en juntas ligeras el "
@@ -1300,8 +1339,9 @@ Vector6d TorqueControlNodeBase::commandFromLaw(const Vector6d & tau_law,
   if (state_ != State::SAFE_HOLD) {
     const Vector6d dq_fric = !friction_use_ref_dq_ ? dq :
       (dq_ref != nullptr ? *dq_ref : Vector6d::Zero().eval());
-    ff = frictionFeedforward(
-      dq_fric, friction_f_v_, friction_f_c_, friction_mode_, friction_dq_eps_);
+    ff = friction_mode_ == FrictionCompensation::TABLE ?
+      frictionTableFeedforward(dq_fric, friction_table_speeds_, friction_table_, friction_dq_eps_) :
+      frictionFeedforward(dq_fric, friction_f_v_, friction_f_c_, friction_mode_, friction_dq_eps_);
 
     // LIMITE DE TASA del feedforward. Ver la declaracion en el header: sin el,
     // `f_c·tanh(q̇_d/eps)` es un escalon que en una junta ligera inyecta cientos

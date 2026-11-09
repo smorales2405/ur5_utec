@@ -61,14 +61,14 @@ incisión sola no lo diría.
 
   | `r` | corrida | `K_P` al empezar el corte [N·m/rad] | `G` máx. (base) | margen |
   |---|---|---|---|---|
-  | 0.50 | `smc_1630` | 132, 301, 270, 26, 5.6, 0.4 | 59.7 (38.1) | ×7.63 |
-  | 0.71 | `smc_1631` | 132, 607, 544, 52, 11.2, 0.7 | 84.8 (38.1) | ×5.23 |
-  | 0.85 | `smc_1632` | 132, 869, 779, 75, 16.1, 1.1 | 101.5 (38.1) | ×4.28 |
-  | 1.00 | `smc_1633` | 132, 1203, 1078, 104, 22.3, 1.5 | 119.4 (38.1) | ×3.55 |
+  | 0.50 | `smc_1640` | 132, 301, 270, 26, 5.6, 0.4 | 59.7 (38.1) | ×7.63 |
+  | 0.71 | `smc_1641` | 132, 607, 544, 52, 11.2, 0.7 | 84.8 (38.1) | ×5.23 |
+  | 0.85 | `smc_1642` | 132, 869, 779, 75, 16.1, 1.1 | 101.5 (38.1) | ×4.28 |
+  | 1.00 | `smc_1643` | 132, 1203, 1078, 104, 22.3, 1.5 | 119.4 (38.1) | ×3.55 |
 
-- **Con la gravedad corregida (D32):** la sesión pasa `gravity_correction:=true` y el nodo resta el exceso de
-  compensación del robot medido en B4.4. Corridas `smc_1630`–`1633`; `smc_1620`, sin corregir, queda como
-  referencia.
+- **Con la gravedad corregida (D32) y la fricción medida (D33):** la sesión pasa `gravity_correction:=true`
+  y `friction_compensation:=table`. Corridas `smc_1640`–`1643`. Quedan como referencia `smc_1620` (sin
+  corregir) y `smc_1630` (gravedad corregida, fricción lineal).
 - **Una corrida por sesión,** con `--r`, y cada escalón exige el CSV del anterior. Entre escalones,
   revisión: los criterios automáticos no ven bien un modo que crece dentro de una corrida, y en
   `smc_1610` pasó de nada a saturar en 1.6 s.
@@ -250,6 +250,11 @@ exceso, da 6.00 mm de TCP a r = 0.50 (medido: 5.41 mm) y 0.11 mm corregido, a cu
 corregirla baja la punta −5.2 mm de media en el corte, el mismo tamaño que el robot la subía (+4.6) con el
 signo contrario. Peor caso, si el robot no tuviera exceso: la punta a 31 mm del tablero, por encima de los
 30 mm del criterio de parada.
+
+**Con la fricción en tabla (D33), en Gazebo** (`smc_98972`, r = 0.50, sin la corrección de gravedad: allí la
+gravedad es exacta): limpia, con las ganancias pedidas y `friction_compensation: table`; TCP 1.15 mm RMS en el
+corte (1.41 con la fricción lineal, `smc_98967`) y la punta a 36 mm. La planta del gemelo lleva la fricción
+lineal, así que esto solo prueba que el nodo carga y usa la tabla.
 
 **Recomendación: no correr r = 0.71.** Con esta ley, la rigidez que pide el corte y el amortiguamiento
 de este modo no caben juntos. Las vías posibles son decisión del usuario: un filtro de banda eliminada

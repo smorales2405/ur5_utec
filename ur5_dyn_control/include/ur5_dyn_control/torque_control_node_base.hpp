@@ -257,6 +257,9 @@ private:
   Vector6d friction_f_v_ = Vector6d::Zero();
   Vector6d friction_f_c_ = Vector6d::Zero();
   double friction_dq_eps_ = 1e-3;
+  /// D33: friccion medida por velocidad (`friction.table_speeds`, `friction.table`, 6 × N).
+  std::vector<double> friction_table_speeds_;
+  std::vector<double> friction_table_;
   /// `friction.dq_source` = "desired": alimentar el feedforward con la
   /// velocidad DESEADA en vez de la medida. Ver commandFromLaw().
   bool friction_use_ref_dq_ = false;

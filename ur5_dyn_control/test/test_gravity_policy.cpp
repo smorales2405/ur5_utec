@@ -373,3 +373,48 @@ TEST(GravityResidual, ZeroEpsChangesNothing)
                 Vector6d::Zero());
   }
 }
+
+// ── D33: friccion medida por velocidad ───────────────────────────────────────
+TEST(FrictionTable, InterpolatesHoldsBelowAndExtrapolatesAbove)
+{
+  const std::vector<double> speeds{0.02, 0.05, 0.10};
+  std::vector<double> table;
+  for (int j = 0; j < 6; ++j) {
+    table.insert(table.end(), {6.0 + j, 7.0 + j, 9.0 + j});
+  }
+  const double eps = 1e-5;
+  const Vector6d dq = vec6(0.035, -0.035, 0.01, -0.2, 0.05, 0.0);
+  const Vector6d ff = ur5_dyn_control::frictionTableFeedforward(dq, speeds, table, eps);
+  EXPECT_NEAR(ff[0], 6.5, 1e-9);                       // mitad de 6 y 7
+  EXPECT_NEAR(ff[1], -7.5, 1e-9);                      // signo de q̇
+  EXPECT_NEAR(ff[2], 8.0, 1e-9);                       // por debajo del primero: el primero
+  EXPECT_NEAR(ff[3], -(12.0 + 40.0 * 0.1), 1e-9);      // pendiente del ultimo tramo
+  EXPECT_NEAR(ff[4], 11.0, 1e-9);                      // en un punto
+  EXPECT_NEAR(ff[5], 0.0, 1e-12);                      // tanh(0) = 0
+}
+
+TEST(FrictionTable, LinearTableIsTheViscousCoulombModel)
+{
+  const Vector6d f_v = vec6(13.64, 11.55, 13.74, 1.28, 1.35, 2.12);
+  const Vector6d f_c = vec6(6.85, 6.76, 7.46, 1.78, 1.96, 2.35);
+  const std::vector<double> speeds{0.02, 0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0};
+  std::vector<double> table;
+  for (int j = 0; j < 6; ++j) {
+    for (const double v : speeds) {table.push_back(f_c[j] + f_v[j] * v);}
+  }
+  for (const double v : {0.027, -0.13, 0.6, -1.4}) {
+    const Vector6d dq = Vector6d::Constant(v);
+    const Vector6d a = ur5_dyn_control::frictionTableFeedforward(dq, speeds, table, 1e-5);
+    const Vector6d b = ur5_dyn_control::frictionFeedforward(
+      dq, f_v, f_c, ur5_dyn_control::FrictionCompensation::VISCOUS_COULOMB, 1e-5);
+    EXPECT_LT((a - b).cwiseAbs().maxCoeff(), 1e-9) << v;
+  }
+}
+
+TEST(FrictionTable, RejectsMalformedTables)
+{
+  EXPECT_THROW(ur5_dyn_control::frictionTableFeedforward(
+      Vector6d::Zero(), {0.1}, std::vector<double>(6, 1.0), 1e-5), std::invalid_argument);
+  EXPECT_THROW(ur5_dyn_control::frictionTableFeedforward(
+      Vector6d::Zero(), {0.1, 0.2}, std::vector<double>(11, 1.0), 1e-5), std::invalid_argument);
+}

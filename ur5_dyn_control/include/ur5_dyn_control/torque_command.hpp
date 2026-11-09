@@ -5,6 +5,8 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
+#include <vector>
 
 #include <Eigen/Eigenvalues>
 
@@ -105,7 +107,45 @@ enum class FrictionCompensation
   NONE,              ///< sin compensacion
   VISCOUS,           ///< solo F_v · q̇
   VISCOUS_COULOMB,   ///< F_v · q̇ + F_c · tanh(q̇/eps)
+  TABLE,             ///< D33: F_j(|q̇|) medida por velocidad · tanh(q̇/eps)
 };
+
+/**
+ * D33: friccion MEDIDA por velocidad (campana de agosto, G4 a 0.0; ur5_identification/
+ * friction_table.py). El modelo F_c + F_v·|v| sobrecompensaba el codo ~1 N·m a 0.02–0.05 rad/s
+ * y se quedaba corto en shoulder_lift a 0.2 (smc_1630). F_j(|v|): lineal entre puntos; por
+ * debajo del primero, el primero; por encima del ultimo, la pendiente del ultimo tramo. El
+ * signo, suave como en VISCOUS_COULOMB. `table` es 6 × N por filas (una fila por junta).
+ */
+inline double frictionTableValue(const std::vector<double> & speeds, const double * values,
+                                 double a)
+{
+  const size_t n = speeds.size();
+  if (a <= speeds[0]) {return values[0];}
+  if (a >= speeds[n - 1]) {
+    const double slope = (values[n - 1] - values[n - 2]) / (speeds[n - 1] - speeds[n - 2]);
+    return values[n - 1] + slope * (a - speeds[n - 1]);
+  }
+  size_t i = 1;
+  while (speeds[i] < a) {++i;}
+  const double w = (a - speeds[i - 1]) / (speeds[i] - speeds[i - 1]);
+  return values[i - 1] + w * (values[i] - values[i - 1]);
+}
+
+inline Vector6d frictionTableFeedforward(const Vector6d & dq, const std::vector<double> & speeds,
+                                         const std::vector<double> & table, double dq_eps)
+{
+  if (speeds.size() < 2 || table.size() != 6 * speeds.size()) {
+    throw std::invalid_argument("friccion por tabla: hacen falta >= 2 velocidades y 6 filas");
+  }
+  Vector6d out;
+  for (int i = 0; i < 6; ++i) {
+    out[i] = std::tanh(dq[i] / dq_eps) *
+      frictionTableValue(speeds, table.data() + static_cast<size_t>(i) * speeds.size(),
+                         std::abs(dq[i]));
+  }
+  return out;
+}
 
 inline Vector6d frictionFeedforward(const Vector6d & dq,
                                     const Vector6d & f_v,
@@ -125,6 +165,8 @@ inline Vector6d frictionFeedforward(const Vector6d & dq,
         }
         return f_v.cwiseProduct(dq) + f_c.cwiseProduct(smooth_sign);
       }
+    case FrictionCompensation::TABLE:
+      break;   // necesita la tabla: frictionTableFeedforward
   }
   return Vector6d::Zero();
 }
