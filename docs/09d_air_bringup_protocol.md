@@ -285,6 +285,30 @@ ganancias y ε comprobados en su `.params.yaml` y en el registro del nodo.
     con la rigidez de r = 0.50 (`K_P` 26). Ninguna compensación fija lo quita.
 - **El modo de 31.6 Hz** sigue ahí, con menos amplitud: la ley ya no pelea contra 1.5 N·m de sesgo.
 
+## 5.5 Con la fricción en tabla (`smc_1640`, 2026-11-09, `534e2cd`, D33)
+
+Mismo escalón (r = 0.50) con la gravedad corregida y la fricción medida: completa, sin guardas, margen ×7.62, con
+`friction_compensation: table`, la velocidad deseada y ε, comprobados en su `.params.yaml` y en el registro del
+nodo. El aviso del launch («velocidad MEDIDA (default)») mira solo sus argumentos, no el YAML: es engañoso, no un
+fallo.
+
+| | `smc_1620` | `smc_1630` (D32) | `smc_1640` (D32 + D33) |
+|---|---|---|---|
+| TCP RMS en el corte | 5.41 mm | 3.49 mm | **2.95 mm** |
+| TCP máximo | 11.0 mm | 6.83 mm | **5.26 mm** |
+| punta sobre el tablero (mín.) | 39 mm | 33 mm | 33 mm |
+
+En el corte, por junta (error medio; lo que añade la ley; tiempo pegada):
+
+- **Codo, resuelto:** +3.70 → −0.36 mrad; +0.99 → −0.10 N·m.
+- **`shoulder_lift`, ahora le falta:** −0.64 → +1.48 mrad; −0.19 → +0.43 N·m. Va a 0.015 rad/s, por debajo de la
+  menor velocidad medida, y en una postura distinta de la de la campaña: es la salvedad de la tabla.
+- **`wrist_1`, sin cambio:** pegada el 15 % del corte, hasta 13.5 mrad. En el peor instante (22.0 s) aporta 3.25 mm,
+  y `shoulder_lift` 2.86.
+
+La vía 1 ha dado lo que podía: la gravedad y el sesgo de fricción del codo. Lo que queda es que `wrist_1` se pegue, y
+un sesgo de 0.4 N·m en `shoulder_lift` que depende de la postura. Ninguna compensación fija lo quita.
+
 ## 6. Qué devolver
 
 La salida de las sesiones y sus registros (`~/.ros/air_bringup/session_*.yaml`), los CSV `smc_16??`
