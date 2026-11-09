@@ -95,11 +95,26 @@ def build_reference(joint: int, params_file: str, out_csv: str,
            "-p", f"reference_table_out:={out_csv}"]
     if os.path.exists(out_csv):
         os.remove(out_csv)
+    # El nodo escribe la tabla en su constructor y se queda en PRE_HOLD a proposito: no sale
+    # solo. Antes se le esperaba el timeout entero (120 s) sin decir nada, y en D36 parecio
+    # colgado. Ahora se para en cuanto anuncia la tabla (o si sale, o si vence el timeout).
+    log = tempfile.NamedTemporaryFile("w+", prefix="ref_sweep_", suffix=".log", delete=False)
+    proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
+    t0 = time.time()
     try:
-        subprocess.run(cmd, timeout=timeout, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL)
-    except subprocess.TimeoutExpired:
-        pass          # el nodo se queda en PRE_HOLD a propósito; ya escribió
+        while time.time() - t0 < timeout and proc.poll() is None:
+            with open(log.name, errors="replace") as fh:
+                if "Tabla de referencias exportada" in fh.read():
+                    break
+            time.sleep(0.2)
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        log.close()
     return os.path.exists(out_csv) and os.path.getsize(out_csv) > 0
 
 

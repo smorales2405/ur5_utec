@@ -77,5 +77,28 @@ def test_no_sobrescribe_una_corrida(capsys, tmp_path):
 
 def test_la_confirmacion_va_antes_del_barrido():
     src = open(os.path.join(_SCRIPTS, "run_lift_friction_real.py"), encoding="utf-8").read()
-    assert src.index("confirm(JOINT_NAME)") < src.index('"run_current_sweep.py"')
-    assert src.index('chk.set_friction(*LEVELS["0.0"])') < src.index("confirm(JOINT_NAME)")
+    assert src.index("confirm(JOINT_NAME") < src.index('"run_current_sweep.py"')
+    assert src.index('chk.set_friction(*LEVELS["0.0"])') < src.index("confirm(JOINT_NAME")
+    assert "por posición" in src[src.index("confirm(JOINT_NAME"):][:80], "aquí no se comanda par"
+
+
+def test_la_tabla_del_barrido_se_construye_sin_esperar_el_timeout(tmp_path):
+    """D36: el nodo escribe la tabla y se queda en PRE_HOLD; antes se le esperaban 120 s sin decir
+    nada, y la sesión pareció colgada. Ahora se para en cuanto la anuncia."""
+    import time
+    from ament_index_python.packages import get_package_prefix
+    from run_current_sweep import build_reference, load_reference
+    from run_lift_friction_real import plan, write_params
+    exe = os.path.join(get_package_prefix("ur5_dyn_control"), "lib", "ur5_dyn_control",
+                       "gz_fl_control_node")
+    if not os.path.exists(exe):
+        pytest.skip("sin gz_fl_control_node instalado")
+    q = plan(_plant())[0]
+    params = write_params(q, str(tmp_path / "p.yaml"))
+    t0 = time.time()
+    assert build_reference(LIFT, params, str(tmp_path / "ref.csv"))
+    assert time.time() - t0 < 60
+    dt, q_ref, dq_ref, phase = load_reference(str(tmp_path / "ref.csv"))
+    labels = {p for p in phase if p.startswith("SWEEP_0")}
+    assert {f"SWEEP_{v:.3f}_POS" for v in SPEEDS} <= labels
+    assert np.abs(q_ref[:, LIFT] - q[LIFT]).max() == pytest.approx(AMPLITUDE, abs=1e-6)

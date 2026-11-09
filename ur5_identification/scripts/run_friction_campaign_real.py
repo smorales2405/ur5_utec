@@ -354,10 +354,10 @@ def gravity_rms(q_init, joint: int, amplitude: float, n: int = 201):
         return None
 
 
-def confirm(word: str) -> bool:
+def confirm(word: str, action: str = "comandar par") -> bool:
     """Confirmación por PALABRA, no por Enter: Enter se pulsa por inercia."""
     try:
-        got = input(f"    Escriba «{word}» para comandar par (o 'saltar'): ").strip()
+        got = input(f"    Escriba «{word}» para {action} (o 'saltar'): ").strip()
     except (EOFError, KeyboardInterrupt):
         return False
     return got == word

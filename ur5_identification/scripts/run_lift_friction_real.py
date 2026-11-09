@@ -153,16 +153,25 @@ def main(argv=None):
         if not good:
             return 1
         print(f"\n  Va a mover {JOINT_NAME} ±{AMPLITUDE} rad por CONTROL DE POSICIÓN, sin par.")
-        if not confirm(JOINT_NAME):
+        if not confirm(JOINT_NAME, "moverla por posición"):
             print("    Parada por el operador.")
             return 1
         log = os.path.join(args.log_dir, f"run_cur_{args.test_num}.log")
         cmd = ["ros2", "run", "ur5_identification", "run_current_sweep.py", "--joint", str(LIFT),
                "--test-num", str(args.test_num), "--params-file", params,
                "--friction-level", "0.0", "--out-dir", args.csv_dir, "--yes"]
+        print(f"  Construye la tabla (unos segundos) y barre (unos {duration_s():.0f} s). Registro: "
+              f"{log}")
+        # La salida, a pantalla y al registro: en D36 se mandaba solo al registro, y la espera
+        # parecia un cuelgue.
         with open(log, "w") as fh:
-            sweep_rc = subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT,
-                                      timeout=900).returncode
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    text=True, env=dict(os.environ, PYTHONUNBUFFERED="1"))
+            for line in proc.stdout:
+                fh.write(line)
+                fh.flush()
+                print(f"    | {line.rstrip()}")
+            sweep_rc = proc.wait(timeout=60)
         session["sweep_rc"] = sweep_rc
         if sweep_rc != 0 or not os.path.exists(csv):
             print(f"  *** el barrido falló (rc={sweep_rc}); ver {log} ***")

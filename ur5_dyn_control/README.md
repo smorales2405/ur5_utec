@@ -425,7 +425,7 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
   incisión va por escalones (D31), cada uno exige el anterior y vigila la banda de 30–40 Hz.
 
 Total en `colcon test-result` (2026-11-09): **200** en `ur5_dyn_control`,
-196 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **451**, todos
+197 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **452**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)

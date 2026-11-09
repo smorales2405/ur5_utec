@@ -360,6 +360,12 @@ ros2 run ur5_identification run_lift_friction_real.py --dry-run
 ros2 run ur5_identification run_lift_friction_real.py --payload-kg 0.155
 ```
 
+**Primer intento (2026-11-09, 13:36 y 13:38): pareció colgado y no movió el robot.** Antes de barrer, la sesión
+construye la tabla con un nodo que la escribe en un par de segundos y se queda en PRE_HOLD; `run_current_sweep.py`
+lo mataba a los 120 s fijos, y la sesión mandaba esa salida solo al registro. Se interrumpió las dos veces antes de
+que venciera. Ahora se para en cuanto el nodo anuncia la tabla (1.4 s), la salida va también a pantalla, y la
+confirmación ya no dice «comandar par».
+
 ## 6. Qué devolver
 
 La salida de las sesiones y sus registros (`~/.ros/air_bringup/session_*.yaml`), los CSV `smc_16??`
