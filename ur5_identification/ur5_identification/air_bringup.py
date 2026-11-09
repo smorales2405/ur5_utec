@@ -137,6 +137,17 @@ def incision_run(test_base: int, r: float) -> dict:
     return next(run for run in incision_runs(test_base) if run["r"] == r)
 
 
+#: D38: la repetición de un escalón va `len(INCISION_STEPS)` números después del original, en la
+#: misma decena (`smc_1670` → `smc_1674`): misma configuración, número nuevo. Una por escalón.
+INCISION_REPEAT_SHIFT = len(INCISION_STEPS)
+
+
+def incision_repeat(run: dict) -> dict:
+    """La repetición de un escalón: el mismo, con número nuevo y `repeats` = el original. Se compara
+    con el mismo escalón anterior que el original."""
+    return {**run, "test_num": run["test_num"] + INCISION_REPEAT_SHIFT, "repeats": run["test_num"]}
+
+
 def incision_indicators(d: np.ndarray, i: dict) -> dict:
     """Error de TCP y altura de la punta, sobre las columnas del CSV del nodo.
 

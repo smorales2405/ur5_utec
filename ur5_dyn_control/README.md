@@ -422,10 +422,12 @@ colcon test --packages-select ur5_dyn_control --event-handlers console_direct+
 - `test_air_bringup.py` (`ur5_identification`) — B7.1 (`docs/09d_air_bringup_protocol.md`):
   la postura de la base tiene la inercia del corte y cumple g6, g7 y la holgura; la guarda
   de la incisión salta antes de llegar al tablero; la confirmación va antes de lanzar; la
-  incisión va por escalones (D31), cada uno exige el anterior y vigila la banda de 30–40 Hz.
+  incisión va por escalones (D31), cada uno exige el anterior y vigila la banda de 30–40 Hz;
+  por encima de r = 0.50 no corre (D35), y `--repeticion` repite un escalón ya corrido con
+  número nuevo (D38).
 
 Total en `colcon test-result` (2026-11-09): **200** en `ur5_dyn_control`,
-198 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **453**, todos
+200 en `ur5_identification` y 55 en `ur5_trajectory_optimization`: **455**, todos
 en verde.
 
 ## Seguridad del lazo (FASE 3)

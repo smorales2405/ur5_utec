@@ -46,7 +46,7 @@ from ur5_identification.air_bringup import (BASE_JOINT, BASE_TIP,  # noqa: E402
                                             INCISION_Q_ERR,
                                             INCISION_STEPS, MODE_BAND, base_runs,
                                             check_incision, incision_indicators,
-                                            incision_runs, label)
+                                            incision_repeat, incision_runs, label)
 from ur5_identification.campaign_levels import JOINT_NAMES, LEVELS  # noqa: E402
 from ur5_identification.gain_ramp import (RAMP_ACCEL, RAMP_AMPLITUDE, RAMP_SPEED,  # noqa: E402
                                           check_run, over_tested, step_gains)
@@ -148,8 +148,13 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true",
                     help="solo ganancias, holguras y corridas; no conecta con ROS")
     ap.add_argument("--resume", action="store_true", help="paso base: salta los CSV con datos")
+    ap.add_argument("--repeticion", action="store_true",
+                    help="incisión: repite el escalón --r ya corrido, con número nuevo (D38)")
     ap.add_argument("--log-dir", default=os.path.expanduser("~/.ros/air_bringup"))
     args = ap.parse_args(argv)
+    if args.repeticion and args.paso != "incision":
+        print("  --repeticion es solo para la incisión.")
+        return 1
     if args.paso == "incision" and args.r is None:
         print(f"  --r es obligatorio en la incisión: un escalón de {list(INCISION_STEPS)}, en "
               "orden, revisando cada uno antes del siguiente.")
@@ -204,6 +209,10 @@ def main(argv=None):
         if prev is not None and not os.path.exists(csv_path(prev)):
             problems.append(f"antes de r = {args.r} hay que correr y revisar smc_{prev}, el "
                             "escalón anterior")
+        if args.repeticion:
+            runs = [incision_repeat(s) for s in runs]
+            if not os.path.exists(csv_path(runs[0]["repeats"])):
+                problems.append(f"no hay smc_{runs[0]['repeats']} que repetir: córralo antes")
     move = path_min_tip_z(plant, np.asarray(Q_INIT, float), target) - TABLE_Z
     print(f"  traslado desde q_init: la punta no baja de {1e3 * move:.0f} mm")
     if move < MIN_CLEARANCE:
@@ -221,7 +230,8 @@ def main(argv=None):
     print(f"\n  {len(runs)} corrida(s):")
     for s in runs:
         what = JOINT_NAMES[s["joint"]] if s["joint"] is not None else "incisión en aire"
-        print(f"    smc_{s['test_num']}: r = {label(s['r_joint'])} · {what}")
+        again = f" (repite smc_{s['repeats']}, misma configuración)" if s.get("repeats") else ""
+        print(f"    smc_{s['test_num']}: r = {label(s['r_joint'])} · {what}{again}")
     print("\n  Las corridas las lanza la sesión, una a una. No se lanzan a mano.")
     if args.dry_run:
         return 0
@@ -318,7 +328,7 @@ def main(argv=None):
                               tool_mounted=True, controller="smc", extra_args=extra,
                               trajectory_type="incision")
             res.update(pan_r=s.get("pan_r"), r=s.get("r"),
-                       r_joint=[float(v) for v in s["r_joint"]])
+                       r_joint=[float(v) for v in s["r_joint"]], repeats=s.get("repeats"))
             ok_rel, msg_rel = chk.release_effort()
             res["effort_released"] = ok_rel
             print(f"    control devuelto al JTC: {'OK' if ok_rel else 'FALLO'} — {msg_rel}")

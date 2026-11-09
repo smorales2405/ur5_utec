@@ -105,6 +105,8 @@ ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso base 
 ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso incision --r 0.5 --dry-run
 ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso incision --r 0.5 --test-base 1600 --payload-kg 0.155
 # Desde D37 crea smc_1670; por encima de r = 0.50 no corre (D35).
+# Repetir un escalón ya corrido, con número nuevo (D38): smc_1670 -> smc_1674.
+ros2 run ur5_identification run_air_bringup_real.py --gains-file $G --paso incision --r 0.5 --test-base 1600 --repeticion --payload-kg 0.155
 ```
 
 La sesión pide «ACEPTO» y la masa tecleada al empezar. En el paso 1, el nombre de la junta en cada
@@ -435,6 +437,11 @@ Parámetros efectivos verificados: frente a `smc_1650`, solo cambia la tabla. Gu
   +2.06 mm). Con contacto, la hoja entraría menos, no más. En el tramo estable, dz medio −1.1 mm (RMS 1.49).
 - **Lo que no arregla ni la tabla ni la ganancia:** subir la de lift está vetado por su modo de 31.6 Hz (D35). Despegar
   una junta pegada pide par que crezca con el tiempo, es decir, acción integral (la vía 3).
+
+**D38: se repite, para ver cada cuánto se pega, y después B7.1 se cierra en r = 0.50 (opción 1).** Lo eligió el usuario.
+La sesión no sobrescribe corridas, así que `--repeticion` corre el mismo escalón con número nuevo: el original +4, en
+su decena (`smc_1670` → `smc_1674`). Exige que el original exista, no salta el bloqueo de D35 y queda en el registro
+(`repeats`).
 
 ## 6. Qué devolver
 

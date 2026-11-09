@@ -299,3 +299,36 @@ def test_la_incision_pide_el_escalon(capsys):
     from run_air_bringup_real import main
     assert main(["--gains-file", _CANDIDATA, "--paso", "incision", "--dry-run"]) == 1
     assert "--r" in capsys.readouterr().out
+
+
+def test_la_repeticion_usa_un_numero_nuevo_y_exige_el_original(capsys, _no_runs):
+    """D38: smc_1670 se pegó al arrancar el corte y smc_1650 no; se repite para ver la variabilidad.
+    La sesión no sobrescribe, así que la repetición va a smc_1674."""
+    from run_air_bringup_real import main
+    _plant()
+    args = ["--gains-file", _CANDIDATA, "--paso", "incision", "--r", "0.5", "--test-base", "1600",
+            "--repeticion", "--dry-run"]
+    assert main(args) == 1
+    assert "no hay smc_1670 que repetir" in capsys.readouterr().out
+    (_no_runs / "smc_1670.csv").write_text("t_wall\n")
+    assert main(args) == 0
+    out = capsys.readouterr().out
+    assert "smc_1674: r = 0.50 (wrist_1 1.00) · incisión en aire (repite smc_1670" in out
+
+
+def test_la_repeticion_no_salta_el_bloqueo_ni_choca_con_otros_escalones(capsys, _no_runs):
+    from run_air_bringup_real import main
+    from ur5_identification.air_bringup import (INCISION_REPEAT_SHIFT, incision_repeat,
+                                                incision_runs)
+    _plant()
+    runs = incision_runs(1600)
+    nums = {r["test_num"] for r in runs}
+    assert not nums & {incision_repeat(r)["test_num"] for r in runs}
+    assert max(incision_repeat(r)["test_num"] for r in runs) < 1600 + 80, "en su decena"
+    assert INCISION_REPEAT_SHIFT == 4
+    for n in (1670, 1671):
+        (_no_runs / f"smc_{n}.csv").write_text("t_wall\n")
+    assert main(["--gains-file", _CANDIDATA, "--paso", "incision", "--r", "0.71", "--test-base",
+                 "1600", "--repeticion", "--dry-run"]) == 1
+    assert "bloqueado (D35)" in capsys.readouterr().out
+    assert main(["--gains-file", _CANDIDATA, "--paso", "base", "--repeticion", "--dry-run"]) == 1
